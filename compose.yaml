@@ -1,0 +1,25 @@
+name: sillage
+services:
+  web:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SILLAGE_DOMAIN: ${SILLAGE_DOMAIN:?Renseignez SILLAGE_DOMAIN dans .env}
+      ACME_EMAIL: ${ACME_EMAIL:?Renseignez ACME_EMAIL dans .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./dist:/srv:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  caddy_data:
+  caddy_config:

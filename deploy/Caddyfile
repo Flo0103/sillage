@@ -1,0 +1,16 @@
+{
+    email {$ACME_EMAIL}
+}
+
+{$SILLAGE_DOMAIN} {
+    root * /srv
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }
+    @private path /.git/* /.env /compose.yaml /deploy/*
+    respond @private 404
+    file_server
+}
