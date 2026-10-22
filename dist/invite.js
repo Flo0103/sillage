@@ -1,0 +1,4 @@
+const $=id=>document.getElementById(id),token=location.hash.slice(1);history.replaceState(null,'','/invite.html');
+async function post(path,b){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}),d=await r.json();if(!r.ok)throw Error(d.error);return d;}
+try{const info=await post('/api/invitation-info',{token});$('identity').textContent=`Compte : ${info.username}`;$('acceptForm').hidden=false;}catch(e){$('identity').textContent=e.message;}
+$('acceptForm').onsubmit=async e=>{e.preventDefault();const b=e.submitter;b.disabled=true;try{if($('password').value!==$('confirmation').value)throw Error('Les mots de passe sont différents.');await post('/api/accept-invitation',{token,password:$('password').value});$('acceptForm').reset();$('acceptForm').hidden=true;$('message').textContent='Mot de passe enregistré. Vous pouvez vous connecter.';}catch(e){$('message').textContent=e.message;}finally{b.disabled=false;}};

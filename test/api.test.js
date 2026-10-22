@@ -7,8 +7,10 @@ const tokens={alice:'a'.repeat(64),bob:'b'.repeat(64)};
 // In-memory SQL adapter: exercises HTTP routing and owner-scoped queries without a database daemon.
 function database(){const saved=[],rides=[];return {saved,rides,queries:[],async query(sql,args=[]){this.queries.push({sql,args});
  if(sql.includes('FROM sessions s')){const name=Object.keys(tokens).find(k=>tokenHash(tokens[k])===args[0]);return {rows:name?[{id:name,username:name}]:[]};}
- if(sql.startsWith('INSERT INTO portions')){saved.push({id:args[0],user:args[1],data:JSON.parse(args[2])});return {rowCount:1,rows:[]};}
- if(sql.startsWith('SELECT id,data'))return {rows:saved.filter(r=>r.user===args[0]).map(r=>({id:r.id,data:r.data,created_at:new Date()}))};
+ if(sql.startsWith('INSERT INTO portions')){saved.push({id:args[0],user:args[1],data:JSON.parse(args[2]),is_public:args[3]});return {rowCount:1,rows:[]};}
+ if(sql.includes('FROM portions p JOIN users'))return {rows:saved.filter(r=>r.user===args[0]||r.is_public).map(r=>({id:r.id,data:r.data,is_public:r.is_public,username:r.user,is_mine:r.user===args[0],created_at:new Date()}))};
+ if(sql.startsWith('UPDATE portions SET is_public')){const r=saved.find(r=>r.id===args[2]&&r.user===args[3]);if(!r)return {rowCount:0};r.is_public=args[0];r.data.winter=args[1];return {rowCount:1,rows:[{id:r.id}]};}
+ if(sql.startsWith('SELECT id,data'))return {rows:saved.filter(r=>r.user===args[0]).map(r=>({id:r.id,data:r.data,is_public:r.is_public,created_at:new Date()}))};
  if(sql.startsWith('DELETE FROM portions')){const i=saved.findIndex(r=>r.id===args[0]&&r.user===args[1]);if(i<0)return {rowCount:0};saved.splice(i,1);return {rowCount:1};}
  if(sql.startsWith('INSERT INTO rides')){rides.push({id:args[0],user_id:args[1],name:args[2],coordinates:JSON.parse(args[3]),distance:args[4],gpx_xml:args[5],file_name:args[6]});return {rowCount:1,rows:[]};}
  if(sql.startsWith('SELECT id,name,distance'))return {rows:rides.filter(r=>r.user_id===args[0]).map(r=>({...r,gpx_available:r.gpx_xml!==null}))};
@@ -50,3 +52,14 @@ test('anciennes sorties sans original : téléchargement GPX reconstruit',async(
 });
 
 test('la politique de Referer identifie le site auprès des services cartographiques',async()=>{const app=createApp(database(),{origin:'https://sillage.test'});const res=await request(app,{url:'/login.html'});assert.equal(res.status,200);assert.equal(res.headers['Referrer-Policy'],'strict-origin-when-cross-origin');});
+
+test('catalogue public, segments privés et modifications réservées au propriétaire',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'}),body={coordinates:[[50,5],[50.001,5]],rating:4,surface:'Gravier fin',difficulty:'Facile',winter:'yes'};
+ const pub=JSON.parse((await request(app,{url:'/api/portions',method:'POST',body,user:'alice'})).body);assert.equal(pub.isPublic,true);
+ const priv=JSON.parse((await request(app,{url:'/api/portions',method:'POST',body:{...body,isPublic:false},user:'alice'})).body);
+ const alice=JSON.parse((await request(app,{url:'/api/catalog',user:'alice'})).body),bob=JSON.parse((await request(app,{url:'/api/catalog',user:'bob'})).body);assert.equal(alice.length,2);assert.ok(alice.every(r=>r.isMine));assert.equal(bob.length,1);assert.equal(bob[0].id,pub.id);assert.equal(bob[0].isMine,false);
+ assert.equal((await request(app,{url:`/api/portions/${pub.id}`,method:'PATCH',body:{isPublic:false,winter:'no'},user:'bob'})).status,404);
+ assert.equal((await request(app,{url:`/api/portions/${pub.id}`,method:'PATCH',body:{isPublic:false,winter:'no'},user:'alice'})).status,200);
+ assert.deepEqual(JSON.parse((await request(app,{url:'/api/catalog',user:'bob'})).body),[]);
+});
+test('admin API et page protégées pour les membres',async()=>{const app=createApp(database(),{origin:'https://sillage.test'});for(const url of ['/admin.html','/admin.js','/api/admin/users','/api/admin/invitations'])assert.equal((await request(app,{url,user:'alice'})).status,403);});

@@ -102,3 +102,17 @@ Les tests Node vérifient la validation, les mots de passe, les géométries et 
 ## Correctif 2.1 : GPX originaux et affichage
 
 Appliquer la procédure de mise à jour ci-dessus : sauvegarde, `git pull`, puis reconstruction avec `sudo docker compose up -d --build`. Les colonnes GPX sont ajoutées automatiquement au démarrage, sans suppression des sorties ni des comptes. Recharger la page après mise à jour. Aucun compte à recréer. Les anciennes sorties restent accessibles ; leur bouton GPX reconstruit la géométrie lorsque le fichier original n’a jamais été stocké. Les nouveaux imports conservent aussi le fichier d’origine complet (altitude, dates et autres extensions comprises).
+
+## Version 3 : catalogue partagé et administrateur
+
+```sh
+cd ~/sillage
+sudo bash deploy/backup.sh
+GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sillage_github -o IdentitiesOnly=yes" git pull --ff-only
+sudo docker compose up -d --build
+sudo docker compose exec app node server/admin.js TON_IDENTIFIANT
+```
+
+Remplacer `TON_IDENTIFIANT` par l’identifiant de votre compte actuel. Recharger la page : la carte affiche les segments sans le dernier GPX ; le lien Admin apparaît pour le compte promu. Il n’est pas nécessaire de recréer les utilisateurs. Les anciens segments restent privés et peuvent être publiés individuellement dans « Modifier le partage et l’hiver ». Les nouveaux sont publics par défaut entre membres connectés.
+
+Vérifier avec deux comptes que les segments privés et les GPX ne sont pas visibles par un autre membre, alors qu’un segment public l’est. Tester le filtre hiver et les deux légendes. Créer une invitation, l’accepter dans une fenêtre privée, puis vérifier qu’elle n’est plus réutilisable. Tester les changements de mot de passe et la désactivation d’un compte. Vérifier les fonds WMS dans leur étendue géographique et leur support EPSG:3857. L’IGN CartoWeb est proposé pour l’usage non commercial et ne remplace jamais OSM pour le snapping.

@@ -4,7 +4,7 @@ Application en français pour importer des sorties GPX, isoler des portions et l
 
 ## Fonctionnement
 
-- Connexion par identifiant et mot de passe ; comptes créés sur le VPS, inscriptions publiques fermées.
+- Connexion par identifiant et mot de passe ; comptes sur invitation, inscriptions publiques fermées.
 - Sorties et portions conservées en PostgreSQL et séparées par utilisateur ; le fichier GPX original est aussi conservé pour les nouveaux imports et peut être téléchargé.
 - Choisir deux points sur un GPX déclenche automatiquement l’accrochage OpenStreetMap.
 - La portion orange se dessine sur un calque au-dessus du GPX bleu.
@@ -54,3 +54,29 @@ Les nouvelles colonnes PostgreSQL `rides.gpx_xml` et `rides.file_name` sont ajou
 Le serveur envoyait une politique `same-origin` qui supprimait le Referer des requêtes vers OSM. Elle est remplacée par `strict-origin-when-cross-origin`, également précisée sur les images Leaflet. Seule l’origine du site est transmise aux domaines tiers. Les requêtes vont toujours directement vers l’URL OSM canonique, sans proxy, cache-busting, contournement de blocage ni téléchargement massif. Le cache des tuiles reste géré par le navigateur selon les en-têtes OSM.
 
 Référence : https://operations.osmfoundation.org/policies/tiles/ . Un blocage lié au navigateur, au réseau ou au fournisseur peut subsister ; le réglage local ne prouve pas à lui seul la levée d’un blocage externe.
+
+## Version 3 : catalogue, comptes et fonds de carte
+
+La carte s’ouvre sur les segments, sans charger automatiquement un GPX. « Mes sorties » propose un sélecteur des traces déjà enregistrées, l’import et le téléchargement GPX. Passer à « Carte des segments » masque le GPX et montre les segments filtrés : personnels, publics des autres membres, roulables en hiver (oui / non / selon conditions / non renseigné). Les couleurs sont choisies par note de plaisir ou revêtement, avec une légende.
+
+Les **nouveaux segments sont publics par défaut pour les utilisateurs connectés**. Une case permet de les rendre privés dès la création. Les segments créés avant la migration restent privés ; leur propriétaire peut les publier via « Modifier le partage et l’hiver ». Les GPX complets restent privés. Chaque propriétaire peut modifier la visibilité et l’état hiver de ses segments ; voir un segment public ne donne aucun droit de le modifier ou d’accéder au GPX de son auteur.
+
+« Mon compte » permet de changer son mot de passe avec vérification du mot de passe actuel (les autres sessions sont révoquées) et de gérer ses fonds WMS. Les URLs WMS sont des services HTTPS publics compatibles EPSG:3857 ; nom technique des couches et version WMS sont à renseigner. Les configurations restent dans le compte, et les images sont chargées directement par le navigateur, sans proxy WMS ni requête arbitraire du serveur. Aucun identifiant HTTP n’est accepté dans l’URL.
+
+Le fond **IGN Belgique · Topo** utilise le service WMS officiel CartoWeb (`https://cartoweb.wms.ngi.be/service`, couche `CartoWeb-TOPO`). Attribution IGN / TomTom affichée. Licence non commerciale : https://ngi.be/fr/conditions-dutilisation-pour-le-service-cartoweb-be/ . Les autres usages peuvent nécessiter une autorisation ou licence IGN. Le fond choisi ne change pas l’accrochage OSM.
+
+### Administration
+
+L’administrateur est désigné explicitement une fois depuis le VPS :
+
+```sh
+sudo docker compose exec app node server/admin.js TON_IDENTIFIANT
+```
+
+Remplacer `TON_IDENTIFIANT` par un compte existant. Le lien « Admin » apparaît après rechargement. Les administrateurs peuvent créer/révoquer des invitations, générer un lien de réinitialisation de mot de passe, activer/désactiver, promouvoir/rétrograder et supprimer des comptes. La suppression efface les sorties, segments et configurations de l’utilisateur ; la désactivation conserve les données. Il est impossible de supprimer/désactiver/rétrograder son propre compte dans l’interface, ou de supprimer le dernier administrateur actif.
+
+Les invitations sont des liens à transmettre soi-même, valables sept jours et utilisables une fois. Seul un hachage du jeton est stocké en base ; le lien complet n’est montré qu’à sa création. Le jeton est dans le fragment de l’URL, retiré de la barre d’adresse après lecture, et transmis uniquement à l’API en POST. Une invitation ne peut pas attribuer de droits administrateur. Aucun email n’est envoyé par Sillage.
+
+### Déploiement de cette version
+
+Sauvegarder la base, récupérer le code puis reconstruire les services selon le guide OVH. Les tables et colonnes sont ajoutées automatiquement ; aucun compte n’est administrateur avant la commande explicite ci-dessus. Les tests utilisent un adaptateur SQL mémoire et une simulation DOM. Les services WMS/IGN et l’affichage doivent être vérifiés dans un navigateur après déploiement ; l’environnement de développement ne permet pas de valider le service distant dans un navigateur ni un vrai PostgreSQL.
