@@ -13,12 +13,12 @@ function context({optionalMissing=false}={}){
  const elements=new Map([...html.matchAll(/id="([^"]+)"/g)].map(m=>[m[1],element()]));
  if(optionalMissing)for(const id of ['source','modeControls','legacyImport'])elements.delete(id);
  const points=[[50,5],[50.001,5]],ride={id:'00000000-0000-0000-0000-000000000001',name:'Ma sortie',coordinates:points,distance:111};
- const calls=[];
+ const calls=[],timers=new Map();let timerId=0;
  const document={body:element(),addEventListener(){},getElementById:id=>elements.get(id)||null,createElement:()=>element(),createTextNode:text=>({textContent:text}),querySelector:()=>null};
- const fetch=async(path,options={})=>{calls.push({path,options});const data=path==='/api/me'?{username:'alice'}:['/api/portions','/api/catalog','/api/wms'].includes(path)?[]:path==='/api/rides'?options.method==='POST'?{id:ride.id}:[ride]:ride;return {ok:true,status:200,json:async()=>data};};
+ const fetch=async(path,options={})=>{calls.push({path,options});const data=path==='/api/route/nearest'?{point:JSON.parse(options.body).point}:path==='/api/me'?{username:'alice'}:['/api/portions','/api/catalog','/api/wms','/api/plans','/api/rides/overlay'].includes(path)?[]:path==='/api/rides'?options.method==='POST'?{id:ride.id}:[ride]:ride;return {ok:true,status:200,json:async()=>data};};
  const xml={querySelector:()=>null,getElementsByTagNameNS:(ns,tag)=>tag==='trkpt'?points.map(p=>({hasAttribute:()=>true,getAttribute:n=>n==='lat'?String(p[0]):String(p[1])})):[]};
- const ctx={document,fetch,insertionIndex,distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds,visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,escapeHTML,location:{replace(){}},localStorage:{getItem:()=>null},AbortController,console,setTimeout:()=>1,clearTimeout(){},innerWidth:1200,Blob,URL,URLSearchParams,confirm:()=>true,DOMParser:class{parseFromString(){return xml;}}};
- return {elements,calls,ctx};
+ const ctx={document,fetch,insertionIndex,distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds,visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,escapeHTML,location:{replace(){}},localStorage:{getItem:()=>null},AbortController,console,setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),innerWidth:1200,Blob,URL,URLSearchParams,confirm:()=>true,DOMParser:class{parseFromString(){return xml;}}};
+ return {elements,calls,ctx,flushTimers(max=350){for(const[id,t]of [...timers])if(t.delay<=max){timers.delete(id);t.fn();}}};
 }
 test('choix d’une sortie sauvegardée sans dépendre des contrôles facultatifs',async()=>{
  const {elements,ctx}=context({optionalMissing:true});
@@ -104,7 +104,7 @@ test('routage vélo appelle le nouvel endpoint et conserve les points exacts à 
  const {ctx,elements,calls}=context(),base=ctx.fetch;
  ctx.fetch=async(path,options)=>{if(path==='/api/route'){calls.push({path,options});return {ok:true,status:200,json:async()=>({coordinates:[[50,5.0001],[50,5.005],[50,5.0099]],stats:{maxOffset:8,ignoredAnchors:0},engine:'OSRM vélo / FOSSGIS'})};}if(path==='/api/osm')return {ok:false,status:503,json:async()=>({error:'Indisponible'})};return base(path,options);};
  const result=await vm.runInNewContext(`(async()=>{${script}\nsetView('explore');trace=[[50,5],[50,5.005],[50,5.01]];endpoints=[[50,5],[50,5.01]];gpsSelection=endpoints.map(p=>[...p]);await snap();const routed=JSON.stringify(selected);setMode('manual');const manual=JSON.stringify(selected);setMode('route');const restored=JSON.stringify(selected);setMode('snap');cancelSnap();const preserved=JSON.stringify(endpoints);setMode('manual');return {routed,manual,restored,preserved,manualAgain:JSON.stringify(selected)};})()`,ctx);
- assert.equal(result.preserved,JSON.stringify([[50,5],[50,5.01]]));assert.equal(result.manual,result.preserved);assert.equal(result.manualAgain,result.manual);assert.equal(result.restored,result.routed);
+ assert.equal(result.preserved,JSON.stringify([[50,5.0001],[50,5.0099]]));assert.equal(result.manual,result.preserved);assert.equal(result.manualAgain,result.manual);assert.equal(result.restored,result.routed);
  const route=calls.find(c=>c.path==='/api/route');assert.deepEqual(JSON.parse(route.options.body).points,[[50,5],[50,5.01]]);assert.equal(calls.filter(c=>c.path==='/api/route').length,1);
 });
 test('un départ seul survit aux changements de mode, absence de GPX ne détruit pas les points',async()=>{
@@ -178,4 +178,45 @@ test('glissement réel de marqueur et de ligne ajoute un passage, recalcul à la
  listeners.get('pointerup')({...event,clientX:120,clientY:110,lat:50.001,lng:5.001});await new Promise(r=>setImmediate(r));assert.equal(mapDragging,true);assert.equal(listeners.size,0);assert.deepEqual(JSON.parse(access.controls()),[[50.0001,5],[50.001,5.001],[50.002,5]]);assert.equal(calls.filter(c=>c.path==='/api/route').length,before+1);
  const next=lines.filter(l=>l.options.className==='routing-draggable'&&!l.removed).at(-1);next.node.events.pointerdown({...event,pointerId:8});listeners.get('pointercancel')({pointerId:8});assert.equal(mapDragging,true);assert.equal(listeners.size,0);assert.equal(calls.filter(c=>c.path==='/api/route').length,before+1);
  elements.get('surface').value='Sable';elements.get('difficulty').value='Facile';elements.get('winter').value='yes';elements.get('singleTrack').value='yes';await elements.get('ratingForm').onsubmit({preventDefault(){}});const saved=JSON.parse(calls.find(c=>c.path==='/api/portions'&&c.options.method==='POST').options.body);assert.equal(saved.routePoints.length,3);
+});
+
+test('départ accroché seul à OSM et réponse ancienne ignorée après choix de l’arrivée',async()=>{
+ const {ctx}=context(),base=ctx.fetch;let finishNearest;
+ ctx.fetch=async(path,options)=>path==='/api/route/nearest'?new Promise(r=>finishNearest=r):path==='/api/route'?{ok:true,status:200,json:async()=>({coordinates:[[50.0001,5],[50.0011,5]],snappedPoints:[[50.0001,5],[50.0011,5]],stats:{maxOffset:20,ignoredAnchors:0}})}:path==='/api/osm'?{ok:false,status:503,json:async()=>({error:'Indisponible'})}:base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nsetView('explore');choose({lat:50,lng:5.0002});choose({lat:50.001,lng:5.0002});return {points:()=>JSON.stringify(endpoints)};})()`,ctx);
+ await new Promise(r=>setImmediate(r));assert.deepEqual(JSON.parse(access.points()),[[50.0001,5],[50.0011,5]]);finishNearest({ok:true,status:200,json:async()=>({point:[49,4]})});await new Promise(r=>setImmediate(r));assert.deepEqual(JSON.parse(access.points()),[[50.0001,5],[50.0011,5]]);
+});
+test('planificateur prolonge un itinéraire long, enregistre sans note de segment et propose son GPX',async()=>{
+ const {ctx,elements,calls,flushTimers}=context(),base=ctx.fetch;let saved=[];
+ ctx.fetch=async(path,options={})=>{if(path==='/api/route'){calls.push({path,options});const points=JSON.parse(options.body).points;return {ok:true,status:200,json:async()=>({coordinates:points,snappedPoints:points,stats:{maxOffset:0,ignoredAnchors:0}})};}if(path==='/api/plans'&&options.method==='POST'){calls.push({path,options});const body=JSON.parse(options.body),p={...body,id:'00000000-0000-0000-0000-000000000999',distance:40000,isMine:true,owner:'alice'};saved=[p];return {ok:true,status:201,json:async()=>p};}if(path==='/api/plans')return {ok:true,status:200,json:async()=>saved};if(path.endsWith('/00000000-0000-0000-0000-000000000999'))return {ok:true,status:200,json:async()=>saved[0]};return base(path,options);};
+ const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();choose({lat:50,lng:5});choose({lat:50.15,lng:5.1});choose({lat:50.3,lng:5.2});return {state:()=>({view,mode,rating,points:JSON.stringify(routeControls()),selected:selected.length}),loadPlan};})()`,ctx);
+ flushTimers();await new Promise(r=>setImmediate(r));assert.equal(access.state().view,'planner');assert.equal(access.state().rating,0);assert.equal(access.state().selected,3);assert.equal(elements.get('savePlan').disabled,false);assert.equal(elements.get('ratingForm').hidden,true);assert.equal(elements.get('planForm').hidden,false);
+ const route=JSON.parse(calls.filter(c=>c.path==='/api/route').at(-1).options.body);assert.equal(route.purpose,'itinerary');assert.equal(route.points.length,3);
+ elements.get('planName').value='Grand tour gravel';elements.get('planNotes').value='Pause au village';elements.get('publicPlan').checked=true;await elements.get('planForm').onsubmit({preventDefault(){}});assert.equal(saved.length,1);assert.equal(saved[0].isPublic,true);assert.equal(saved[0].routePoints.length,3);assert.equal(elements.get('exportPlan').href,'/api/plans/'+saved[0].id+'/gpx');
+ await access.loadPlan(saved[0].id);assert.equal(access.state().selected,3);assert.equal(elements.get('planName').value,'Grand tour gravel');
+});
+test('itinéraire public d’un autre membre non modifiable, copie privée éditable',async()=>{
+ const {ctx,elements}=context(),base=ctx.fetch,p={id:'00000000-0000-0000-0000-000000000777',name:'Tour public',coordinates:[[50,5],[50.02,5]],routePoints:[[50,5],[50.02,5]],mode:'route',snapped:true,isPublic:true,isMine:false,owner:'bob'};
+ ctx.fetch=async(path,options)=>path==='/api/plans/'+p.id?{ok:true,status:200,json:async()=>p}:base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nreturn {loadPlan,choose,state:()=>({readonly:planReadOnly,editing:editingPlan?.id,coords:JSON.stringify(selected),canDraw:canDraw()})};})()`,ctx);
+ await access.loadPlan(p.id);assert.equal(access.state().readonly,true);assert.equal(access.state().canDraw,false);assert.equal(elements.get('savePlan').disabled,true);access.choose({lat:51,lng:6});assert.equal(access.state().coords,JSON.stringify(p.coordinates));
+ await access.loadPlan(p.id,{copy:true});assert.equal(access.state().readonly,false);assert.equal(access.state().editing,undefined);assert.equal(elements.get('publicPlan').checked,false);assert.equal(elements.get('planName').value,'Copie de Tour public');
+});
+test('superposition des traces désactivée par défaut et chargement tardif ignoré après décochage',async()=>{
+ const {ctx,elements}=context(),base=ctx.fetch;let finish;ctx.fetch=async(path,options)=>path==='/api/rides/overlay'?new Promise(r=>finish=r):base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nreturn {overlays:()=>importedTraces};})()`,ctx);assert.ok(!elements.get('showImportedTraces').checked);
+ elements.get('showImportedTraces').checked=true;const pending=elements.get('showImportedTraces').onchange();elements.get('showImportedTraces').checked=false;await elements.get('showImportedTraces').onchange();finish({ok:true,status:200,json:async()=>[{id:'a',name:'Privé',coordinates:[[50,5],[50.01,5]]}]});await pending;assert.equal(access.overlays(),null);assert.equal(elements.get('importedTracesStatus').textContent,'');
+});
+
+test('un premier point de routage est réellement déplacé sur le chemin renvoyé par OSM',async()=>{
+ const {ctx}=context(),base=ctx.fetch;ctx.fetch=async(path,options)=>path==='/api/route/nearest'?{ok:true,status:200,json:async()=>({point:[50.0002,5],offset:75})}:base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nsetView('explore');choose({lat:50,lng:5.001});return {point:()=>JSON.stringify(endpoints),selection:()=>JSON.stringify(selected)};})()`,ctx);await new Promise(r=>setImmediate(r));assert.equal(access.point(),'[[50.0002,5]]');assert.equal(access.selection(),'[[50.0002,5]]');
+});
+test('les traces importées sont dessinées en fond et retirées quand l’option est décochée',async()=>{
+ const {ctx,elements}=context(),base=ctx.fetch,drawn=[];let fitted=0;
+ const map={setView(){return this;},createPane(){},getPane(){return {style:{}};},on(){return this;},invalidateSize(){},fitBounds(){fitted++;},hasLayer(){return false;}};
+ const layer=()=>({items:[],on(){return this;},addTo(target){target.items?.push(this);return this;},clearLayers(){this.items=[];},bindTooltip(){return this;}}),tile=()=>layer();tile.wms=tile;
+ ctx.L={map:()=>map,tileLayer:tile,layerGroup:layer,polyline:(points,options)=>{drawn.push({points,options});return layer();},latLngBounds:p=>p,control:{layers:()=>({addTo(){return this;}}),zoom:()=>({addTo(){}})}};
+ ctx.fetch=async(path,options)=>path==='/api/rides/overlay'?{ok:true,status:200,json:async()=>[{id:'a',name:'Ma sortie',coordinates:[[50,5],[50.01,5]]}]}:base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nreturn {count:()=>importedLayer.items.length};})()`,ctx);assert.equal(access.count(),0);elements.get('showImportedTraces').checked=true;await elements.get('showImportedTraces').onchange();assert.equal(access.count(),1);assert.equal(drawn.at(-1).options.pane,'importsPane');assert.ok(fitted>0);elements.get('showImportedTraces').checked=false;await elements.get('showImportedTraces').onchange();assert.equal(access.count(),0);
 });

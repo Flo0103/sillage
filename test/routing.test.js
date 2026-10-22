@@ -37,3 +37,13 @@ test('points de passage transmis en ordre, tolérance sur chaque point et fracti
  const r=await service({points,tolerance:75});assert.match(url.pathname,/5,50;5.0005,50.0005;5.001,50.001$/);assert.equal(url.searchParams.get('radiuses'),'75;75;75');assert.equal(url.searchParams.get('continue_straight'),'false');assert.deepEqual(r.legFractions,[0,.25,1]);
  const far=createRoutingService({wait:async()=>{},fetcher:async()=>response({code:'Ok',routes:[{geometry}],waypoints:[{location:[5,50]},{location:[6,51]},{location:[5.001,50.001]}]})});await assert.rejects(far({points,tolerance:75}),/éloigné/);
 });
+
+test('accrochage d’un point au réseau avec rayon, cache et même limite de débit que le routage',async()=>{
+ let time=0;const seen=[];const service=createRoutingService({now:()=>time,wait:async ms=>{time+=ms;},fetcher:async url=>{seen.push(new URL(url));return url.includes('/nearest/')?response({code:'Ok',waypoints:[{location:[5,50.0001]}]}):response();}});
+ const nearest=await service.nearest({point:[50,5],tolerance:75});assert.deepEqual(nearest.point,[50.0001,5]);assert.match(seen[0].pathname,/\/nearest\/v1\/driving\/5,50$/);assert.equal(seen[0].searchParams.get('radiuses'),'75');await service(request);assert.equal(time,1000);assert.equal((await service.nearest({point:[50,5],tolerance:75})).cached,true);assert.equal(seen.length,2);
+ const far=createRoutingService({wait:async()=>{},fetcher:async()=>response({code:'Ok',waypoints:[{location:[6,51]}]})});await assert.rejects(far.nearest({point:[50,5],tolerance:75}),/éloigné/);
+});
+test('planification longue distincte des portions : 500 km / 50 points et points réellement accrochés retournés',async()=>{
+ const points=[[50,5],[50.3,5],[50.6,5]];assert.throws(()=>routeRequest({points}));assert.equal(routeRequest({points,purpose:'itinerary'}).maxDistance,500000);assert.throws(()=>routeRequest({points:Array.from({length:51},(_,i)=>[50+i*.001,5]),purpose:'itinerary'}));
+ const service=createRoutingService({wait:async()=>{},fetcher:async()=>response({code:'Ok',routes:[{geometry:{type:'LineString',coordinates:[[5,50.0001],[5,50.3],[5,50.6001]]}}],waypoints:[{location:[5,50.0001]},{location:[5,50.3]},{location:[5,50.6001]}]})});const r=await service({points,purpose:'itinerary'});assert.deepEqual(r.snappedPoints,[[50.0001,5],[50.3,5],[50.6001,5]]);
+});

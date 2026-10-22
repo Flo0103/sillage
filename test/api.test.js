@@ -5,8 +5,14 @@ import {createApp} from '../server/app.js';
 import {tokenHash,hashPassword} from '../server/model.js';
 const tokens={alice:'a'.repeat(64),bob:'b'.repeat(64)};
 // In-memory SQL adapter: exercises HTTP routing and owner-scoped queries without a database daemon.
-function database(){const saved=[],rides=[];return {saved,rides,queries:[],async query(sql,args=[]){this.queries.push({sql,args});
+function database(){const saved=[],rides=[],planned=[];return {saved,rides,planned,queries:[],async query(sql,args=[]){this.queries.push({sql,args});
  if(sql.includes('FROM sessions s')){const name=Object.keys(tokens).find(k=>tokenHash(tokens[k])===args[0]);return {rows:name?[{id:name,username:name}]:[]};}
+ if(sql.startsWith('INSERT INTO planned_routes')){planned.push({id:args[0],user:args[1],data:JSON.parse(args[2]),is_public:args[3]});return {rowCount:1,rows:[]};}
+ if(sql.includes('FROM planned_routes p JOIN users')){const owner=args.length===2?args[1]:args[0];return {rows:planned.filter(p=>(args.length===1||p.id===args[0])&&(p.user===owner||p.is_public)).map(p=>({...p,username:p.user,is_mine:p.user===owner}))};}
+ if(sql.startsWith('SELECT data,is_public FROM planned_routes'))return {rows:planned.filter(p=>p.id===args[0]&&p.user===args[1])};
+ if(sql.startsWith('UPDATE planned_routes SET data=')){const p=planned.find(p=>p.id===args[2]&&p.user===args[3]);if(!p)return {rowCount:0};p.data=JSON.parse(args[0]);p.is_public=args[1];return {rowCount:1,rows:[{id:p.id}]};}
+ if(sql.startsWith('DELETE FROM planned_routes')){const i=planned.findIndex(p=>p.id===args[0]&&p.user===args[1]);if(i<0)return {rowCount:0};planned.splice(i,1);return {rowCount:1};}
+ if(sql.startsWith('SELECT id,name,source_type,ST_AsGeoJSON'))return {rows:rides.filter(r=>r.user_id===args[0]).map(r=>({...r,geometry:{type:'LineString',coordinates:r.coordinates.map(p=>[p[1],p[0]])}}))};
  if(sql.startsWith('INSERT INTO portions')){saved.push({id:args[0],user:args[1],data:JSON.parse(args[2]),is_public:args[3],source_strava:args[5]});return {rowCount:1,rows:[]};}
  if(sql.includes('FROM portions p JOIN users'))return {rows:saved.filter(r=>r.user===args[0]||r.is_public&&!r.source_strava).map(r=>({id:r.id,data:r.data,is_public:r.is_public,source_strava:r.source_strava,username:r.user,is_mine:r.user===args[0],created_at:new Date()}))};
  if(sql.startsWith('SELECT data,is_public,source_strava FROM portions'))return {rows:saved.filter(r=>r.id===args[0]&&r.user===args[1])};
@@ -112,4 +118,31 @@ test('points de routage persistés dans le catalogue et modifiables au rechargem
  const r=await request(app,{url:'/api/portions',method:'POST',user:'alice',body});assert.equal(r.status,201);const id=JSON.parse(r.body).id;
  const loaded=JSON.parse((await request(app,{url:'/api/catalog',user:'alice'})).body)[0];assert.deepEqual(loaded.routePoints,routePoints);
  const next=[[50,4.999],[50.001,5.002],[50.002,5]];assert.equal((await request(app,{url:'/api/portions/'+id,method:'PATCH',user:'alice',body:{coordinates:next,routePoints:next}})).status,200);assert.deepEqual(db.saved[0].data.routePoints,next);
+});
+
+test('itinéraires privés par défaut, partage, édition réservée au propriétaire, GPX protégé',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'}),body={name:'Bois & rivière <gravel>',notes:'Pause <café> & eau',mode:'route',snapped:true,coordinates:[[50,5],[50.02,5.01]],routePoints:[[50,5],[50.02,5.01]]};
+ assert.equal((await request(app,{url:'/api/plans'})).status,401);const added=await request(app,{url:'/api/plans',method:'POST',user:'alice',body});assert.equal(added.status,201);const plan=JSON.parse(added.body);assert.equal(plan.isPublic,false);assert.equal(db.planned.length,1);
+ assert.equal((await request(app,{url:'/api/plans/'+plan.id,user:'bob'})).status,404);assert.equal((await request(app,{url:'/api/plans/'+plan.id+'/gpx',user:'bob'})).status,404);
+ assert.equal((await request(app,{url:'/api/plans/'+plan.id,method:'PATCH',user:'bob',body:{isPublic:true}})).status,404);
+ const published=await request(app,{url:'/api/plans/'+plan.id,method:'PATCH',user:'alice',body:{isPublic:true}});assert.equal(published.status,200);
+ const list=JSON.parse((await request(app,{url:'/api/plans',user:'bob'})).body);assert.equal(list.length,1);assert.equal(list[0].isMine,false);assert.equal(list[0].owner,'alice');
+ const gpx=await request(app,{url:'/api/plans/'+plan.id+'/gpx',user:'bob'});assert.equal(gpx.status,200);assert.match(gpx.headers['Content-Type'],/gpx/);assert.match(gpx.body,/Bois &amp; rivière &lt;gravel&gt;/);assert.match(gpx.body,/<trkpt lat="50.02" lon="5.01"\/>/);assert.match(gpx.body,/Pause &lt;café&gt; &amp; eau/);
+ assert.equal((await request(app,{url:'/api/plans/'+plan.id,method:'DELETE',user:'bob'})).status,404);
+ const fresh=createApp(db,{origin:'https://sillage.test'});assert.deepEqual(JSON.parse((await request(fresh,{url:'/api/plans/'+plan.id,user:'alice'})).body).coordinates,body.coordinates);
+ assert.equal((await request(app,{url:'/api/plans/'+plan.id,method:'PATCH',user:'alice',body:{isPublic:false}})).status,200);assert.deepEqual(JSON.parse((await request(app,{url:'/api/plans',user:'bob'})).body),[]);
+ assert.equal((await request(app,{url:'/api/plans/'+plan.id,method:'DELETE',user:'alice'})).status,200);assert.equal(db.planned.length,0);
+});
+test('itinéraires : validation du tracé, du partage et de la géométrie avant écriture',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'}),body={coordinates:[[50,5],[50.01,5]],mode:'route',snapped:true};
+ for(const edits of [{snapped:false},{isPublic:'oui'},{coordinates:[[500,5],[50,5]]},{routePoints:Array.from({length:51},(_,i)=>[50+i*.001,5])}])assert.equal((await request(app,{url:'/api/plans',method:'POST',user:'alice',body:{...body,...edits}})).status,400);
+ assert.equal(db.planned.length,0);assert.equal((await request(app,{url:'/api/plans',method:'POST',user:'alice',body:{...body,mode:'manual',snapped:false}})).status,201);
+});
+test('superposition des sorties : toutes ses traces y compris Strava, aucune trace d’un autre compte',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'});for(let i=0;i<101;i++)db.rides.push({id:String(i),name:'Sortie '+i,user_id:'alice',source_type:i?'gpx':'strava',coordinates:[[50,5],[50.001,5]]});db.rides.push({id:'secret',name:'Privé Bob',user_id:'bob',coordinates:[[51,6],[51.001,6]]});
+ assert.equal((await request(app,{url:'/api/rides/overlay'})).status,401);const own=JSON.parse((await request(app,{url:'/api/rides/overlay',user:'alice'})).body);assert.equal(own.length,101);assert.equal(own[0].source_type,'strava');assert.ok(!JSON.stringify(own).includes('Privé Bob'));assert.deepEqual(own[0].coordinates,[[50,5],[50.001,5]]);assert.match(db.queries.find(q=>q.sql.includes('ST_AsGeoJSON')).sql,/ST_Simplify/);
+});
+test('accrochage ponctuel exige une session et ne transmet que le point choisi',async()=>{
+ const db=database();let calls=0;const routingService=async()=>{};routingService.nearest=async b=>{calls++;assert.deepEqual(b.point,[50,5]);return {point:[50.0001,5],offset:11};};const app=createApp(db,{origin:'https://sillage.test',routingService});
+ assert.equal((await request(app,{url:'/api/route/nearest',method:'POST',body:{point:[50,5]}})).status,401);assert.equal(calls,0);const r=await request(app,{url:'/api/route/nearest',method:'POST',body:{point:[50,5]},user:'alice'});assert.equal(r.status,200);assert.deepEqual(JSON.parse(r.body).point,[50.0001,5]);assert.equal(calls,1);
 });

@@ -93,3 +93,7 @@ gunzip -c backups/NOM-DE-LA-SAUVEGARDE.sql.gz | sudo docker compose exec -T db p
 - Après configuration Strava : connexion OAuth réelle, sélection gravel, import privé, téléchargement GPX reconstruit et déconnexion.
 
 Les tests locaux utilisent des adaptateurs SQL et API simulés. Ils ne remplacent pas ces vérifications sur le VPS et dans un navigateur.
+
+### Itinéraires (version 6)
+
+Après le `git pull`, lancer `sudo docker compose up -d --build --wait`, puis `sudo docker compose exec app node server/check-db.js`. Le démarrage crée automatiquement la table PostGIS `planned_routes` et ses index, sans conversion ni suppression des sorties existantes. La vérification porte désormais sur les trois tables géographiques. Aucun nouveau secret ni réglage Strava n’est requis.

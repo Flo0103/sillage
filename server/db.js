@@ -20,6 +20,9 @@ ALTER TABLE portions ADD COLUMN IF NOT EXISTS is_public boolean NOT NULL DEFAULT
 ALTER TABLE portions ALTER COLUMN is_public SET DEFAULT true;
 ALTER TABLE portions ADD COLUMN IF NOT EXISTS source_ride_id uuid REFERENCES rides(id) ON DELETE CASCADE;
 ALTER TABLE portions ADD COLUMN IF NOT EXISTS source_strava boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS planned_routes(id uuid PRIMARY KEY,user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,data jsonb NOT NULL,is_public boolean NOT NULL DEFAULT false,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS planned_routes_owner ON planned_routes(user_id,updated_at DESC);
+CREATE INDEX IF NOT EXISTS planned_routes_public ON planned_routes(is_public);
 CREATE TABLE IF NOT EXISTS strava_connections(user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,athlete_id bigint UNIQUE NOT NULL,tokens text NOT NULL);
 CREATE TABLE IF NOT EXISTS strava_oauth_states(state_hash text PRIMARY KEY,nonce_hash text NOT NULL,user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,session_hash text NOT NULL,expires_at timestamptz NOT NULL);
 CREATE INDEX IF NOT EXISTS portions_public ON portions(is_public);

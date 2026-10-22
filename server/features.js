@@ -55,7 +55,7 @@ export async function features({db,req,res,path,method,user,body,json,origin,ses
  const layer=path.match(/^\/api\/wms\/([a-f0-9-]{36})$/);if(layer&&method==='DELETE'){const q=await db.query('DELETE FROM wms_layers WHERE id=$1 AND user_id=$2',[layer[1],user.id]);return reply(q.rowCount?200:404,q.rowCount?{ok:true}:{error:'Fond introuvable.'});}
  if(!path.startsWith('/api/admin/'))return false;
  if(!isAdmin)return reply(403,{error:'Accès réservé à l’administrateur.'});
- if(path==='/api/admin/database'&&method==='GET'){const q=await db.query('SELECT PostGIS_Full_Version() AS version,(SELECT count(*)::int FROM rides WHERE geom IS NOT NULL) AS rides,(SELECT count(*)::int FROM portions WHERE geom IS NOT NULL) AS portions');return reply(200,q.rows[0]);}
+ if(path==='/api/admin/database'&&method==='GET'){const q=await db.query('SELECT PostGIS_Full_Version() AS version,(SELECT count(*)::int FROM rides WHERE geom IS NOT NULL) AS rides,(SELECT count(*)::int FROM portions WHERE geom IS NOT NULL) AS portions,(SELECT count(*)::int FROM planned_routes WHERE geom IS NOT NULL) AS plans');return reply(200,q.rows[0]);}
  if(path==='/api/admin/users'&&method==='GET'){const q=await db.query('SELECT id,username,is_admin,active,created_at FROM users ORDER BY created_at');return reply(200,q.rows);}
  if(path==='/api/admin/invitations'&&method==='GET'){const q=await db.query('SELECT id,username,expires_at,used_at,revoked_at FROM invitations ORDER BY created_at DESC LIMIT 100');return reply(200,q.rows);}
  const reset=path.match(/^\/api\/admin\/users\/([a-f0-9-]{36})\/reset$/);

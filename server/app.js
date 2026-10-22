@@ -1,6 +1,7 @@
 import { createStrava } from './strava.js';
 import { createRoutingService } from './routing.js';
 import { createOSMService } from './osm.js';
+import { plans } from './plans.js';
 import { features } from './features.js';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -40,6 +41,8 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),r
       if(await stravaService({db,req,res,path,query,method,user,body,json,origin,secure,sessionToken:token?tokenHash(token):null}))return;
       if(await features({db,req,res,path,query,method,user,body,json,origin,sessionToken:token?tokenHash(token):null}))return;
       if(!user){if(path.startsWith('/api/'))return json(res,401,{error:'Connectez-vous pour continuer.'});res.writeHead(303,{Location:'/login.html','Cache-Control':'no-store'});return res.end();}
+      if(await plans({db,path,method,user,req,res,body,json}))return;
+      if(path==='/api/rides/overlay'&&method==='GET'){const q=await db.query('SELECT id,name,source_type,ST_AsGeoJSON(ST_Simplify(geom,0.00005))::jsonb AS geometry FROM rides WHERE user_id=$1 ORDER BY created_at DESC',[user.id]);return json(res,200,q.rows.map(r=>{const coords=r.geometry?.coordinates;if(!Array.isArray(coords)||coords.length<2)return null;const points=coords.length>2000?Array.from({length:2000},(_,i)=>coords[Math.round(i*(coords.length-1)/1999)]):coords;return {id:r.id,name:r.name,source_type:r.source_type,coordinates:points.map(p=>[p[1],p[0]])};}).filter(Boolean));}
       if(path==='/api/me'&&method==='GET')return json(res,200,{id:user.id,username:user.username,isAdmin:user.is_admin===true});
       if(path==='/api/logout'&&method==='POST'){await db.query('DELETE FROM sessions WHERE token_hash=$1',[tokenHash(token)]);res.setHeader('Set-Cookie',cookie('',0));return json(res,200,{ok:true});}
       if(path==='/api/rides'&&method==='GET'){const q=await db.query('SELECT id,name,distance,created_at,source_type,(gpx_xml IS NOT NULL) AS gpx_available FROM rides WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100',[user.id]);return json(res,200,q.rows);}
@@ -62,6 +65,7 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),r
         const client=await db.connect();let imported=0;try{await client.query('BEGIN');for(const r of validated){const q=await client.query('INSERT INTO portions(id,user_id,data,legacy_id,is_public) VALUES($1,$2,$3,$4,false) ON CONFLICT(user_id,legacy_id) DO NOTHING',[randomUUID(),user.id,JSON.stringify(r.data),r.key]);imported+=q.rowCount;}await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}return json(res,200,{imported});
       }
       const item=path.match(/^\/api\/portions\/([a-f0-9-]{36})$/);if(item&&method==='DELETE'){const q=await db.query('DELETE FROM portions WHERE id=$1 AND user_id=$2',[item[1],user.id]);return json(res,q.rowCount?200:404,q.rowCount?{ok:true}:{error:'Portion introuvable.'});}
+      if(path==='/api/route/nearest'&&method==='POST'){if(!routingService.nearest)throw Error('Accrochage des points indisponible.');return json(res,200,await routingService.nearest(await body(req)));}
       if(path==='/api/route'&&method==='POST')return json(res,200,await routingService(await body(req)));
       if(path==='/api/osm'&&method==='POST'){const b=await body(req);return json(res,200,await osmService(b.bbox));}
       if(method==='GET'&&['/','/index.html','/app.js','/geo.js','/preview.js','/route-edit.js','/osm-worker.js','/catalog.js','/account.html','/account.js','/admin.html','/admin.js','/common.js','/strava.html','/strava-client.js'].includes(path)){if((path==='/admin.html'||path==='/admin.js')&&!user.is_admin)return json(res,403,{error:'Accès réservé à l’administrateur.'});const file=path==='/'?'index.html':path.slice(1);res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript; charset=utf-8':'text/html; charset=utf-8');return res.end(await readFile(root+file));}

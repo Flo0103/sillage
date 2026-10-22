@@ -1,10 +1,12 @@
-import {insertionIndex} from './route-edit.js?v=5.1.0';
-import {previewPath,renderPreview,disposePreviews} from './preview.js?v=5.1.0';
-import {distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds} from './geo.js?v=5.1.0';
-import {visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,escapeHTML} from './catalog.js?v=5.1.0';
+import {insertionIndex} from './route-edit.js?v=6.0.0';
+import {previewPath,renderPreview,disposePreviews} from './preview.js?v=6.0.0';
+import {distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds} from './geo.js?v=6.0.0';
+import {visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,escapeHTML} from './catalog.js?v=6.0.0';
 const $=id=>document.getElementById(id);
 const setHidden=(id,value)=>{const element=$(id);if(element)element.hidden=value;};
-let trace=[],selected=[],gpsSelection=[],records=[],rides=[],first=null,last=null,rating=0,mode='route',snapped=false,busy=false,view='saved',currentRide=null,map,routeLayer,selectionLayer,marks,snapController,snapVersion=0,catalog=[],catalogLayer,layerControl,osmSnapshot=null,editingSegment=null,snapWorker=null,workerReject=null,surfaceTouched=false,geometryChanged=false,endpoints=[],modeDrafts=new Map(),ridePreviewVersion=0,rideLoadVersion=0,stravaActivities=[],stravaPage=0,stravaBusy=false,stravaState={configured:false,connected:false},pickedSegmentId=null,viaPoints=[],routeLegFractions=null,routeDrag=null,independentOsm=false;
+let trace=[],selected=[],gpsSelection=[],records=[],rides=[],first=null,last=null,rating=0,mode='route',snapped=false,busy=false,view='saved',currentRide=null,map,routeLayer,selectionLayer,marks,snapController,snapVersion=0,catalog=[],catalogLayer,layerControl,osmSnapshot=null,editingSegment=null,snapWorker=null,workerReject=null,surfaceTouched=false,geometryChanged=false,endpoints=[],modeDrafts=new Map(),ridePreviewVersion=0,rideLoadVersion=0,stravaActivities=[],stravaPage=0,stravaBusy=false,stravaState={configured:false,connected:false},pickedSegmentId=null,viaPoints=[],routeLegFractions=null,routeDrag=null,independentOsm=false,planRecords=[],editingPlan=null,planReadOnly=false,planLoadVersion=0,importedTraces=null,importedLayer=null,overlayVersion=0,planRecalcTimer=null;
+const canDraw=()=> (view==='explore'||view==='planner')&&!(view==='planner'&&planReadOnly);
+const pointLimit=()=>view==='planner'?50:12;
 const winterLabels={unknown:'Hiver non renseigné',yes:'Roulable en hiver',no:'Non roulable en hiver',conditions:'Hiver selon conditions'};
 async function api(path,options={}){const res=await fetch(path,{...options,headers:{'Content-Type':'application/json',...options.headers}});if(res.status===401){location.replace('/login.html');throw Error('Session expirée.');}const data=await res.json();if(!res.ok)throw Error(data.error||'Le serveur ne répond pas.');return data;}
 const post=(path,data,options={})=>api(path,{method:'POST',body:JSON.stringify(data),...options});
@@ -14,39 +16,40 @@ function stars(){ $('stars').replaceChildren();for(let i=1;i<=5;i++){const b=doc
 function update(){
  $('distance').innerHTML=selected.length>1?`${(routeLength(selected)/1000).toFixed(2)} <em>km</em>`:'— <em>km</em>';
  $('snapState').textContent=busy?'OSM en cours…':snapped?(mode==='route'?'Routage OSM':'Suivi GPX sur OSM'):mode==='manual'?'Manuel':mode==='snap'&&selected.length>1?'GPS d’origine':'À tracer';
- $('editorTitle').textContent=editingSegment?'Modifier la portion':'Créer une portion';$('save').textContent=editingSegment?'Enregistrer les modifications':'Enregistrer la portion ↗';setHidden('editingNotice',!editingSegment);setHidden('cancelSnap',!busy);setHidden('independentOsmNotice',!independentOsm);$('autoMode').disabled=independentOsm;renderWaypoints();
+ $('editorTitle').textContent=view==='planner'?(planReadOnly?'Itinéraire public':editingPlan?'Modifier l’itinéraire':'Tracer un itinéraire'):editingSegment?'Modifier la portion':'Créer une portion';
+ $('savePlan').disabled=view!=='planner'||planReadOnly||selected.length<2||busy||(mode==='route'&&!snapped);$('savePlan').textContent=editingPlan?'Enregistrer les modifications':'Enregistrer l’itinéraire';setHidden('planReadOnlyNotice',!planReadOnly);setHidden('autoMode',view==='planner');$('planName').disabled=planReadOnly;$('planNotes').disabled=planReadOnly;$('publicPlan').disabled=planReadOnly;setHidden('modeControls',view==='saved'||view==='planner'&&planReadOnly);$('save').textContent=editingSegment?'Enregistrer les modifications':'Enregistrer la portion ↗';setHidden('editingNotice',!editingSegment);setHidden('cancelSnap',!busy);setHidden('independentOsmNotice',!independentOsm);$('autoMode').disabled=independentOsm;renderWaypoints();
  if($('publicSegment')){$('publicSegment').disabled=((currentRide?.source_type==='strava'&&!independentOsm)||editingSegment?.fromStrava===true);if($('publicSegment').disabled)$('publicSegment').checked=false;}setHidden('stravaPrivateNotice',!((currentRide?.source_type==='strava'&&!independentOsm)||editingSegment?.fromStrava===true));
  $('save').disabled=selected.length<2||!rating||busy||view!=='explore'||(mode==='route'&&!snapped&&(geometryChanged||!editingSegment));$('snap').disabled=!gpsSelection.length||busy;setHidden('snap',mode==='manual'||view==='saved');setHidden('undo',mode!=='manual'||view==='saved');$('undo').disabled=!selected.length;setHidden('toleranceControls',mode==='manual'||view==='saved');
  $('count').textContent=filtered().length;$('routeMode').classList.toggle('active',mode==='route');$('autoMode').classList.toggle('active',mode==='snap');$('manualMode').classList.toggle('active',mode==='manual');
 }
-function cancelSnap(){cancelRouteDrag();snapVersion++;snapController?.abort();snapWorker?.terminate();snapWorker=null;workerReject?.(Error('Calcul annulé.'));workerReject=null;busy=false;setHidden('snapProgress',true);}
+function cancelSnap(){clearTimeout(planRecalcTimer);planRecalcTimer=null;cancelRouteDrag();snapVersion++;snapController?.abort();snapWorker?.terminate();snapWorker=null;workerReject?.(Error('Calcul annulé.'));workerReject=null;busy=false;setHidden('snapProgress',true);}
 function reset(){cancelSnap();editingSegment=null;geometryChanged=false;surfaceTouched=false;independentOsm=false;endpoints=[];viaPoints=[];routeLegFractions=null;modeDrafts.clear();$('surfaceSource').textContent='';selected=[];gpsSelection=[];first=last=null;snapped=false;rating=0;$('ratingForm').reset();status(mode==='manual'?'Cliquez sur la carte pour tracer point à point.':mode==='route'?'Choisissez un départ et une arrivée sur la carte.':'Choisissez un départ et une arrivée sur la trace GPX.');drawSelection();stars();update();}
 function routeControls(){return endpoints.length>1?[endpoints[0],...viaPoints,endpoints[1]]:endpoints.map(p=>[...p]);}
 function renderWaypoints(){
- const list=$('waypointList');if(!list)return;list.replaceChildren();setHidden('routeEditControls',mode!=='route'||view!=='explore');
+ const list=$('waypointList');if(!list)return;list.replaceChildren();setHidden('routeEditControls',mode!=='route'||!canDraw());
  const controls=routeControls();for(let i=0;i<controls.length;i++){const row=document.createElement('li'),label=document.createElement('span');label.textContent=i===0?'A · Départ':i===controls.length-1?'B · Arrivée':`Passage ${i}`;row.append(label);if(i>0&&i<controls.length-1){const remove=document.createElement('button');remove.type='button';remove.className='textbutton';remove.textContent='Retirer';remove.setAttribute('aria-label',`Retirer le passage ${i}`);remove.onclick=()=>removeVia(i-1);row.append(remove);}list.append(row);}
 }
 function validMapPoint(p){return Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)&&Math.abs(p[0])<=90&&Math.abs(p[1])<=180;}
 async function recalculateRoute(){
  cancelSnap();geometryChanged=true;snapped=false;modeDrafts.clear();routeLegFractions=null;gpsSelection=routeControls();first=endpoints[0]||null;last=endpoints[1]||null;
- if(gpsSelection.length>1)await snap();else{selected=gpsSelection.map(p=>[...p]);drawSelection();update();}
+ if(gpsSelection.length>1)await snap();else if(gpsSelection.length===1)await snapFirstPoint();else{selected=[];drawSelection();update();}
 }
 async function moveRouteControl(index,point){
- if(mode!=='route'||view!=='explore'||!validMapPoint(point))return false;
+ if(mode!=='route'||!canDraw()||!validMapPoint(point))return false;
  const controls=routeControls();if(index<0||index>=controls.length)return false;
  if(index===0)endpoints[0]=[...point];else if(index===controls.length-1)endpoints[1]=[...point];else viaPoints[index-1]=[...point];await recalculateRoute();return true;
 }
 async function insertVia(index,point){
- if(mode!=='route'||view!=='explore'||endpoints.length<2||!validMapPoint(point))return false;
- if(viaPoints.length>=10){toast('Maximum 10 points de passage.');return false;}viaPoints.splice(Math.max(0,Math.min(viaPoints.length,index-1)),0,[...point]);await recalculateRoute();return true;
+ if(mode!=='route'||!canDraw()||endpoints.length<2||!validMapPoint(point))return false;
+ if(viaPoints.length>=pointLimit()-2){toast(`Maximum ${pointLimit()-2} points de passage.`);return false;}viaPoints.splice(Math.max(0,Math.min(viaPoints.length,index-1)),0,[...point]);await recalculateRoute();return true;
 }
 async function removeVia(index){if(index<0||index>=viaPoints.length)return;viaPoints.splice(index,1);await recalculateRoute();}
 function cancelRouteDrag(){
  if(!routeDrag)return;const drag=routeDrag;routeDrag=null;window.removeEventListener('pointermove',drag.move);window.removeEventListener('pointerup',drag.up);window.removeEventListener('pointercancel',drag.cancel);window.removeEventListener('blur',drag.blur);drag.ghost?.remove();drag.guide?.remove();if(drag.mapWasDraggable)map.dragging?.enable();
 }
 function startRouteDrag(event){
- if(mode!=='route'||view!=='explore'||!snapped||endpoints.length<2||event.button!==undefined&&event.button!==0||event.isPrimary===false)return;
- if(viaPoints.length>=10)return toast('Maximum 10 points de passage. Retirez-en un pour en ajouter un autre.');
+ if(mode!=='route'||!canDraw()||!snapped||endpoints.length<2||event.button!==undefined&&event.button!==0||event.isPrimary===false)return;
+ if(viaPoints.length>=pointLimit()-2)return toast(`Maximum ${pointLimit()-2} points de passage.`);
  event.preventDefault();event.stopPropagation();const at=map.mouseEventToLatLng(event),point=[at.lat,at.lng],controls=routeControls(),index=insertionIndex(selected,controls,point,routeLegFractions);cancelSnap();
  const mapWasDraggable=map.dragging?.enabled?.()===true;map.dragging?.disable();
  const ghost=L.marker(point,{interactive:false,icon:L.divIcon({className:'route-control route-via route-ghost',html:'+',iconSize:[22,22]})}).addTo(map);
@@ -60,19 +63,19 @@ function drawSelection(){
  if(!map)return;selectionLayer.clearLayers();marks.clearLayers();
  if(selected.length>1){L.polyline(selected,{pane:'portionPane',color:'#faf8f1',weight:10,opacity:1,interactive:false}).addTo(selectionLayer);
   L.polyline(selected,{pane:'portionPane',color:'#b5654c',weight:6,opacity:1,interactive:false}).addTo(selectionLayer);
-  if(mode==='route'&&view==='explore'){const line=L.polyline(selected,{pane:'portionPane',color:'#b5654c',weight:20,opacity:0,interactive:true,className:'routing-draggable'}).addTo(selectionLayer);line.on('click',e=>L.DomEvent.stopPropagation(e));const path=line.getElement?.();if(path)path.addEventListener('pointerdown',startRouteDrag,{passive:false});}
+  if(mode==='route'&&canDraw()){const line=L.polyline(selected,{pane:'portionPane',color:'#b5654c',weight:20,opacity:0,interactive:true,className:'routing-draggable'}).addTo(selectionLayer);line.on('click',e=>L.DomEvent.stopPropagation(e));const path=line.getElement?.();if(path)path.addEventListener('pointerdown',startRouteDrag,{passive:false});}
  }
  const markerPoints=mode==='route'&&endpoints.length?routeControls():mode!=='manual'&&endpoints.length?endpoints:selected;
  for(const[i,p]of markerPoints.entries()){
-  if(!(view==='explore'&&(mode==='manual'||mode==='route'&&endpoints.length))&&i!==0&&i!==markerPoints.length-1)continue;
-  const editable=mode==='route'&&view==='explore'&&endpoints.length>0,via=editable&&i>0&&i<markerPoints.length-1,label=i===0?'A':i===markerPoints.length-1?'B':String(i),title=i===0?'Départ':i===markerPoints.length-1?'Arrivée':`Passage ${i}`;
+  if(!(canDraw()&&(mode==='manual'||mode==='route'&&endpoints.length))&&i!==0&&i!==markerPoints.length-1)continue;
+  const editable=mode==='route'&&canDraw()&&endpoints.length>0,via=editable&&i>0&&i<markerPoints.length-1,label=i===0?'A':i===markerPoints.length-1?'B':String(i),title=i===0?'Départ':i===markerPoints.length-1?'Arrivée':`Passage ${i}`;
   const marker=L.marker(p,{pane:'markerPane',draggable:editable,title:editable?`${title} · glisser pour déplacer`:title,alt:title,autoPan:editable,icon:L.divIcon({className:editable?`route-control ${via?'route-via':i?'route-finish':'route-start'}`:'endpoint',html:editable?label:'',iconSize:editable?[24,24]:[15,15]})}).bindTooltip(editable?`${title} · glisser${via?' · double-clic pour retirer':''}`:title).addTo(marks);
   if(editable){marker.on('dragstart',()=>{cancelSnap();geometryChanged=true;snapped=false;update();});marker.on('dragend',e=>{const q=e.target.getLatLng();if(validMapPoint([q.lat,q.lng]))void moveRouteControl(i,[q.lat,q.lng]);else{marker.setLatLng(p);drawSelection();}});
    if(via){marker.on('dblclick',e=>{L.DomEvent.stopPropagation(e);void removeVia(i-1);});marker.on('contextmenu',e=>{L.DomEvent.stopPropagation(e);void removeVia(i-1);});marker.getElement?.()?.addEventListener('keydown',e=>{if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();void removeVia(i-1);}});}
   }
  }
 }
-function fit(points=trace){if(map)map.invalidateSize({pan:false});if(map&&points.length>1)map.fitBounds(L.latLngBounds(points),{paddingTopLeft:[30,30],paddingBottomRight:[innerWidth>850&&view==='explore'&&!document.fullscreenElement&&!document.body.classList.contains('map-expanded')?370:30,40]});}
+function fit(points=trace){if(map)map.invalidateSize({pan:false});if(map&&points.length>1)map.fitBounds(L.latLngBounds(points),{paddingTopLeft:[30,30],paddingBottomRight:[innerWidth>850&&canDraw()&&!document.fullscreenElement&&!document.body.classList.contains('map-expanded')?370:30,40]});}
 function drawRoute(){if(!map)return;routeLayer.clearLayers();if(!trace.length)return;L.polyline(trace,{pane:'gpxPane',color:'#fff',weight:9,opacity:.9}).addTo(routeLayer);L.polyline(trace,{pane:'gpxPane',color:'#607d88',weight:5,opacity:.85}).addTo(routeLayer).on('click',e=>{L.DomEvent.stopPropagation(e);choose(e.latlng);});fit();}
 function gpxBetween(points){
  if(points.length<2)return points.map(p=>[...p]);if(!trace.length)throw Error('Choisissez une sortie pour suivre son GPX. Vos points sont conservés.');
@@ -81,13 +84,20 @@ function gpxBetween(points){
  const range=trace.slice(Math.min(...indices),Math.max(...indices)+1);return indices[1]<indices[0]?range.reverse():range;
 }
 function choose(latlng){
- if(view!=='explore'||busy)return;
+ if(!canDraw()||busy&&view!=='planner'&&!(mode==='route'&&endpoints.length===1))return;
+ if(view==='planner'){choosePlanPoint([latlng.lat,latlng.lng]);return;}
  let point=[latlng.lat,latlng.lng];if(mode==='snap'){if(!trace.length)return toast('Choisissez une sortie GPX / Strava ou le routage entre deux points.');const clicked=point;let best=Infinity;for(const p of trace){const d=distance(p,clicked);if(d<best){best=d;point=p;}}if(best>200)return toast('Cliquez plus près de la trace GPX.');}
  cancelSnap();geometryChanged=true;snapped=false;modeDrafts.clear();viaPoints=[];routeLegFractions=null;
  if(mode==='manual'){selected.push([...point]);endpoints=selected.length>1?[selected[0],selected.at(-1)]:[selected[0]];first=endpoints[0];last=endpoints.length>1?endpoints[1]:null;gpsSelection=[];status('Tracé manuel : ajoutez des points pour suivre le chemin.');drawSelection();update();return;}
- if(endpoints.length!==1){endpoints=[[...point]];first=point;last=null;selected=[[...point]];gpsSelection=[];drawSelection();status('Départ posé. Choisissez l’arrivée.');}
+ if(endpoints.length!==1){endpoints=[[...point]];first=point;last=null;selected=[[...point]];gpsSelection=[];drawSelection();status('Accrochage du départ au réseau OSM…');if(mode==='route')void snapFirstPoint();}
  else{if(distance(endpoints[0],point)<5)return toast('Choisissez une arrivée différente.');endpoints.push([...point]);first=endpoints[0];last=endpoints[1];try{gpsSelection=mode==='snap'?gpxBetween(endpoints):endpoints.map(p=>[...p]);selected=gpsSelection.map(p=>[...p]);drawSelection();void snap();}catch(e){status(e.message);}}
  update();
+}
+async function snapFirstPoint(){
+ if(mode!=='route'||endpoints.length!==1)return;cancelSnap();const version=snapVersion;snapController=new AbortController();busy=true;update();
+ try{const result=await post('/api/route/nearest',{point:endpoints[0],tolerance:Number($('snapTolerance').value||150)},{signal:snapController.signal});if(version!==snapVersion||endpoints.length!==1)return;endpoints=[[...result.point]];first=endpoints[0];selected=endpoints.map(p=>[...p]);status('Départ accroché à OSM. Choisissez la suite du parcours.');drawSelection();}
+ catch(e){if(version===snapVersion)status(`Départ non accroché : ${e.message}`);}
+ finally{if(version===snapVersion){busy=false;update();}}
 }
 function showProgress(progress){
  const bar=$('osmProgress'),caption=$('progressCaption');setHidden('snapProgress',false);
@@ -98,7 +108,7 @@ function calculateOSM(points,elements,tolerance,version,calculationMode=mode){
  const onProgress=p=>{if(version===snapVersion&&calculationMode!=='surface')showProgress(p);};
  if(typeof Worker==='undefined')return Promise.resolve((calculationMode==='route'?routeOSM:matchOSMDetailed)(points,elements,{tolerance,onProgress}));
  return new Promise((resolve,reject)=>{
-  const worker=new Worker('/osm-worker.js?v=5.1.0',{type:'module'});snapWorker=worker;workerReject=reject;
+  const worker=new Worker('/osm-worker.js?v=6.0.0',{type:'module'});snapWorker=worker;workerReject=reject;
   const finish=()=>{worker.terminate();if(snapWorker===worker){snapWorker=null;workerReject=null;}};
   worker.onmessage=({data})=>{if(version!==snapVersion)return;if(data.progress){onProgress(data.progress);return;}finish();if(data.error)reject(Error(data.error));else resolve(data.result);};
   worker.onerror=()=>{finish();reject(Error('Le calcul OSM a échoué. Réessayez ou utilisez le mode manuel.'));};worker.postMessage({points,elements,tolerance,mode:calculationMode});
@@ -119,13 +129,13 @@ async function routeSurface(points,version){
 }
 async function snap(){
  if(gpsSelection.length<2)return;cancelSnap();const version=snapVersion;snapped=false;selected=gpsSelection.map(p=>[...p]);drawSelection();
- if(routeLength(gpsSelection)>15000){status('Calcul limité à 15 km. Réduisez la portion ou passez en manuel.');update();return;}
+ if(routeLength(gpsSelection)>(view==='planner'?500000:15000)){status(view==='planner'?'Itinéraire limité à 500 km.':'Calcul limité à 15 km. Réduisez la portion ou passez en manuel.');update();return;}
  busy=true;update();status(mode==='route'?'Calcul d’un itinéraire vélo sur OSM…':'Suivi de la trace GPX sur les chemins OSM…');showProgress({stage:mode==='route'?'route':'download'});snapController=new AbortController();
  try{const tolerance=Number($('snapTolerance')?.value||150);let result;
-  if(mode==='route'){const points=endpoints.length===2?routeControls():gpsSelection;result=await post('/api/route',{points,tolerance},{signal:snapController.signal});}
+  if(mode==='route'){const points=endpoints.length===2?routeControls():gpsSelection;result=await post('/api/route',{points,tolerance,...(view==='planner'?{purpose:'itinerary'}:{})},{signal:snapController.signal});}
   else{const data=await osmData(gpsSelection,tolerance,version);if(version!==snapVersion)return;result=await calculateOSM(gpsSelection,data.elements||[],tolerance,version);}
-  if(version!==snapVersion)return;selected=result.coordinates;snapped=true;if(mode==='route')routeLegFractions=result.legFractions||null;drawSelection();
-  if(mode==='route'){surfaceSuggestion(null);void routeSurface(selected,version);}else surfaceSuggestion(result.surface);
+  if(version!==snapVersion)return;selected=result.coordinates;snapped=true;if(mode==='route'){routeLegFractions=result.legFractions||null;const snappedPoints=result.snappedPoints;if(snappedPoints?.length===routeControls().length){endpoints=[[...snappedPoints[0]],[...snappedPoints.at(-1)]];viaPoints=snappedPoints.slice(1,-1).map(p=>[...p]);first=endpoints[0];last=endpoints[1];gpsSelection=routeControls();}else if(endpoints.length===2&&viaPoints.length===0){endpoints=[[...selected[0]],[...selected.at(-1)]];first=endpoints[0];last=endpoints[1];gpsSelection=routeControls();}}drawSelection();
+  if(mode==='route'&&view!=='planner'){surfaceSuggestion(null);void routeSurface(selected,version);}else surfaceSuggestion(result.surface);
   const warning=result.stats.maxOffset>75?` Points décalés du réseau jusqu’à ${result.stats.maxOffset} m : vérifiez le tracé.`:'';
   const ignored=result.stats.ignoredAnchors?` ${result.stats.ignoredAnchors} point(s) GPS isolé(s) écarté(s).`:'';
   status((mode==='route'?'Itinéraire vélo calculé sur OSM. Glissez A ou B pour les déplacer ; glissez la ligne pour ajouter un passage.':'Trace GPX accrochée aux chemins OSM.')+' Vérifiez le tracé orange avant d’enregistrer.'+warning+ignored);
@@ -133,7 +143,7 @@ async function snap(){
  finally{if(version===snapVersion){busy=false;setHidden('snapProgress',true);update();}}
 }
 function setMode(next){
- if(next==='auto')next='snap';if(next===mode)return;if(next==='snap'&&independentOsm){toast('Le dessin OSM indépendant ne suit pas le GPX. Choisissez le routage ou le mode manuel.');return;}
+ if(next==='auto')next='snap';if(next===mode)return;if(next==='snap'&&(independentOsm||view==='planner')){toast('Le dessin OSM indépendant ne suit pas le GPX. Choisissez le routage ou le mode manuel.');return;}
  const anchors=endpoints.length?endpoints.map(p=>[...p]):selected.length?[selected[0],...(selected.length>1?[selected.at(-1)]:[])]:[];
  let range=[];try{if(next==='snap'&&anchors.length>1)range=gpxBetween(anchors);}catch(e){toast(e.message);return;}
  modeDrafts.set(mode,{coordinates:selected.map(p=>[...p]),snapped,viaPoints:viaPoints.map(p=>[...p]),legFractions:routeLegFractions});cancelSnap();mode=next;geometryChanged=true;endpoints=anchors;first=anchors[0]||null;last=anchors[1]||null;
@@ -143,7 +153,7 @@ function setMode(next){
  if(mode!=='manual'&&gpsSelection.length>1&&!snapped)void snap();
 }
 if(typeof L!=='undefined'){
- map=L.map('map',{zoomControl:false}).setView([50.49,5.86],11);map.createPane('gpxPane');map.getPane('gpxPane').style.zIndex=410;map.createPane('portionPane');map.getPane('portionPane').style.zIndex=450;
+ map=L.map('map',{zoomControl:false}).setView([50.49,5.86],11);map.createPane('importsPane');map.getPane('importsPane').style.zIndex=390;map.createPane('gpxPane');map.getPane('gpxPane').style.zIndex=410;map.createPane('portionPane');map.getPane('portionPane').style.zIndex=450;
  const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{updateWhenIdle:true,keepBuffer:3,referrerPolicy:'strict-origin-when-cross-origin',attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',maxZoom:19}).addTo(map);
  const satellite=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',maxZoom:19});
  const ign=L.tileLayer('https://cartoweb.wmts.ngi.be/1.0.0/topo/default/3857/{z}/{y}/{x}.png',{minNativeZoom:7,maxNativeZoom:17,maxZoom:20,tileSize:256,updateWhenIdle:true,keepBuffer:2,referrerPolicy:'strict-origin-when-cross-origin',attribution:'© <a href="https://ngi.be/">IGN Belgique</a> / TomTom · CartoWeb (non commercial)'});
@@ -162,10 +172,10 @@ L.control.zoom({position:'topleft'}).addTo(map);
  map.on('baselayerchange',()=>{failures=0;setHidden('mapNotice',true);map.invalidateSize({pan:false});});
  if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>map.invalidateSize({pan:false})).observe($('map'));
  const legendElement=$('segmentLegend');if(legendElement&&typeof L.control==='function'){const legendControl=L.control({position:'bottomleft'});legendControl.onAdd=()=>{L.DomEvent.disableClickPropagation(legendElement);L.DomEvent.disableScrollPropagation(legendElement);return legendElement;};legendControl.addTo(map);if(innerWidth<=850)legendElement.open=false;}if(L.control.scale)L.control.scale({position:'bottomleft',imperial:false}).addTo(map);
- catalogLayer=L.layerGroup().addTo(map);routeLayer=L.layerGroup().addTo(map);selectionLayer=L.layerGroup().addTo(map);marks=L.layerGroup().addTo(map);map.on('click',e=>choose(e.latlng));$('mapFallback').remove();
+ importedLayer=L.layerGroup().addTo(map);catalogLayer=L.layerGroup().addTo(map);routeLayer=L.layerGroup().addTo(map);selectionLayer=L.layerGroup().addTo(map);marks=L.layerGroup().addTo(map);map.on('click',e=>choose(e.latlng));$('mapFallback').remove();
 }else $('mapFallback').textContent='Carte indisponible : vérifiez votre connexion Internet puis rechargez.';
 function jumpToMap(){if(innerWidth<=850)$('workspace').scrollIntoView?.({behavior:globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches?'instant':'smooth',block:'start'});}
-async function loadRide(id){const version=++rideLoadVersion,ride=await api(`/api/rides/${id}`);if(version!==rideLoadVersion)return;ridePreviewVersion++;$('ridePreviewStatus').textContent='';reset();currentRide=ride;trace=ride.coordinates;setView('explore');$('mapSubtitle').textContent=ride.name;drawRoute();$('rideSource').value='saved';setHidden('savedRideLibrary',false);setHidden('stravaSidebar',true);$('rideLibraryKind').value='all';$('rideSelect').value=ride.id;renderRides();jumpToMap();}
+async function loadRide(id){planLoadVersion++;const version=++rideLoadVersion,ride=await api(`/api/rides/${id}`);if(version!==rideLoadVersion)return;ridePreviewVersion++;$('ridePreviewStatus').textContent='';reset();currentRide=ride;trace=ride.coordinates;setView('explore');$('mapSubtitle').textContent=ride.name;drawRoute();$('rideSource').value='saved';setHidden('savedRideLibrary',false);setHidden('stravaSidebar',true);$('rideLibraryKind').value='all';$('rideSelect').value=ride.id;renderRides();jumpToMap();}
 function renderRides(){
  const select=$('rideSelect'),previous=select.value,available=rides.filter(r=>!$('rideLibraryKind').value||$('rideLibraryKind').value==='all'||(r.source_type||'gpx')===$('rideLibraryKind').value);select.replaceChildren();
  const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent=available.length?'— Choisir une sortie —':'Aucune sortie enregistrée';select.append(placeholder);
@@ -205,13 +215,13 @@ $('rideSelect').onchange=previewRide;$('rideLibraryKind').onchange=()=>{renderRi
 $('stravaRideSelect').onchange=previewStrava;$('stravaKind').onchange=()=>loadSidebarStrava(true);$('stravaMore').onclick=()=>loadSidebarStrava();
 $('refreshStrava').onclick=()=>loadSidebarStrava(true);
 $('openStravaRide').onclick=async()=>{const id=$('stravaRideSelect').value;if(!id||stravaBusy)return;stravaBusy=true;$('openStravaRide').disabled=true;
- try{const ride=await post('/api/strava/import',{activityId:id});rides=await api('/api/rides');await loadRide(ride.id);$('rideSource').value='saved';$('rideLibraryKind').value='all';renderRides();await changeRideSource();toast('Sortie Strava ouverte sur la carte.');}
+ try{const ride=await post('/api/strava/import',{activityId:id});rides=await api('/api/rides');importedTraces=null;if($('showImportedTraces').checked)void loadImportedTraces();await loadRide(ride.id);$('rideSource').value='saved';$('rideLibraryKind').value='all';renderRides();await changeRideSource();toast('Sortie Strava ouverte sur la carte.');}
  catch(e){$('sidebarStravaStatus').textContent=e.message;}finally{stravaBusy=false;previewStrava();}};
 $('deleteRide').onclick=async()=>{const id=$('rideSelect').value;if(!id||!confirm('Supprimer cette sortie et les segments qui lui sont liés ?'))return;
- try{await api(`/api/rides/${id}`,{method:'DELETE'});if(currentRide?.id===id){currentRide=null;trace=[];routeLayer?.clearLayers();reset();}ridePreviewVersion++;rides=await api('/api/rides');$('rideSelect').value='';renderRides();await refreshSegments();renderList();toast('Sortie supprimée.');}catch(e){toast(e.message);}};
+ try{await api(`/api/rides/${id}`,{method:'DELETE'});if(currentRide?.id===id){currentRide=null;trace=[];routeLayer?.clearLayers();reset();}ridePreviewVersion++;rides=await api('/api/rides');importedTraces=null;if($('showImportedTraces').checked)void loadImportedTraces();$('rideSelect').value='';renderRides();await refreshSegments();renderList();toast('Sortie supprimée.');}catch(e){toast(e.message);}};
 function parseGPX(xml){if(xml.querySelector('parsererror'))throw Error('GPX invalide.');const segments=[...xml.getElementsByTagNameNS('*','trkseg')];const read=(root,tag)=>[...root.getElementsByTagNameNS('*',tag)].filter(p=>p.hasAttribute('lat')&&p.hasAttribute('lon')).map(p=>[Number(p.getAttribute('lat')),Number(p.getAttribute('lon'))]).filter(p=>p.every(Number.isFinite)&&Math.abs(p[0])<=90&&Math.abs(p[1])<=180);let points=(segments.length?segments:[xml]).map(s=>read(s,'trkpt')).sort((a,b)=>b.length-a.length)[0]||[];if(points.length<2)points=read(xml,'rtept');if(points.length<2||points.length>100000)throw Error('Le GPX doit contenir entre 2 et 100 000 points.');return {points,multi:segments.length>1};}
-$('gpx').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>25*1024*1024)throw Error('GPX limité à 25 Mo.');const gpx=await f.text();const xml=new DOMParser().parseFromString(gpx,'application/xml');const {points,multi}=parseGPX(xml),name=xml.getElementsByTagNameNS('*','trk')[0]?.getElementsByTagNameNS('*','name')[0]?.textContent||f.name.replace(/\.gpx$/i,'');const ride=await post('/api/rides',{name,coordinates:points,gpx,fileName:f.name});rides=await api('/api/rides');await loadRide(ride.id);toast(multi?'Segment GPX le plus long enregistré (trace interrompue).':'Sortie enregistrée dans votre compte.');}catch(e){toast(e.message);}finally{e.target.value='';}};
-$('ratingForm').onsubmit=async e=>{e.preventDefault();if(selected.length<2||!rating||busy||$('save').disabled)return;const b=$('save');b.disabled=true;
+$('gpx').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>25*1024*1024)throw Error('GPX limité à 25 Mo.');const gpx=await f.text();const xml=new DOMParser().parseFromString(gpx,'application/xml');const {points,multi}=parseGPX(xml),name=xml.getElementsByTagNameNS('*','trk')[0]?.getElementsByTagNameNS('*','name')[0]?.textContent||f.name.replace(/\.gpx$/i,'');const ride=await post('/api/rides',{name,coordinates:points,gpx,fileName:f.name});rides=await api('/api/rides');importedTraces=null;if($('showImportedTraces').checked)void loadImportedTraces();await loadRide(ride.id);toast(multi?'Segment GPX le plus long enregistré (trace interrompue).':'Sortie enregistrée dans votre compte.');}catch(e){toast(e.message);}finally{e.target.value='';}};
+$('ratingForm').onsubmit=async e=>{e.preventDefault();if(view!=='explore')return;if(selected.length<2||!rating||busy||$('save').disabled)return;const b=$('save');b.disabled=true;
  try{const data={name:$('name').value,rating,difficulty:$('difficulty').value,surface:$('surface').value,winter:$('winter').value,singleTrack:$('singleTrack').value,notes:$('notes').value,coordinates:selected,snapped,isPublic:$('publicSegment').checked,mode,routePoints:mode==='route'?routeControls():undefined,independentOsm,source:independentOsm?'Dessin OSM indépendant':currentRide?.name||'Routage ou tracé manuel',rideId:independentOsm?null:currentRide?.id||null},editing=!!editingSegment;
   if(editing)await api(`/api/portions/${editingSegment.id}`,{method:'PATCH',body:JSON.stringify(data)});else await post('/api/portions',data);
   const keepIndependent=independentOsm;await refreshSegments();reset();if(keepIndependent){independentOsm=true;$('publicSegment').checked=true;update();}renderList();toast(editing?'Segment modifié.':'Portion enregistrée dans votre compte.');
@@ -225,17 +235,17 @@ function showSegment(r){
   selected=r.coordinates.map(p=>[...p]);const controls=r.mode==='route'&&r.routePoints?.length>=2?r.routePoints:[selected[0],selected.at(-1)];endpoints=[controls[0],controls.at(-1)];viaPoints=controls.slice(1,-1).map(p=>[...p]);first=endpoints[0];last=endpoints[1];snapped=r.snapped;rating=r.rating;surfaceTouched=true;
   for(const key of ['name','difficulty','surface','winter','singleTrack','notes'])$(key).value=r[key]??(['winter','singleTrack'].includes(key)?'unknown':'');
   $('publicSegment').checked=r.isPublic;stars();$('mapSubtitle').textContent=`Modifier : ${r.name}`;status('Modifiez les attributs et enregistrez. Pour changer le tracé, utilisez « Redessiner ».');renderRides();
- }else{reset();if(view==='explore')setView('saved');selected=r.coordinates;snapped=r.snapped;status(`Segment public de ${r.owner} : ${r.name}`);toast(`${r.name} · ${r.rating}/5 · ${r.surface} · ${singleTrackLabels[r.singleTrack||'unknown']}`);}
+ }else{reset();if(canDraw())setView('saved');selected=r.coordinates;snapped=r.snapped;status(`Segment public de ${r.owner} : ${r.name}`);toast(`${r.name} · ${r.rating}/5 · ${r.surface} · ${singleTrackLabels[r.singleTrack||'unknown']}`);}
  drawSelection();fit(selected);update();jumpToMap();
 }
 $('redraw').onclick=()=>{cancelSnap();geometryChanged=true;selected=[];endpoints=[];viaPoints=[];routeLegFractions=null;modeDrafts.clear();gpsSelection=[];first=last=null;snapped=false;mode='route';status('Choisissez deux points pour remplacer le tracé. Les attributs sont conservés.');drawSelection();update();};
 function drawCatalog({recenter=false}={}){
- if(catalogLayer)catalogLayer.clearLayers();const items=filtered(),colorMode=$('colorMode')?.value||'rating';
- for(const r of items){if(catalogLayer)L.polyline(r.coordinates,{pane:'portionPane',color:segmentColor(r,colorMode),weight:6,opacity:.9}).bindTooltip(`${escapeHTML(r.name)} · ${r.rating}/5 · ${escapeHTML(r.owner)} · ${escapeHTML(winterLabels[r.winter]||winterLabels.unknown)} · ${escapeHTML(singleTrackLabels[r.singleTrack||'unknown'])}`).on('click',e=>{L.DomEvent.stopPropagation(e);showSegment(r);}).addTo(catalogLayer);}
+ if(catalogLayer)catalogLayer.clearLayers();const items=view==='planner'&&!$('plannerShowSegments').checked?[]:filtered(),colorMode=$('colorMode')?.value||'rating';
+ for(const r of items){if(catalogLayer)L.polyline(r.coordinates,{pane:'portionPane',color:segmentColor(r,colorMode),weight:6,opacity:.9}).bindTooltip(`${escapeHTML(r.name)} · ${r.rating}/5 · ${escapeHTML(r.owner)} · ${escapeHTML(winterLabels[r.winter]||winterLabels.unknown)} · ${escapeHTML(singleTrackLabels[r.singleTrack||'unknown'])}`).on('click',e=>{L.DomEvent.stopPropagation(e);if(view==='planner')toast(`${r.name} · ${r.rating}/5 · ${r.surface}`);else showSegment(r);}).addTo(catalogLayer);}
  if($('segmentCount'))$('segmentCount').textContent=`${items.length} segment(s) affiché(s)`;
  const legend=$('legendContent')||$('segmentLegend');if(legend){legend.replaceChildren();const title=document.createElement('strong');title.textContent=colorMode==='rating'?'Plaisir de rouler':colorMode==='singleTrack'?'Single track':'Revêtement';legend.append(title);const entries=colorMode==='rating'?ratingColors.map((color,i)=>[`${i+1}/5`,color]):colorMode==='singleTrack'?Object.entries(singleTrackColors).map(([key,color])=>[singleTrackLabels[key],color]):Object.entries(surfaceColors);for(const[label,color]of entries){const item=document.createElement('span'),swatch=document.createElement('i');swatch.style.background=color;item.append(swatch,document.createTextNode(label));legend.append(item);}
- if(view==='explore'){const title=document.createElement('strong');title.textContent='Traces';legend.append(title);for(const[label,color]of [...(trace.length?[['GPX','#607d88']]:[]),['Portion en cours','#b5654c']]){const item=document.createElement('span'),swatch=document.createElement('i');swatch.style.background=color;item.append(swatch,document.createTextNode(label));legend.append(item);}}}
- if(recenter&&map&&items.length){const bounds=L.latLngBounds(items[0].coordinates);for(const r of items.slice(1))bounds.extend(r.coordinates);map.invalidateSize({pan:false});map.fitBounds(bounds,{padding:[35,35]});}update();
+ if(canDraw()){const title=document.createElement('strong');title.textContent='Traces';legend.append(title);for(const[label,color]of [...(trace.length?[['GPX','#607d88']]:[]),[view==='planner'?'Itinéraire en cours':'Portion en cours','#b5654c']]){const item=document.createElement('span'),swatch=document.createElement('i');swatch.style.background=color;item.append(swatch,document.createTextNode(label));legend.append(item);}}}
+ const framed=[...items,...($('showImportedTraces').checked&&importedTraces?importedTraces:[])];if(recenter&&map&&framed.length){const bounds=L.latLngBounds(framed[0].coordinates);for(const r of framed.slice(1))bounds.extend(r.coordinates);map.invalidateSize({pan:false});map.fitBounds(bounds,{padding:[35,35]});}update();
 }
 async function refreshSegments(){[records,catalog]=await Promise.all([api('/api/portions'),api('/api/catalog')]);drawCatalog();}
 function renderList(){
@@ -250,13 +260,63 @@ function renderList(){
  if(r.isMine){const del=document.createElement('button');del.className='textbutton danger';del.textContent='Supprimer ce segment';del.onclick=async()=>{if(!confirm(`Supprimer « ${r.name} » ?`))return;try{await api(`/api/portions/${r.id}`,{method:'DELETE'});reset();await refreshSegments();renderList();}catch(e){toast(e.message);}};div.append(del);}list.append(div);
 }
 $('segmentSelect').onchange=()=>{pickedSegmentId=$('segmentSelect').value;renderList();};
-function setView(v){view=v;const saved=v==='saved';$('explore').classList.toggle('active',!saved);$('savedTab').classList.toggle('active',saved);setHidden('rideList',saved);setHidden('rideChooser',saved);setHidden('stravaSidebar',saved||$('rideSource').value!=='strava');setHidden('catalogFilters',false);setHidden('editorPanel',saved);setHidden('gpxLegend',true);setHidden('segmentLegend',false);$('listTitle').textContent=saved?'Les segments':'Vos sorties';setHidden('source',saved);setHidden('ratingForm',saved);setHidden('modeControls',saved);if(saved){routeLayer?.clearLayers();$('mapSubtitle').textContent='Segments personnels et publics';drawCatalog({recenter:true});}else{drawCatalog();$('mapSubtitle').textContent=currentRide?.name||'Deux points sur la carte, ou une sortie GPX';}renderList();update();}
-$('routeMode').onclick=()=>setMode('route');$('autoMode').onclick=()=>setMode('snap');$('manualMode').onclick=()=>setMode('manual');$('undo').onclick=()=>{geometryChanged=true;selected.pop();viaPoints=[];routeLegFractions=null;endpoints=selected.length>1?[selected[0],selected.at(-1)]:selected.map(p=>[...p]);first=endpoints[0]||null;last=endpoints[1]||null;modeDrafts.clear();drawSelection();update();};$('snap').onclick=snap;$('snapTolerance').onchange=()=>{if(gpsSelection.length>1&&mode!=='manual'&&view==='explore')void snap();};$('reset').onclick=()=>{const keep=independentOsm;reset();if(keep){independentOsm=true;$('publicSegment').checked=true;update();}};$('cancelSnap').onclick=()=>{cancelSnap();status('Calcul annulé. Choisissez le mode manuel ou réessayez OSM.');update();};
-$('savedTab').onclick=()=>{rideLoadVersion++;reset();setView('saved');};
+function setView(v){
+ view=v;const saved=v==='saved',planning=v==='planner',exploring=v==='explore';$('explore').classList.toggle('active',exploring);$('savedTab').classList.toggle('active',saved);$('plannerTab').classList.toggle('active',planning);
+ setHidden('rideList',!exploring);setHidden('rideChooser',!exploring);setHidden('stravaSidebar',!exploring||$('rideSource').value!=='strava');setHidden('planLibrary',!planning);setHidden('catalogFilters',false);setHidden('editorPanel',saved);setHidden('gpxLegend',true);setHidden('segmentLegend',false);
+ $('listTitle').textContent=planning?'Vos itinéraires':saved?'Les segments':'Vos sorties';setHidden('source',!exploring);setHidden('ratingForm',!exploring);setHidden('planForm',!planning);setHidden('modeControls',saved||planning&&planReadOnly);
+ if(saved){routeLayer?.clearLayers();$('mapSubtitle').textContent='Segments personnels et publics';drawCatalog({recenter:true});}else{drawCatalog();$('mapSubtitle').textContent=planning?'Préparez votre prochaine sortie':currentRide?.name||'Deux points sur la carte, ou une sortie GPX';}
+ drawImportedTraces();renderList();update();
+}
+$('routeMode').onclick=()=>setMode('route');$('autoMode').onclick=()=>setMode('snap');$('manualMode').onclick=()=>setMode('manual');$('undo').onclick=()=>{geometryChanged=true;selected.pop();viaPoints=[];routeLegFractions=null;endpoints=selected.length>1?[selected[0],selected.at(-1)]:selected.map(p=>[...p]);first=endpoints[0]||null;last=endpoints[1]||null;modeDrafts.clear();drawSelection();update();};$('snap').onclick=snap;$('snapTolerance').onchange=()=>{if(gpsSelection.length>1&&mode!=='manual'&&canDraw())void snap();};$('reset').onclick=()=>{if(view==='planner'){newPlan();return;}const keep=independentOsm;reset();if(keep){independentOsm=true;$('publicSegment').checked=true;update();}};$('cancelSnap').onclick=()=>{cancelSnap();status('Calcul annulé. Choisissez le mode manuel ou réessayez OSM.');update();};
+$('savedTab').onclick=()=>{planLoadVersion++;planReadOnly=false;rideLoadVersion++;reset();setView('saved');};
 $('hideRide').onclick=()=>{rideLoadVersion++;reset();setView('saved');};$('openRide').onclick=()=>{const id=$('rideSelect').value;if(id)loadRide(id).catch(e=>toast(e.message));else toast('Choisissez une sortie enregistrée.');};
-for(const id of ['showMine','showOthers','winterOnly','winterFilter','singleTrackFilter','colorMode'])$(id).onchange=()=>{$('winterFilter').disabled=$('winterOnly').checked;if(view==='saved'){selected=[];drawSelection();}drawCatalog();renderList();};$('explore').onclick=()=>{reset();setView('explore');drawRoute();};$('fit').onclick=()=>{if(view==='saved')drawCatalog({recenter:true});else fit(selected.length>1?selected:trace);};
+for(const id of ['showMine','showOthers','winterOnly','winterFilter','singleTrackFilter','colorMode'])$(id).onchange=()=>{$('winterFilter').disabled=$('winterOnly').checked;if(view==='saved'){selected=[];drawSelection();}drawCatalog();renderList();};$('explore').onclick=()=>{planLoadVersion++;planReadOnly=false;reset();setView('explore');drawRoute();};$('fit').onclick=()=>{if(view==='saved')drawCatalog({recenter:true});else fit(selected.length>1?selected:trace);};
 $('export').onclick=()=>{if(!records.length)return toast('Aucune portion à exporter.');const data={type:'FeatureCollection',features:records.map(r=>({type:'Feature',geometry:{type:'LineString',coordinates:r.coordinates.map(p=>[p[1],p[0]])},properties:{...r,coordinates:undefined}}))};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/geo+json'})),a=document.createElement('a');a.href=url;a.download='sillage-portions.geojson';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 $('logout').onclick=async()=>{try{await post('/api/logout',{});location.replace('/login.html');}catch(e){toast(e.message);}};
+function drawImportedTraces(){
+ importedLayer?.clearLayers();if(!$('showImportedTraces').checked||!importedTraces||!importedLayer)return;
+ for(const ride of importedTraces)L.polyline(ride.coordinates,{pane:'importsPane',color:'#71848b',weight:3,opacity:.55,interactive:true}).bindTooltip(escapeHTML(ride.name)).on('click',e=>{L.DomEvent.stopPropagation(e);toast(ride.name);}).addTo(importedLayer);
+}
+async function loadImportedTraces(){
+ const version=++overlayVersion;drawImportedTraces();if(!$('showImportedTraces').checked){$('importedTracesStatus').textContent='';return;}
+ $('importedTracesStatus').textContent='Chargement de vos traces…';
+ try{const items=importedTraces||await api('/api/rides/overlay');if(version!==overlayVersion||!$('showImportedTraces').checked)return;importedTraces=items;drawImportedTraces();$('importedTracesStatus').textContent=`${items.length} trace(s) personnelle(s) affichée(s)`;if(view==='saved')drawCatalog({recenter:true});}
+ catch(e){if(version===overlayVersion)$('importedTracesStatus').textContent=e.message;}
+}
+$('showImportedTraces').onchange=loadImportedTraces;
+function choosePlanPoint(point){
+ if(!canDraw()||!validMapPoint(point))return;cancelSnap();geometryChanged=true;snapped=false;modeDrafts.clear();routeLegFractions=null;
+ if(mode==='manual'){selected.push([...point]);endpoints=selected.length>1?[selected[0],selected.at(-1)]:selected.map(p=>[...p]);viaPoints=[];drawSelection();update();return;}
+ const controls=routeControls();if(controls.length>=50){toast('Maximum 50 points pour un itinéraire.');return;}
+ controls.push([...point]);if(controls.length===1){endpoints=controls;selected=controls.map(p=>[...p]);viaPoints=[];drawSelection();void snapFirstPoint();}
+ else{endpoints=[controls[0],controls.at(-1)];viaPoints=controls.slice(1,-1);gpsSelection=routeControls();selected=gpsSelection.map(p=>[...p]);drawSelection();status('Points ajoutés. Calcul de l’itinéraire…');planRecalcTimer=setTimeout(()=>{planRecalcTimer=null;void recalculateRoute();},350);}update();
+}
+function newPlan(){
+ planLoadVersion++;planReadOnly=false;editingPlan=null;currentRide=null;trace=[];routeLayer?.clearLayers();reset();mode='route';$('planSelect').value='';previewPlan();$('planForm').reset();$('planName').value='';$('planNotes').value='';$('publicPlan').checked=false;setView('planner');status('Cliquez pour poser le départ, puis les étapes de votre itinéraire. Chaque clic prolonge le parcours.');
+}
+async function refreshPlans(){planRecords=await api('/api/plans');renderPlanLibrary();}
+function renderPlanLibrary(){
+ const select=$('planSelect'),previous=select.value,scope=$('planScope').value||'all',items=planRecords.filter(p=>scope==='all'||scope==='mine'&&p.isMine||scope==='others'&&!p.isMine);select.replaceChildren();
+ const initial=document.createElement('option');initial.value='';initial.textContent=items.length?'— Choisir un itinéraire —':'Aucun itinéraire enregistré';select.append(initial);for(const p of items){const o=document.createElement('option');o.value=p.id;o.textContent=`${p.name} · ${(p.distance/1000).toFixed(1)} km · ${p.owner}`;select.append(o);}
+ select.value=items.some(p=>p.id===previous)?previous:items.some(p=>p.id===editingPlan?.id)?editingPlan.id:'';previewPlan();
+}
+function previewPlan(){
+ const p=planRecords.find(p=>p.id===$('planSelect').value);renderPreview($('planPreview'),p,{label:p?.isMine?'Mon itinéraire':p?`Itinéraire de ${p.owner}`:'',meta:p?`${(p.distance/1000).toFixed(1)} km · ${p.isPublic?'Public':'Privé'}`:''});
+ $('openPlan').disabled=!p;$('deletePlan').disabled=!p?.isMine;$('exportPlan').hidden=!p;$('copyPlan').disabled=!p;if(p)$('exportPlan').href=`/api/plans/${p.id}/gpx`;
+}
+async function loadPlan(id,{copy=false}={}){
+ const version=++planLoadVersion,p=await api(`/api/plans/${id}`);if(version!==planLoadVersion)return;rideLoadVersion++;currentRide=null;trace=[];routeLayer?.clearLayers();planReadOnly=false;reset();editingPlan=copy?null:p;planReadOnly=!copy&&!p.isMine;mode=p.mode==='manual'?'manual':'route';selected=p.coordinates.map(q=>[...q]);const controls=p.routePoints||[selected[0],selected.at(-1)];endpoints=[controls[0],controls.at(-1)].map(q=>[...q]);viaPoints=mode==='route'?controls.slice(1,-1).map(q=>[...q]):[];snapped=p.snapped;first=endpoints[0];last=endpoints[1];$('planName').value=copy?'Copie de '+p.name:p.name;$('planNotes').value=p.notes||'';$('publicPlan').checked=copy?false:p.isPublic;setView('planner');drawSelection();fit(selected);status(planReadOnly?`Itinéraire public de ${p.owner}. Exportez-le ou créez votre copie pour le modifier.`:'Cliquez pour prolonger le parcours ou glissez les marqueurs pour le modifier.');jumpToMap();
+}
+$('plannerTab').onclick=async()=>{newPlan();try{await refreshPlans();}catch(e){toast(e.message);}};
+$('newPlan').onclick=newPlan;$('planSelect').onchange=previewPlan;$('planScope').onchange=renderPlanLibrary;$('plannerShowSegments').onchange=()=>drawCatalog();
+$('openPlan').onclick=()=>{const id=$('planSelect').value;if(id)loadPlan(id).catch(e=>toast(e.message));};$('copyPlan').onclick=()=>{const id=$('planSelect').value;if(id)loadPlan(id,{copy:true}).catch(e=>toast(e.message));};
+$('deletePlan').onclick=async()=>{const id=$('planSelect').value;if(!id||!confirm('Supprimer cet itinéraire ?'))return;try{await api(`/api/plans/${id}`,{method:'DELETE'});if(editingPlan?.id===id)newPlan();await refreshPlans();toast('Itinéraire supprimé.');}catch(e){toast(e.message);}};
+$('planForm').onsubmit=async e=>{
+ e.preventDefault();if(view!=='planner'||planReadOnly||selected.length<2||busy||mode==='route'&&!snapped)return;$('savePlan').disabled=true;
+ try{const data={name:$('planName').value,notes:$('planNotes').value,isPublic:$('publicPlan').checked,coordinates:selected,routePoints:mode==='route'?routeControls():undefined,mode,snapped};const p=editingPlan?await api(`/api/plans/${editingPlan.id}`,{method:'PATCH',body:JSON.stringify(data)}):await post('/api/plans',data);editingPlan=p;await refreshPlans();$('planSelect').value=p.id;previewPlan();toast('Itinéraire enregistré. Le GPX est disponible dans la bibliothèque.');}
+ catch(e){toast(e.message);}finally{update();}
+};
+
 try{const me=await api('/api/me');$('username').textContent=me.username;setHidden('adminLink',!me.isAdmin);[records,rides,catalog]=await Promise.all([api('/api/portions'),api('/api/rides'),api('/api/catalog')]);renderRides();void loadStravaStatus();
  if(map){const layers=await api('/api/wms');for(const w of layers){const layer=L.tileLayer.wms(w.url,{layers:w.layers,version:w.version,styles:w.styles,format:'image/png',transparent:false,referrerPolicy:'strict-origin-when-cross-origin',attribution:escapeHTML(w.attribution),maxZoom:20});layer.on('tileerror',()=>{if(map.hasLayer(layer))toast('Le fond '+w.name+' est indisponible.');});layerControl.addBaseLayer(layer,escapeHTML(w.name));}}
  const requested=new URLSearchParams(location.search||'').get('ride');if(requested&&/^[a-f0-9-]{36}$/.test(requested))await loadRide(requested);else if(new URLSearchParams(location.search||'').get('source')==='strava'){setView('explore');$('rideSource').value='strava';await loadStravaStatus();await changeRideSource();}else setView('saved');}catch(e){toast(e.message);}stars();update();

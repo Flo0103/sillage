@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {planData,planGPX} from '../server/plans.js';
 import {portion,hashPassword,verifyPassword,coordinates} from '../server/model.js';
 import {matchOSM,shortest,routeLength} from '../dist/geo.js';
 const input={coordinates:[[50,5],[50.001,5]],rating:4,surface:'Grosses pierres / blocs',difficulty:'Technique',winter:'conditions',name:'   '};
@@ -14,4 +15,9 @@ test('routage conserve ses points de passage et refuse des points non valides ou
  const routePoints=[[50,5],[50.0005,5.0005],[50.001,5]],p=portion({...input,mode:'route',routePoints});assert.deepEqual(p.routePoints,routePoints);
  assert.deepEqual(portion({...input,mode:'route'}).routePoints,[input.coordinates[0],input.coordinates[1]]);
  assert.throws(()=>portion({...input,mode:'route',routePoints:[[500,5],[50,5]]}));assert.throws(()=>portion({...input,mode:'route',routePoints:Array.from({length:13},(_,i)=>[50+i*.001,5])}));
+});
+
+test('modèle d’itinéraire : limites, nom automatique et GPX échappé',()=>{
+ const p=planData({mode:'manual',coordinates:[[50,5],[50.02,5]],name:'  Tour & bois  ',notes:'<pause> & eau'});assert.equal(p.name,'Tour & bois');assert.ok(p.distance>2000);assert.equal(p.mode,'manual');assert.match(planGPX(p),/<name>Tour &amp; bois<\/name>/);assert.match(planGPX(p),/<desc>&lt;pause&gt; &amp; eau<\/desc>/);assert.match(planGPX(p),/lat="50.02" lon="5"/);
+ assert.match(planData({mode:'manual',coordinates:[[50,5],[50.01,5]]}).name,/Itinéraire de/);assert.throws(()=>planData({coordinates:[[0,0],[10,10]],mode:'manual'}),/500 km/);assert.throws(()=>planData({coordinates:[[50,5],[50,5]],mode:'manual'}),/distincts/);
 });
