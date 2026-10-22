@@ -1,11 +1,11 @@
 {
   "name": "sillage",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server/index.js",
-    "test": "node test/model.test.js && node test/api.test.js && node test/frontend.test.js && node test/features.test.js",
+    "test": "node test/model.test.js && node test/api.test.js && node test/frontend.test.js && node test/features.test.js && node test/snapping.test.js",
     "user:add": "node server/users.js"
   },
   "dependencies": {

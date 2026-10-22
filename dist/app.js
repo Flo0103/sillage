@@ -1,8 +1,8 @@
-import {distance,routeLength,matchOSM} from './geo.js?v=3.0.1';
-import {visibleSegments,segmentColor,ratingColors,surfaceColors,escapeHTML} from './catalog.js?v=3.0.1';
+import {distance,routeLength,matchOSMDetailed,selectionBounds} from './geo.js?v=3.1.0';
+import {visibleSegments,segmentColor,ratingColors,surfaceColors,escapeHTML} from './catalog.js?v=3.1.0';
 const $=id=>document.getElementById(id);
 const setHidden=(id,value)=>{const element=$(id);if(element)element.hidden=value;};
-let trace=[],selected=[],gpsSelection=[],records=[],rides=[],first=null,last=null,rating=0,mode='auto',snapped=false,busy=false,view='saved',currentRide=null,map,routeLayer,selectionLayer,marks,snapController,snapVersion=0,catalog=[],catalogLayer,layerControl;
+let trace=[],selected=[],gpsSelection=[],records=[],rides=[],first=null,last=null,rating=0,mode='auto',snapped=false,busy=false,view='saved',currentRide=null,map,routeLayer,selectionLayer,marks,snapController,snapVersion=0,catalog=[],catalogLayer,layerControl,osmSnapshot=null;
 const winterLabels={unknown:'Hiver non renseigné',yes:'Roulable en hiver',no:'Non roulable en hiver',conditions:'Hiver selon conditions'};
 async function api(path,options={}){const res=await fetch(path,{...options,headers:{'Content-Type':'application/json',...options.headers}});if(res.status===401){location.replace('/login.html');throw Error('Session expirée.');}const data=await res.json();if(!res.ok)throw Error(data.error||'Le serveur ne répond pas.');return data;}
 const post=(path,data,options={})=>api(path,{method:'POST',body:JSON.stringify(data),...options});
@@ -12,7 +12,7 @@ function stars(){ $('stars').replaceChildren();for(let i=1;i<=5;i++){const b=doc
 function update(){
  $('distance').innerHTML=selected.length>1?`${(routeLength(selected)/1000).toFixed(2)} <em>km</em>`:'— <em>km</em>';
  $('snapState').textContent=busy?'OSM en cours…':snapped?'OSM · à vérifier':mode==='manual'?'Manuel':'GPS d’origine';
- $('save').disabled=selected.length<2||!rating||busy||view!=='explore';$('snap').disabled=!gpsSelection.length||busy;setHidden('snap',mode==='manual'||view==='saved');setHidden('undo',mode!=='manual'||view==='saved');$('undo').disabled=!selected.length;
+ $('save').disabled=selected.length<2||!rating||busy||view!=='explore';$('snap').disabled=!gpsSelection.length||busy;setHidden('snap',mode==='manual'||view==='saved');setHidden('undo',mode!=='manual'||view==='saved');$('undo').disabled=!selected.length;setHidden('toleranceControls',mode==='manual'||view==='saved');
  $('count').textContent=view==='saved'?filtered().length:records.length;$('autoMode').classList.toggle('active',mode==='auto');$('manualMode').classList.toggle('active',mode==='manual');
 }
 function cancelSnap(){snapVersion++;snapController?.abort();busy=false;}
@@ -28,7 +28,10 @@ function choose(latlng){if(view!=='explore')return;if(mode==='manual'){cancelSna
 async function snap(){
  if(gpsSelection.length<2)return;cancelSnap();const version=snapVersion;snapped=false;selected=gpsSelection.map(p=>[...p]);drawSelection();if(routeLength(gpsSelection)>15000){status('Accrochage limité à 15 km. Réduisez la portion ou passez en manuel.');update();return;}
  busy=true;update();status('Accrochage automatique aux chemins OpenStreetMap…');snapController=new AbortController();
- try{const lat=gpsSelection.map(p=>p[0]),lon=gpsSelection.map(p=>p[1]);const data=await post('/api/osm',{bbox:[Math.min(...lat)-.002,Math.min(...lon)-.003,Math.max(...lat)+.002,Math.max(...lon)+.003]},{signal:snapController.signal});if(version!==snapVersion)return;selected=matchOSM(gpsSelection,data.elements||[]);snapped=true;drawSelection();status('Tracé OSM en orange au-dessus du GPX bleu. Vérifiez-le avant d’enregistrer.');}
+ try{const tolerance=Number($('snapTolerance')?.value||150),bbox=selectionBounds(gpsSelection,tolerance),covers=(a,b)=>a&&a[0]<=b[0]&&a[1]<=b[1]&&a[2]>=b[2]&&a[3]>=b[3];let data;
+  if(osmSnapshot&&Date.now()-osmSnapshot.time<600000&&covers(osmSnapshot.data.bbox,bbox))data=osmSnapshot.data;
+  else{data=await post('/api/osm',{bbox},{signal:snapController.signal});if(version!==snapVersion)return;osmSnapshot={time:Date.now(),data:{...data,bbox:data.bbox||bbox}};data=osmSnapshot.data;}
+  if(version!==snapVersion)return;const result=matchOSMDetailed(gpsSelection,data.elements||[],{tolerance});selected=result.coordinates;snapped=true;drawSelection();const warning=result.stats.maxOffset>75?` Écart GPS jusqu’à ${result.stats.maxOffset} m : vérifiez soigneusement.`:'';const ignored=result.stats.ignoredAnchors?` ${result.stats.ignoredAnchors} point(s) de contrôle GPS isolé(s) écarté(s).`:'';status('Tracé OSM en orange au-dessus du GPX bleu.'+warning+ignored+' Vérifiez avant d’enregistrer.');}
  catch(e){if(version!==snapVersion)return;status(`Accrochage impossible : ${e.message} Le GPS reste visible ; le mode manuel est disponible.`);}
  finally{if(version===snapVersion){busy=false;update();}}
 }
@@ -72,7 +75,7 @@ function renderList(){
  if(r.isMine){const details=document.createElement('details'),summary=document.createElement('summary'),visibility=document.createElement('input'),label=document.createElement('label'),winterSelect=document.createElement('select'),apply=document.createElement('button'),del=document.createElement('button');summary.textContent='Modifier le partage et l’hiver';visibility.type='checkbox';visibility.checked=r.isPublic;label.className='checklabel';label.append(visibility,document.createTextNode(' Public pour les membres'));winterSelect.setAttribute('aria-label','Roulabilité en hiver');for(const[value,text]of Object.entries(winterLabels)){const o=document.createElement('option');o.value=value;o.textContent=text;winterSelect.append(o);}winterSelect.value=r.winter||'unknown';apply.textContent='Enregistrer';apply.onclick=async()=>{try{await api(`/api/portions/${r.id}`,{method:'PATCH',body:JSON.stringify({isPublic:visibility.checked,winter:winterSelect.value})});await refreshSegments();renderList();toast('Segment mis à jour.');}catch(e){toast(e.message);}};del.textContent='Supprimer';del.onclick=async()=>{if(!confirm(`Supprimer « ${r.name} » ?`))return;try{await api(`/api/portions/${r.id}`,{method:'DELETE'});reset();await refreshSegments();renderList();}catch(e){toast(e.message);}};details.append(summary,label,winterSelect,apply);div.append(details,del);}list.append(div);}
 }
 function setView(v){view=v;const saved=v==='saved';$('explore').classList.toggle('active',!saved);$('savedTab').classList.toggle('active',saved);setHidden('rideList',saved);setHidden('rideChooser',saved);setHidden('catalogFilters',!saved);setHidden('editorPanel',saved);setHidden('gpxLegend',saved);setHidden('segmentLegend',!saved);$('listTitle').textContent=saved?'Les segments':'Vos sorties';setHidden('source',saved);setHidden('ratingForm',saved);setHidden('modeControls',saved);if(saved){routeLayer?.clearLayers();$('mapSubtitle').textContent='Segments personnels et publics';drawCatalog({recenter:true});}else{catalogLayer?.clearLayers();$('mapSubtitle').textContent=currentRide?.name||'Choisissez ou importez une sortie';}renderList();update();}
-$('autoMode').onclick=()=>setMode('auto');$('manualMode').onclick=()=>setMode('manual');$('undo').onclick=()=>{selected.pop();drawSelection();update();};$('snap').onclick=snap;$('reset').onclick=reset;
+$('autoMode').onclick=()=>setMode('auto');$('manualMode').onclick=()=>setMode('manual');$('undo').onclick=()=>{selected.pop();drawSelection();update();};$('snap').onclick=snap;$('snapTolerance').onchange=()=>{if(gpsSelection.length>1&&mode==='auto'&&view==='explore')void snap();};$('reset').onclick=reset;
 $('savedTab').onclick=()=>{reset();setView('saved');};
 $('hideRide').onclick=()=>{reset();setView('saved');};$('openRide').onclick=()=>{const id=$('rideSelect').value;if(id)loadRide(id).catch(e=>toast(e.message));else toast('Choisissez une sortie enregistrée.');};
 for(const id of ['showMine','showOthers','winterOnly','winterFilter','colorMode'])$(id).onchange=()=>{$('winterFilter').disabled=$('winterOnly').checked;selected=[];drawSelection();drawCatalog();renderList();};$('explore').onclick=()=>{reset();setView('explore');drawRoute();};$('fit').onclick=()=>{if(view==='saved')drawCatalog({recenter:true});else fit(trace);};

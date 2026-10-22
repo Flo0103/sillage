@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
-import {distance,routeLength,matchOSM} from '../dist/geo.js';
+import {distance,routeLength,matchOSMDetailed,selectionBounds} from '../dist/geo.js';
 import {visibleSegments,segmentColor,ratingColors,surfaceColors,escapeHTML} from '../dist/catalog.js';
 const html=await readFile(new URL('../dist/index.html',import.meta.url),'utf8');
 const script=(await readFile(new URL('../dist/app.js',import.meta.url),'utf8')).replace(/^import .*\n/gm,'');
@@ -15,7 +15,7 @@ function context({optionalMissing=false}={}){
  const document={getElementById:id=>elements.get(id)||null,createElement:()=>element(),createTextNode:text=>({textContent:text}),querySelector:()=>null};
  const fetch=async(path,options={})=>{calls.push({path,options});const data=path==='/api/me'?{username:'alice'}:['/api/portions','/api/catalog','/api/wms'].includes(path)?[]:path==='/api/rides'?options.method==='POST'?{id:ride.id}:[ride]:ride;return {ok:true,status:200,json:async()=>data};};
  const xml={querySelector:()=>null,getElementsByTagNameNS:(ns,tag)=>tag==='trkpt'?points.map(p=>({hasAttribute:()=>true,getAttribute:n=>n==='lat'?String(p[0]):String(p[1])})):[]};
- const ctx={document,fetch,distance,routeLength,matchOSM,visibleSegments,segmentColor,ratingColors,surfaceColors,escapeHTML,location:{replace(){}},localStorage:{getItem:()=>null},AbortController,console,setTimeout:()=>1,clearTimeout(){},innerWidth:1200,Blob,URL,confirm:()=>true,DOMParser:class{parseFromString(){return xml;}}};
+ const ctx={document,fetch,distance,routeLength,matchOSMDetailed,selectionBounds,visibleSegments,segmentColor,ratingColors,surfaceColors,escapeHTML,location:{replace(){}},localStorage:{getItem:()=>null},AbortController,console,setTimeout:()=>1,clearTimeout(){},innerWidth:1200,Blob,URL,confirm:()=>true,DOMParser:class{parseFromString(){return xml;}}};
  return {elements,calls,ctx};
 }
 test('choix d’une sortie sauvegardée sans dépendre des contrôles facultatifs',async()=>{
@@ -52,4 +52,8 @@ test('catalogue initial, filtres personnel/public/hiver et légende sans GPX',as
  elements.get('showMine').checked=false;elements.get('showMine').onchange();assert.equal(elements.get('savedList').children.length,1);
  elements.get('winterFilter').value='yes';elements.get('winterFilter').onchange();assert.equal(elements.get('savedList').children[0].textContent,'Aucun segment avec ces filtres.');
  elements.get('colorMode').value='surface';elements.get('colorMode').onchange();assert.equal(elements.get('segmentLegend').children[0].textContent,'Revêtement');
+});
+test('changer la tolérance réutilise les données OSM déjà chargées dans la page',async()=>{
+ const {ctx,elements,calls}=context(),base=ctx.fetch;ctx.fetch=async(path,options)=>{if(path==='/api/osm'){calls.push({path,options});return {ok:true,status:200,json:async()=>({bbox:[49.99,4.99,50.02,5.03],elements:[{id:1,nodes:[1,2],geometry:[{lat:50,lon:5},{lat:50,lon:5.02}]}]})};}return base(path,options);};
+ const result=await vm.runInNewContext(`(async()=>{${script}\nawait loadRide('00000000-0000-0000-0000-000000000001');gpsSelection=[[50,5.001],[50,5.01]];await snap();$('snapTolerance').value='250';await snap();return {snapped,points:selected.length};})()`,ctx);assert.equal(result.snapped,true);assert.ok(result.points>1);assert.equal(calls.filter(c=>c.path==='/api/osm').length,1);
 });

@@ -1,3 +1,4 @@
+import { createOSMService } from './osm.js';
 import { features } from './features.js';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -5,7 +6,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { coordinates, portion, routeLength, verifyPassword, tokenHash, hashPassword } from './model.js';
 const root=fileURLToPath(new URL('../dist/',import.meta.url));
-export function createApp(db,{origin,secure=true}={}){
+export function createApp(db,{origin,secure=true,osmService=createOSMService()}={}){
   if(!origin)throw Error('APP_ORIGIN doit être renseigné.');
   const sessionCookie='sillage_session';
   const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
@@ -56,12 +57,7 @@ export function createApp(db,{origin,secure=true}={}){
         const client=await db.connect();let imported=0;try{await client.query('BEGIN');for(const r of validated){const q=await client.query('INSERT INTO portions(id,user_id,data,legacy_id,is_public) VALUES($1,$2,$3,$4,false) ON CONFLICT(user_id,legacy_id) DO NOTHING',[randomUUID(),user.id,JSON.stringify(r.data),r.key]);imported+=q.rowCount;}await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}return json(res,200,{imported});
       }
       const item=path.match(/^\/api\/portions\/([a-f0-9-]{36})$/);if(item&&method==='DELETE'){const q=await db.query('DELETE FROM portions WHERE id=$1 AND user_id=$2',[item[1],user.id]);return json(res,q.rowCount?200:404,q.rowCount?{ok:true}:{error:'Portion introuvable.'});}
-      if(path==='/api/osm'&&method==='POST'){
-        const b=await body(req);if(!Array.isArray(b.bbox)||b.bbox.length!==4||!b.bbox.every(Number.isFinite))throw Error('Zone invalide.');const[s,w,n,e]=b.bbox;
-        if(s< -90||n>90||w< -180||e>180||n<=s||e<=w||(n-s)*(e-w)>.012)throw Error('Zone trop étendue pour OSM. Utilisez le mode manuel.');
-        const query=`[out:json][timeout:25];way[highway][highway!~"motorway|trunk|motorway_link|trunk_link|steps|construction|proposed"][access!~"private|no"][bicycle!="no"](${s},${w},${n},${e});out geom;`;
-        const response=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',headers:{'User-Agent':'Sillage/2.0'},body:new URLSearchParams({data:query}),signal:AbortSignal.timeout(30000)});if(!response.ok)return json(res,502,{error:'OSM indisponible. Utilisez le mode manuel.'});const raw=await response.text();if(raw.length>20*1024*1024)return json(res,502,{error:'Trop de données OSM. Réduisez la portion.'});return json(res,200,JSON.parse(raw));
-      }
+      if(path==='/api/osm'&&method==='POST'){const b=await body(req);return json(res,200,await osmService(b.bbox));}
       if(method==='GET'&&['/','/index.html','/app.js','/geo.js','/catalog.js','/account.html','/account.js','/admin.html','/admin.js','/common.js'].includes(path)){if((path==='/admin.html'||path==='/admin.js')&&!user.is_admin)return json(res,403,{error:'Accès réservé à l’administrateur.'});const file=path==='/'?'index.html':path.slice(1);res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript; charset=utf-8':'text/html; charset=utf-8');return res.end(await readFile(root+file));}
       return json(res,404,{error:'Ressource introuvable.'});
     }catch(e){if(e.code||e.name==='TypeError'&&e.message==='fetch failed'){console.error('Request failed:',e.code||e.name);return json(res,503,{error:'Service temporairement indisponible.'});}return json(res,e.status||400,{error:e.name==='TimeoutError'?'OSM est trop lent. Utilisez le mode manuel.':e.message||'Requête invalide.'});}
