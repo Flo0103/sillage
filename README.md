@@ -7,12 +7,12 @@ Application web en français pour retrouver ses sorties, isoler des portions et 
 - Comptes privés sur invitation, administration des utilisateurs et changement de mot de passe.
 - Import de fichiers GPX, conservation de l’original et choix des sorties enregistrées.
 - Connexion OAuth Strava, sélection paginée de ses activités gravel ou vélo et import de sa propre trace.
-- Sélection de deux points sur un GPX, accrochage OSM automatique ou tracé manuel point à point.
-- Tolérance OSM 75 / 150 / 250 m ; index spatial et A*, cache de dix minutes et réutilisation des zones déjà chargées.
-- Nom facultatif, note sur cinq, technicité, revêtement, état hivernal et commentaire.
-- Carte des segments personnels et publics des membres, filtres hiver et couleurs par note ou revêtement.
+- Routage OSM entre deux points sur la carte par défaut ; snapping qui suit le GPX en option et tracé manuel point à point.
+- Tolérance OSM 75 / 150 / 250 m ; index spatial, A*, cache de dix minutes et réutilisation des zones téléchargées. Calcul dans un Web Worker avec annulation et progression des points GPS traités.
+- Nom facultatif, note sur cinq, technicité, revêtement, single track (oui / non / non renseigné), état hivernal et commentaire. Revêtement suggéré depuis les tags OSM des chemins parcourus, modifiable à la main.
+- Carte des segments personnels et publics des membres, visibles aussi pendant la création. Filtres hiver / single track ; couleurs par note, revêtement ou single track. Cliquer sur son segment ouvre l’édition complète, avec possibilité de redessiner.
 - Fonds OSM, Esri satellite, IGN Belgique CartoWeb et WMS personnalisés par utilisateur.
-- Carte adaptée à la hauteur de la fenêtre, plein écran et légende compacte repliable dans le coin de la carte.
+- Carte adaptée à la hauteur de la fenêtre, plein écran et légende compacte repliable dans le coin de la carte. Sur ordinateur, le panneau latéral et l’éditeur ont un défilement indépendant de la carte.
 - Export GeoJSON de ses portions et migration des anciennes notes locales.
 
 ## Confidentialité
@@ -59,6 +59,8 @@ Les tests de modèle, de routage API, de confidentialité, d’OAuth, de jetons,
 
 Leaflet est chargé depuis unpkg, les polices depuis Google Fonts, les tuiles depuis leurs fournisseurs. IGN CartoWeb est fourni pour l’usage non commercial avec attribution IGN / TomTom (https://ngi.be/fr/conditions-dutilisation-pour-le-service-cartoweb-be/). Les WMS sont des services HTTPS publics compatibles EPSG:3857. Changer le fond de carte ne change pas le snapping OSM.
 
-Overpass reçoit la zone géographique sélectionnée, sans le fichier GPX. Accrochage limité à 15 km et aux chemins OSM disponibles. Les modes souples peuvent ignorer quelques ancres GPS isolées, mais ne créent pas de raccordements entre composantes déconnectées ; les détours excessifs restent refusés. Vérifier le résultat, surtout près des chemins parallèles. Le cache serveur est limité à 32 Mo de réponses brutes / 16 zones ; une zone est conservée dans la page. La première requête dépend du service public Overpass. Mesure CPU locale illustrative sur un réseau synthétique avec une trace de 8,5 km : 372 ms avant, 193 ms après, 3 ms pour un nouvel essai avec le graphe préparé ; ce n’est pas une mesure du réseau ou d’un téléphone.
+Overpass reçoit la zone géographique sélectionnée, sans le fichier GPX. Calcul limité à 15 km et aux chemins OSM disponibles. Le routage choisit le chemin le plus court dans la zone téléchargée avec une marge de 580 m minimum autour des deux points ; il respecte les sens uniques vélo, mais ne constitue pas un moteur de navigation complet et peut différer de la sortie réellement effectuée. Le snapping optionnel suit les points intermédiaires du GPX. Si un chemin manque ou sort de la zone, réduire la portion ou utiliser le mode manuel. Les modes souples peuvent ignorer quelques ancres GPS isolées, mais ne créent pas de raccordements entre composantes déconnectées ; les détours excessifs restent refusés. Vérifier le résultat, surtout près des chemins parallèles. Le cache serveur est limité à 32 Mo de réponses brutes / 16 zones ; une zone est conservée dans la page. La première requête dépend du service public Overpass. Le téléchargement et l’indexation affichent leur phase ; le pourcentage de snapping est calculé à partir du nombre de points de contrôle traités, pas d’une minuterie. Le temps réseau Overpass reste variable.
 
 Les fichiers GPX sont limités à 25 Mo et 100 000 points ; les traces interrompues affichent le segment le plus long, mais le fichier d’origine complet est conservé. Cent sorties récentes sont proposées dans le sélecteur. L’import Strava utilise le flux de coordonnées, pas un GPX original : le GPX téléchargeable est reconstruit, sans altitude ni horodatage. La capacité et les quotas de l’application Strava peuvent limiter les comptes et consultations. Pas de réimport GeoJSON ni de réinitialisation de mot de passe par email ; l’admin peut produire un lien de réinitialisation.
+
+Le préremplissage du revêtement repose sur `surface=*` le long du chemin retenu. Il exige au moins 50 % de longueur renseignée ; un revêtement représentant au moins 60 % de la longueur connue devient dominant, sinon « Mixte ». Aucune suggestion n’est appliquée si les données sont insuffisantes ; une modification manuelle est conservée lors des recalculs. Le caractère single track reste un attribut déclaré par le membre.

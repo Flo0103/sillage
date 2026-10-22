@@ -28,3 +28,9 @@ test('un administrateur ne peut pas se désactiver ni supprimer le dernier admin
 test('fonds WMS sont enregistrés et supprimés uniquement dans le compte connecté',async()=>{
  const db=dbWith(()=>({rows:[],rowCount:0}));const created=await run(db,'/api/wms','POST',member,{name:'Topo',url:'https://carto.example.be/wms',layers:'topo'});assert.equal(created.status,201);const insert=db.calls.find(c=>c.sql.startsWith('INSERT INTO wms_layers'));assert.equal(insert.args[1],member.id);await run(db,`/api/wms/${created.body.id}`,'DELETE',member);const del=db.calls.find(c=>c.sql.startsWith('DELETE FROM wms_layers'));assert.equal(del.args[1],member.id);assert.match(del.sql,/user_id=\$2/);
 });
+
+test('single tracks filtrés en préservant les anciens segments non renseignés',()=>{
+ const items=[{id:1,isMine:true,singleTrack:'yes'},{id:2,isMine:true,singleTrack:'no'},{id:3,isMine:true}];
+ assert.deepEqual(visibleSegments(items,{singleTrack:'yes'}).map(s=>s.id),[1]);assert.deepEqual(visibleSegments(items,{singleTrack:'no'}).map(s=>s.id),[2]);assert.deepEqual(visibleSegments(items,{singleTrack:'unknown'}).map(s=>s.id),[3]);
+ assert.notEqual(segmentColor(items[0],'singleTrack'),segmentColor(items[1],'singleTrack'));assert.match(segmentColor(items[2],'singleTrack'),/^#/);
+});

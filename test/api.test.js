@@ -9,7 +9,8 @@ function database(){const saved=[],rides=[];return {saved,rides,queries:[],async
  if(sql.includes('FROM sessions s')){const name=Object.keys(tokens).find(k=>tokenHash(tokens[k])===args[0]);return {rows:name?[{id:name,username:name}]:[]};}
  if(sql.startsWith('INSERT INTO portions')){saved.push({id:args[0],user:args[1],data:JSON.parse(args[2]),is_public:args[3],source_strava:args[5]});return {rowCount:1,rows:[]};}
  if(sql.includes('FROM portions p JOIN users'))return {rows:saved.filter(r=>r.user===args[0]||r.is_public&&!r.source_strava).map(r=>({id:r.id,data:r.data,is_public:r.is_public,source_strava:r.source_strava,username:r.user,is_mine:r.user===args[0],created_at:new Date()}))};
- if(sql.startsWith('UPDATE portions SET is_public')){const r=saved.find(r=>r.id===args[2]&&r.user===args[3]);if(!r||r.source_strava&&args[0])return {rowCount:0};r.is_public=args[0];r.data.winter=args[1];return {rowCount:1,rows:[{id:r.id}]};}
+ if(sql.startsWith('SELECT data,is_public,source_strava FROM portions'))return {rows:saved.filter(r=>r.id===args[0]&&r.user===args[1])};
+ if(sql.startsWith('UPDATE portions SET data=')){const r=saved.find(r=>r.id===args[2]&&r.user===args[3]);if(!r||r.source_strava&&args[1])return {rowCount:0};r.data=JSON.parse(args[0]);r.is_public=args[1];return {rowCount:1,rows:[{id:r.id}]};}
  if(sql.startsWith('SELECT id,data'))return {rows:saved.filter(r=>r.user===args[0]).map(r=>({id:r.id,data:r.data,is_public:r.is_public,created_at:new Date()}))};
  if(sql.startsWith('DELETE FROM portions')){const i=saved.findIndex(r=>r.id===args[0]&&r.user===args[1]);if(i<0)return {rowCount:0};saved.splice(i,1);return {rowCount:1};}
  if(sql.startsWith('SELECT id,source_type FROM rides'))return {rows:rides.filter(r=>r.id===args[0]&&r.user_id===args[1])};
@@ -67,3 +68,26 @@ test('admin API et page protégées pour les membres',async()=>{const app=create
 test('endpoint OSM exige une session et transmet la zone au service cache',async()=>{let calls=0;const app=createApp(database(),{origin:'https://sillage.test',osmService:async bbox=>{calls++;assert.deepEqual(bbox,[50,5,50.01,5.01]);return {elements:[],bbox,cached:true};}});const body={bbox:[50,5,50.01,5.01]};assert.equal((await request(app,{url:'/api/osm',method:'POST',body})).status,401);assert.equal(calls,0);const r=await request(app,{url:'/api/osm',method:'POST',body,user:'alice'});assert.equal(r.status,200);assert.equal(JSON.parse(r.body).cached,true);assert.equal(calls,1);});
 
 test('les portions issues de Strava restent privées et ne peuvent pas être publiées',async()=>{const db=database(),app=createApp(db,{origin:'https://sillage.test'}),rideId='00000000-0000-0000-0000-000000000111';db.rides.push({id:rideId,user_id:'alice',source_type:'strava'});const body={coordinates:[[50,5],[50.001,5]],rating:4,surface:'Gravier fin',difficulty:'Facile',winter:'yes',rideId,isPublic:true};const r=await request(app,{url:'/api/portions',method:'POST',body,user:'alice'});assert.equal(r.status,201);const p=JSON.parse(r.body);assert.equal(p.isPublic,false);assert.equal(p.fromStrava,true);assert.deepEqual(JSON.parse((await request(app,{url:'/api/catalog',user:'bob'})).body),[]);assert.equal((await request(app,{url:`/api/portions/${p.id}`,method:'PATCH',body:{isPublic:true,winter:'yes'},user:'alice'})).status,404);assert.equal((await request(app,{url:'/api/portions',method:'POST',body,user:'bob'})).status,400);});
+
+test('édition complète conserve la provenance et recalcule longueur, propriétaire seul',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'}),initial={name:'Avant',coordinates:[[50,5],[50.001,5]],rating:2,surface:'Gravier fin',difficulty:'Facile',source:'Sortie originale'};
+ const created=JSON.parse((await request(app,{url:'/api/portions',method:'POST',body:initial,user:'alice'})).body),url=`/api/portions/${created.id}`;
+ const edits={name:'Après',coordinates:[[50,5],[50.002,5]],rating:5,surface:'Chemin de terre',difficulty:'Technique',singleTrack:'yes',winter:'conditions',isPublic:false,notes:'Racines',source:'Fausse provenance',fromStrava:false,mode:'manual',distance:0};
+ assert.equal((await request(app,{url,method:'PATCH',body:edits,user:'bob'})).status,404);assert.equal(db.saved[0].data.name,'Avant');
+ const result=await request(app,{url,method:'PATCH',body:edits,user:'alice'});assert.equal(result.status,200);const saved=JSON.parse(result.body);
+ assert.equal(saved.name,'Après');assert.equal(saved.singleTrack,'yes');assert.equal(saved.winter,'conditions');assert.equal(saved.rating,5);assert.equal(saved.source,'Sortie originale');assert.equal(saved.mode,'manual');assert.ok(saved.distance>220&&saved.distance<225);assert.equal(saved.isPublic,false);
+ assert.deepEqual(saved.coordinates,edits.coordinates);
+ assert.equal((await request(app,{url,method:'PATCH',body:{singleTrack:'maybe'},user:'alice'})).status,400);assert.equal(db.saved[0].data.singleTrack,'yes');
+ assert.equal((await request(app,{url,method:'PATCH',body:{coordinates:[[500,5],[50,5]]},user:'alice'})).status,400);
+});
+test('single track absent reste inconnu et worker OSM est protégé',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'}),body={coordinates:[[50,5],[50.001,5]],rating:3,surface:'Sable',difficulty:'Facile'};
+ const created=await request(app,{url:'/api/portions',method:'POST',body,user:'alice'});assert.equal(JSON.parse(created.body).singleTrack,'unknown');
+ assert.equal((await request(app,{url:'/osm-worker.js'})).status,303);const worker=await request(app,{url:'/osm-worker.js',user:'alice'});assert.equal(worker.status,200);assert.match(worker.headers['Content-Type'],/javascript/);
+});
+
+test('édition d’un segment Strava ne retire pas sa provenance ni sa confidentialité',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'}),rideId='00000000-0000-0000-0000-000000000222';db.rides.push({id:rideId,user_id:'alice',source_type:'strava'});
+ const created=JSON.parse((await request(app,{url:'/api/portions',method:'POST',user:'alice',body:{coordinates:[[50,5],[50.001,5]],rating:4,surface:'Sable',difficulty:'Facile',rideId}})).body);
+ const r=await request(app,{url:'/api/portions/'+created.id,method:'PATCH',user:'alice',body:{name:'Sentier privé',singleTrack:'yes',isPublic:false,fromStrava:false,source_strava:false,rideId:null}});assert.equal(r.status,200);const updated=JSON.parse(r.body);assert.equal(updated.fromStrava,true);assert.equal(updated.isPublic,false);assert.equal(updated.singleTrack,'yes');assert.deepEqual(JSON.parse((await request(app,{url:'/api/catalog',user:'bob'})).body),[]);
+});

@@ -40,7 +40,9 @@ La dernière commande abonne Strava aux événements de révocation et de suppre
 
 ## 3. Se connecter et choisir une sortie
 
-Dans Sillage → « Mes sorties » → « Choisir une sortie Strava » → « Connecter mon compte Strava ».
+Dans Sillage → « Mon compte » → « Connecter mon compte Strava ». Le bouton ouvre la page officielle de connexion et d’autorisation Strava : utilisez vos identifiants habituels chez Strava. Sillage ne demande jamais votre mot de passe Strava. La configuration Client ID / Client Secret est réalisée une seule fois pour l’application sur le VPS, pas par chaque membre.
+
+Après autorisation, « Choisir une sortie gravel » est disponible dans « Mon compte » et dans « Mes sorties ».
 
 Autoriser la lecture des activités, y compris privées, pour obtenir la trace complète. Aucune permission d’écriture n’est demandée. Le filtre initial est `GravelRide` ; « Toutes mes sorties vélo » permet de retrouver une sortie enregistrée comme vélo ou VTT. Les pages suivent l’historique Strava, avec un bouton pour chercher plus loin : une page sans gravel ne signifie pas nécessairement qu’il n’y en a aucune dans l’historique.
 

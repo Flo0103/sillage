@@ -52,3 +52,17 @@ body.app-page #editorPanel{top:calc(var(--maphead-height,64px) + 12px);max-heigh
 
 .segmentlegend:not([open]) #legendContent{display:none;}body.app-page.map-expanded{overflow:hidden;}
 body.app-page>header{flex-wrap:wrap;gap:12px;padding:14px 24px;}body.app-page>header nav{height:auto;align-self:stretch;}body.app-page>header .account{flex-wrap:wrap;}@media(max-width:850px){body.app-page>header{padding:14px 18px;}}
+
+/* Each desktop column owns its scrolling area; the map keeps its viewport. */
+@media(min-width:851px){
+ html:has(body.app-page){height:100%;overflow:hidden;}
+ body.app-page{height:100dvh;max-height:100dvh;overscroll-behavior:none;}
+ body.app-page>main{flex:1 1 0;min-height:0!important;min-width:0;grid-template-rows:minmax(0,1fr);align-items:stretch;}
+ body.app-page>main>aside{height:100%;max-height:100%;min-height:0;min-width:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-gutter:stable;}
+ body.app-page>main>aside>*{flex-shrink:0;}
+ body.app-page #editorPanel{overscroll-behavior-y:contain;scrollbar-gutter:stable;}
+}
+.modebar{flex-wrap:wrap;}.modebar button{min-width:88px;line-height:1.4;}
+.modehint{font-size:11px;line-height:1.6;color:var(--muted);}
+#snapProgress{margin:12px 0;}#snapProgress label{font-size:11px;line-height:1.5;display:block;margin-bottom:5px;}#osmProgress{width:100%;accent-color:var(--green);}
+#editingNotice{padding:10px;background:#edf1e6;border-radius:6px;}#editingNotice button{display:block;margin-top:8px;font-size:12px;color:var(--green);}

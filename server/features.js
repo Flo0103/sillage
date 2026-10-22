@@ -1,6 +1,6 @@
 import {spatialBounds} from './spatial.js';
 import {randomBytes,randomUUID} from 'node:crypto';
-import {hashPassword,verifyPassword,tokenHash,winters} from './model.js';
+import {hashPassword,verifyPassword,tokenHash,portion} from './model.js';
 export function validPassword(p){return typeof p==='string'&&p.length>=12&&p.length<=256;}
 export function validUsername(s){return typeof s==='string'&&/^[a-z0-9_.-]{3,80}$/.test(s);}
 export function wmsConfig(b){
@@ -40,7 +40,15 @@ export async function features({db,req,res,path,method,user,body,json,origin,ses
  }
  const segment=path.match(/^\/api\/portions\/([a-f0-9-]{36})$/);
  if(segment&&method==='PATCH'){
-  const b=await body(req);if(typeof b.isPublic!=='boolean'||!winters.includes(b.winter))throw Error('Visibilité ou état hiver invalide.');const q=await db.query(`UPDATE portions SET is_public=$1,data=jsonb_set(data,'{winter}',to_jsonb($2::text)) WHERE id=$3 AND user_id=$4 AND (source_strava=false OR $1=false) RETURNING id`,[b.isPublic,b.winter,segment[1],user.id]);return reply(q.rowCount?200:404,q.rowCount?{ok:true}:{error:'Segment introuvable.'});
+  const b=await body(req),owned=await db.query('SELECT data,is_public,source_strava FROM portions WHERE id=$1 AND user_id=$2',[segment[1],user.id]),old=owned.rows[0];
+  if(!old)return reply(404,{error:'Segment introuvable.'});
+  if(b.isPublic!==undefined&&typeof b.isPublic!=='boolean')throw Error('Visibilité invalide.');
+  const isPublic=b.isPublic??old.is_public;if(old.source_strava&&isPublic)return reply(404,{error:'Segment introuvable.'});
+  // Only editable fields are accepted. Ride attribution and Strava provenance cannot be changed.
+  const edits={};for(const key of ['name','rating','surface','difficulty','winter','singleTrack','notes','coordinates','snapped','mode'])if(b[key]!==undefined)edits[key]=b[key];
+  const data=portion({...old.data,...edits,source:old.data.source});
+  const q=await db.query('UPDATE portions SET data=$1,is_public=$2 WHERE id=$3 AND user_id=$4 AND (source_strava=false OR $2=false) RETURNING id',[JSON.stringify(data),isPublic,segment[1],user.id]);
+  return reply(q.rowCount?200:404,q.rowCount?{...data,id:segment[1],isPublic,fromStrava:old.source_strava}:{error:'Segment introuvable.'});
  }
  if(path==='/api/wms'&&method==='GET'){const q=await db.query('SELECT id,config FROM wms_layers WHERE user_id=$1 ORDER BY created_at',[user.id]);return reply(200,q.rows.map(r=>({...r.config,id:r.id})));}
  if(path==='/api/wms'&&method==='POST'){const config=wmsConfig(await body(req)),id=randomUUID();await db.query('INSERT INTO wms_layers(id,user_id,config) VALUES($1,$2,$3)',[id,user.id,JSON.stringify(config)]);return reply(201,{...config,id});}
