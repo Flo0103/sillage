@@ -10,7 +10,7 @@ export function createApp(db,{origin,secure=true}={}){
   const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
   const cookie=(value,age)=>`${sessionCookie}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secure?'; Secure':''}`;
   let dummy;
-  async function body(req){let size=0,parts=[];for await(const chunk of req){size+=chunk.length;if(size>12*1024*1024)throw Object.assign(Error('Fichier trop volumineux.'),{status:413});parts.push(chunk);}try{return JSON.parse(Buffer.concat(parts).toString('utf8'));}catch{throw Object.assign(Error('JSON invalide.'),{status:400});}}
+  async function body(req,limit=12*1024*1024){let size=0,parts=[];for await(const chunk of req){size+=chunk.length;if(size>limit)throw Object.assign(Error('Fichier trop volumineux.'),{status:413});parts.push(chunk);}try{return JSON.parse(Buffer.concat(parts).toString('utf8'));}catch{throw Object.assign(Error('JSON invalide.'),{status:400});}}
   return createServer(async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');
     try{
@@ -35,8 +35,15 @@ export function createApp(db,{origin,secure=true}={}){
       if(!user){if(path.startsWith('/api/'))return json(res,401,{error:'Connectez-vous pour continuer.'});res.writeHead(303,{Location:'/login.html','Cache-Control':'no-store'});return res.end();}
       if(path==='/api/me'&&method==='GET')return json(res,200,{username:user.username});
       if(path==='/api/logout'&&method==='POST'){await db.query('DELETE FROM sessions WHERE token_hash=$1',[tokenHash(token)]);res.setHeader('Set-Cookie',cookie('',0));return json(res,200,{ok:true});}
-      if(path==='/api/rides'&&method==='GET'){const q=await db.query('SELECT id,name,distance,created_at FROM rides WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100',[user.id]);return json(res,200,q.rows);}
-      if(path==='/api/rides'&&method==='POST'){const b=await body(req),points=coordinates(b.coordinates),id=randomUUID(),name=typeof b.name==='string'?b.name.trim().slice(0,200)||'Sortie GPX':'Sortie GPX';await db.query('INSERT INTO rides(id,user_id,name,coordinates,distance) VALUES($1,$2,$3,$4,$5)',[id,user.id,name,JSON.stringify(points),routeLength(points)]);return json(res,201,{id,name});}
+      if(path==='/api/rides'&&method==='GET'){const q=await db.query('SELECT id,name,distance,created_at,(gpx_xml IS NOT NULL) AS gpx_available FROM rides WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100',[user.id]);return json(res,200,q.rows);}
+      if(path==='/api/rides'&&method==='POST'){const b=await body(req,72*1024*1024),points=coordinates(b.coordinates),id=randomUUID(),name=typeof b.name==='string'?b.name.trim().slice(0,200)||'Sortie GPX':'Sortie GPX';if(b.gpx!==undefined&&(typeof b.gpx!=='string'||Buffer.byteLength(b.gpx,'utf8')>25*1024*1024))throw Error('GPX limité à 25 Mo.');const fileName=typeof b.fileName==='string'?b.fileName.slice(0,200):null;await db.query('INSERT INTO rides(id,user_id,name,coordinates,distance,gpx_xml,file_name) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,user.id,name,JSON.stringify(points),routeLength(points),b.gpx??null,fileName]);return json(res,201,{id,name});}
+      const download=path.match(/^\/api\/rides\/([a-f0-9-]{36})\/gpx$/);
+      if(download&&method==='GET'){
+        const q=await db.query('SELECT name,coordinates,gpx_xml FROM rides WHERE id=$1 AND user_id=$2',[download[1],user.id]);const ride=q.rows[0];if(!ride)return json(res,404,{error:'Sortie introuvable.'});
+        const xmlEscape=value=>String(value).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
+        const gpx=ride.gpx_xml??`<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Sillage" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>${xmlEscape(ride.name)}</name><trkseg>${ride.coordinates.map(p=>`<trkpt lat="${p[0]}" lon="${p[1]}"/>`).join('')}</trkseg></trk></gpx>`;
+        res.writeHead(200,{'Content-Type':'application/gpx+xml; charset=utf-8','Content-Disposition':`attachment; filename="sillage-${download[1]}.gpx"`,'Cache-Control':'no-store'});return res.end(gpx);
+      }
       const ride=path.match(/^\/api\/rides\/([a-f0-9-]{36})$/);
       if(ride&&method==='GET'){const q=await db.query('SELECT id,name,coordinates,distance FROM rides WHERE id=$1 AND user_id=$2',[ride[1],user.id]);return q.rows.length?json(res,200,q.rows[0]):json(res,404,{error:'Sortie introuvable.'});}
       if(path==='/api/portions'&&method==='GET'){const q=await db.query('SELECT id,data,created_at FROM portions WHERE user_id=$1 ORDER BY created_at DESC',[user.id]);return json(res,200,q.rows.map(r=>({...r.data,id:r.id,createdAt:r.created_at})));}

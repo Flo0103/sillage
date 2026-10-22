@@ -98,3 +98,7 @@ Conserver aussi `.env` et la configuration du VPS dans un emplacement sécurisé
 8. Importer les anciennes notes locales puis relancer l’import : aucun doublon.
 
 Les tests Node vérifient la validation, les mots de passe, les géométries et le routage API avec un adaptateur mémoire. Ils ne remplacent pas la vérification sur un vrai PostgreSQL et dans un navigateur. L’environnement de développement ne permettait pas la construction Docker ni un test PostgreSQL complet.
+
+## Correctif 2.1 : GPX originaux et affichage
+
+Appliquer la procédure de mise à jour ci-dessus : sauvegarde, `git pull`, puis reconstruction avec `sudo docker compose up -d --build`. Les colonnes GPX sont ajoutées automatiquement au démarrage, sans suppression des sorties ni des comptes. Recharger la page après mise à jour. Aucun compte à recréer. Les anciennes sorties restent accessibles ; leur bouton GPX reconstruit la géométrie lorsque le fichier original n’a jamais été stocké. Les nouveaux imports conservent aussi le fichier d’origine complet (altitude, dates et autres extensions comprises).

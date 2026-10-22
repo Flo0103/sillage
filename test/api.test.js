@@ -5,12 +5,14 @@ import {createApp} from '../server/app.js';
 import {tokenHash,hashPassword} from '../server/model.js';
 const tokens={alice:'a'.repeat(64),bob:'b'.repeat(64)};
 // In-memory SQL adapter: exercises HTTP routing and owner-scoped queries without a database daemon.
-function database(){const saved=[];return {saved,queries:[],async query(sql,args=[]){this.queries.push({sql,args});
+function database(){const saved=[],rides=[];return {saved,rides,queries:[],async query(sql,args=[]){this.queries.push({sql,args});
  if(sql.includes('FROM sessions s')){const name=Object.keys(tokens).find(k=>tokenHash(tokens[k])===args[0]);return {rows:name?[{id:name,username:name}]:[]};}
  if(sql.startsWith('INSERT INTO portions')){saved.push({id:args[0],user:args[1],data:JSON.parse(args[2])});return {rowCount:1,rows:[]};}
  if(sql.startsWith('SELECT id,data'))return {rows:saved.filter(r=>r.user===args[0]).map(r=>({id:r.id,data:r.data,created_at:new Date()}))};
  if(sql.startsWith('DELETE FROM portions')){const i=saved.findIndex(r=>r.id===args[0]&&r.user===args[1]);if(i<0)return {rowCount:0};saved.splice(i,1);return {rowCount:1};}
- if(sql.startsWith('SELECT id,name,coordinates'))return {rows:[]};
+ if(sql.startsWith('INSERT INTO rides')){rides.push({id:args[0],user_id:args[1],name:args[2],coordinates:JSON.parse(args[3]),distance:args[4],gpx_xml:args[5],file_name:args[6]});return {rowCount:1,rows:[]};}
+ if(sql.startsWith('SELECT id,name,distance'))return {rows:rides.filter(r=>r.user_id===args[0]).map(r=>({...r,gpx_available:r.gpx_xml!==null}))};
+ if(sql.startsWith('SELECT id,name,coordinates')||sql.startsWith('SELECT name,coordinates,gpx_xml'))return {rows:rides.filter(r=>r.id===args[0]&&r.user_id===args[1])};
  if(sql.includes('RETURNING attempts'))return {rows:[{attempts:1}]};
  if(sql.startsWith('SELECT id,username,password_hash'))return {rows:[]};
  return {rows:[],rowCount:0};}};}
@@ -27,3 +29,22 @@ test('session expirée et sortie appartenant à un autre compte',async()=>{const
 test('login ne révèle pas les utilisateurs et rejette les identifiants invalides',async()=>{const app=createApp(database(),{origin:'https://sillage.test'});assert.equal((await request(app,{url:'/api/login',method:'POST',body:{username:'personne',password:'incorrect'}})).status,401);assert.equal((await request(app,{url:'/api/login',method:'POST',body:{username:'personne'}})).status,400);});
 test('connexion réussie : cookie sécurisé et session persistée hachée',async()=>{const db=database(),base=db.query.bind(db),hash=await hashPassword('Un mot de passe long');db.query=async(sql,args)=>sql.startsWith('SELECT id,username,password_hash')?{rows:[{id:'alice',username:'alice',password_hash:hash}]}:base(sql,args);const app=createApp(db,{origin:'https://sillage.test'});const res=await request(app,{url:'/api/login',method:'POST',body:{username:'Alice',password:'Un mot de passe long'}});assert.equal(res.status,200);assert.match(res.headers['Set-Cookie'],/HttpOnly; SameSite=Strict; Max-Age=604800; Secure/);const raw=res.headers['Set-Cookie'].split(';')[0].split('=')[1];const insert=db.queries.find(q=>q.sql.startsWith('INSERT INTO sessions'));assert.equal(insert.args[0],tokenHash(raw));assert.notEqual(insert.args[0],raw);assert.equal(insert.args[1],'alice');});
 test('déconnexion révoque la session côté serveur et le cookie',async()=>{const db=database(),app=createApp(db,{origin:'https://sillage.test'});const res=await request(app,{url:'/api/logout',method:'POST',user:'alice',body:{}});assert.equal(res.status,200);assert.match(res.headers['Set-Cookie'],/Max-Age=0/);assert.ok(db.queries.some(q=>q.sql.startsWith('DELETE FROM sessions')&&q.args[0]===tokenHash(tokens.alice)));});
+
+test('GPX enregistré en base, rechargé après nouvelle instance et téléchargement privé',async()=>{
+ const db=database(),origin='https://sillage.test';let app=createApp(db,{origin});
+ const gpx='<?xml version="1.0"?><gpx><trk><name>Sortie</name><trkseg><trkpt lat="50" lon="5"><ele>200</ele></trkpt><trkpt lat="50.001" lon="5"><ele>210</ele></trkpt></trkseg></trk></gpx>';
+ const points=[[50,5],[50.001,5]];
+ const uploaded=await request(app,{url:'/api/rides',method:'POST',user:'alice',body:{name:'Sortie test',coordinates:points,gpx,fileName:'ma-sortie.gpx'}});
+ assert.equal(uploaded.status,201);const id=JSON.parse(uploaded.body).id;assert.equal(db.rides[0].gpx_xml,gpx);assert.equal(db.rides[0].file_name,'ma-sortie.gpx');
+ app=createApp(db,{origin});
+ const list=await request(app,{url:'/api/rides',user:'alice'});assert.equal(JSON.parse(list.body)[0].gpx_available,true);
+ const loaded=await request(app,{url:`/api/rides/${id}`,user:'alice'});assert.deepEqual(JSON.parse(loaded.body).coordinates,points);
+ const download=await request(app,{url:`/api/rides/${id}/gpx`,user:'alice'});assert.equal(download.status,200);assert.equal(download.body,gpx);assert.match(download.headers['Content-Disposition'],/^attachment/);
+ assert.equal((await request(app,{url:`/api/rides/${id}/gpx`,user:'bob'})).status,404);
+ assert.deepEqual(JSON.parse((await request(app,{url:'/api/rides',user:'bob'})).body),[]);
+});
+test('anciennes sorties sans original : téléchargement GPX reconstruit',async()=>{
+ const db=database();db.rides.push({id:'00000000-0000-0000-0000-000000000001',user_id:'alice',name:'Bois & rivière',coordinates:[[50,5],[50.001,5]],gpx_xml:null});
+ const app=createApp(db,{origin:'https://sillage.test'}),res=await request(app,{url:'/api/rides/00000000-0000-0000-0000-000000000001/gpx',user:'alice'});
+ assert.equal(res.status,200);assert.match(res.body,/Bois &amp; rivière/);assert.match(res.body,/<trkpt lat="50.001" lon="5"/);
+});

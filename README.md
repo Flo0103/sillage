@@ -5,7 +5,7 @@ Application en français pour importer des sorties GPX, isoler des portions et l
 ## Fonctionnement
 
 - Connexion par identifiant et mot de passe ; comptes créés sur le VPS, inscriptions publiques fermées.
-- Sorties et portions conservées en PostgreSQL et séparées par utilisateur.
+- Sorties et portions conservées en PostgreSQL et séparées par utilisateur ; le fichier GPX original est aussi conservé pour les nouveaux imports et peut être téléchargé.
 - Choisir deux points sur un GPX déclenche automatiquement l’accrochage OpenStreetMap.
 - La portion orange se dessine sur un calque au-dessus du GPX bleu.
 - Mode manuel point à point, avec annulation du dernier point et possibilité de repartir d’un tracé vide.
@@ -41,4 +41,10 @@ Les tests de modèle et d’API fonctionnent sans dépendance externe ; l’adap
 
 Accrochage approximatif à vérifier, limité à 15 km et aux données OSM disponibles. Overpass peut être lent ou indisponible : le GPS reste visible et le mode manuel est disponible. L’algorithme interpole les longues arêtes OSM, puis relie des ancres espacées de 120 m ; il ne garantit pas les restrictions d’accès, sens de circulation ou le bon choix entre chemins parallèles. Les segments manuels sont droits entre chaque point, sans accrochage automatique. Les GPX à plusieurs segments utilisent le segment le plus long pour éviter de relier des interruptions.
 
-Leaflet est chargé depuis unpkg ; polices depuis Google Fonts ; tuiles depuis OpenStreetMap ou Esri World Imagery (couverture et date variables). La zone sélectionnée est transmise à Overpass pour l’accrochage. Les imports GPX sont limités à 25 Mo / 100 000 points ; 100 sorties récentes sont affichées. Les coordonnées sont stockées en JSONB, sans PostGIS. Les sessions expirent après sept jours. Il n’y a pas encore de récupération de mot de passe par email, de réimport GeoJSON ni de connexion Strava.
+Leaflet est chargé depuis unpkg ; polices depuis Google Fonts ; tuiles depuis OpenStreetMap ou Esri World Imagery (couverture et date variables). La zone sélectionnée est transmise à Overpass pour l’accrochage. Les imports GPX sont limités à 25 Mo / 100 000 points (original complet conservé, segment le plus long affiché) ; 100 sorties récentes sont affichées. Les coordonnées sont stockées en JSONB, sans PostGIS. Les sessions expirent après sept jours. Il n’y a pas encore de récupération de mot de passe par email, de réimport GeoJSON ni de connexion Strava.
+
+## Correctif 2.1
+
+Login isolé de la grille de l’application, champs contenus sur mobile et desktop. Contrôles de visibilité facultatifs et versions explicites des fichiers CSS/JS pour éviter les mélanges après une mise à jour. Carte de hauteur explicite, recalcul de taille à chaque changement de dimensions, endpoint OSM canonique et message unique en cas d’échec de tuiles. Les pannes du fournisseur restent possibles ; le sélecteur permet de changer de fond.
+
+Les nouvelles colonnes PostgreSQL `rides.gpx_xml` et `rides.file_name` sont ajoutées sans effacer les sorties existantes. Le bouton ↓ GPX télécharge l’original pour les nouveaux imports, ou un GPX reconstruit depuis les coordonnées pour les anciennes sorties (sans altitude ni horodatage non conservés auparavant).
