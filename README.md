@@ -1,33 +1,44 @@
 # Sillage — carnet gravel
 
-Application web statique en français. Depuis ce dossier :
+Application en français pour importer des sorties GPX, isoler des portions et les noter. Déployable sur un VPS OVH avec Docker Compose, Caddy et PostgreSQL.
+
+## Fonctionnement
+
+- Connexion par identifiant et mot de passe ; comptes créés sur le VPS, inscriptions publiques fermées.
+- Sorties et portions conservées en PostgreSQL et séparées par utilisateur.
+- Choisir deux points sur un GPX déclenche automatiquement l’accrochage OpenStreetMap.
+- La portion orange se dessine sur un calque au-dessus du GPX bleu.
+- Mode manuel point à point, avec annulation du dernier point et possibilité de repartir d’un tracé vide.
+- Nom facultatif, plaisir sur cinq, technicité, revêtement dont « Grosses pierres / blocs », roulabilité hivernale et commentaire.
+- Fonds OpenStreetMap et satellite Esri, avec attribution.
+- Export des portions en GeoJSON et transfert des anciennes notes locales v1 vers le compte connecté.
+- Aucune trace de démonstration : la carte s’ouvre autour de Spa, sans parcours préchargé.
+
+## Installation / mise à jour
+
+Voir [le guide OVH](deploy/OVH.md), y compris la migration depuis v1, la création des comptes et les sauvegardes. Cette version nécessite le serveur ; ouvrir simplement `dist/index.html` ou utiliser un serveur statique ne suffit plus.
 
 ```sh
-python3 -m http.server 8080 --directory dist
+bash deploy/configure.sh
+# Compléter le domaine et l’email dans .env si nécessaire.
+sudo docker compose up -d --build
+sudo docker compose exec app node server/users.js flo
 ```
 
-Ouvrir http://localhost:8080 dans un navigateur connecté à Internet.
+Le pilote `pg` est installé dans l’image Docker ; la version directe est fixée dans `package.json`. Aucun secret n’est inclus dans le dépôt. Les mots de passe utilisateurs sont hachés avec scrypt et sel aléatoire ; sessions aléatoires côté serveur, cookie HttpOnly, Secure et SameSite=Strict, contrôles d’origine et limitation des tentatives de connexion. Les requêtes SQL utilisent des paramètres et filtrent les données par utilisateur connecté.
 
-## Utilisation
+## Tests
 
-1. Exporter une activité Strava en GPX puis l’importer.
-2. Cliquer deux fois sur la trace pour choisir une portion.
-3. Facultatif : « Accrocher à OSM » ; contrôler visuellement le résultat doré.
-4. Donner un nom, une note sur cinq, une technicité, un revêtement et un commentaire.
-5. Retrouver les portions dans « Mes portions » et les sauvegarder en GeoJSON.
+Node 22 ou supérieur :
 
-Les données sont enregistrées dans le localStorage de ce navigateur et de cette origine. Elles ne sont pas synchronisées entre appareils. L’export GeoJSON est une sauvegarde utilisable dans un logiciel SIG ; son réimport dans cette version n’est pas implémenté.
+```sh
+npm test
+```
 
-## Carte et accrochage
+Les tests de modèle et d’API fonctionnent sans dépendance externe ; l’adaptateur SQL de test est en mémoire. Le serveur nécessite `npm install` et un PostgreSQL configuré via PGHOST, PGPORT, PGUSER, PGPASSWORD et PGDATABASE. Pour du développement local HTTP seulement, définir APP_ORIGIN avec l’origine exacte et COOKIE_SECURE=false. En production, HTTPS et les cookies Secure restent activés.
 
-Leaflet 1.9.4 est chargé depuis unpkg ; fond de carte OpenStreetMap avec attribution. L’accrochage envoie la zone géographique de la portion à l’API publique Overpass ; aucun compte ni jeton n’est requis. En cas de panne, la trace GPS est conservée. L’algorithme récupère les chemins OSM, relie leurs nœuds et calcule des plus courts chemins entre des ancres GPS espacées d’environ 120 mètres. Limite : 15 km par portion pour la requête OSM. Il rejette les graphes déconnectés, les ancres trop éloignées et les détours excessifs.
+## Limites et services externes
 
-Cet accrochage est une approximation à vérifier, et non un moteur de navigation : il ne garantit pas les autorisations locales, les restrictions conditionnelles, le sens de circulation ou le bon choix de chemins parallèles. La trace initiale affichée est synthétique et identifiée comme démonstration. Les GPX à plusieurs segments utilisent le segment le plus long pour éviter de relier artificiellement des interruptions.
+Accrochage approximatif à vérifier, limité à 15 km et aux données OSM disponibles. Overpass peut être lent ou indisponible : le GPS reste visible et le mode manuel est disponible. L’algorithme interpole les longues arêtes OSM, puis relie des ancres espacées de 120 m ; il ne garantit pas les restrictions d’accès, sens de circulation ou le bon choix entre chemins parallèles. Les segments manuels sont droits entre chaque point, sans accrochage automatique. Les GPX à plusieurs segments utilisent le segment le plus long pour éviter de relier des interruptions.
 
-## Hébergement OVH
-
-La configuration Docker Compose et Caddy est fournie pour un VPS OVH : [guide de déploiement](deploy/OVH.md). HTTPS est automatique une fois le domaine et le VPS configurés. Aucun achat ni déploiement de VPS n’a été effectué.
-
-## État et validation
-
-Connexion API Strava différée à la demande de l’utilisateur. Pas de serveur applicatif, de compte, ni de synchronisation. Vérification syntaxique JavaScript et tests du calcul de distance / des plus courts chemins réalisés. L’interface n’a pas encore été vérifiée dans un navigateur. La configuration Caddy/Compose doit être validée sur le VPS avec les commandes du guide avant lancement.
+Leaflet est chargé depuis unpkg ; polices depuis Google Fonts ; tuiles depuis OpenStreetMap ou Esri World Imagery (couverture et date variables). La zone sélectionnée est transmise à Overpass pour l’accrochage. Les imports GPX sont limités à 25 Mo / 100 000 points ; 100 sorties récentes sont affichées. Les coordonnées sont stockées en JSONB, sans PostGIS. Les sessions expirent après sept jours. Il n’y a pas encore de récupération de mot de passe par email, de réimport GeoJSON ni de connexion Strava.

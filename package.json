@@ -1,0 +1,17 @@
+{
+  "name": "sillage",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node test/model.test.js && node test/api.test.js",
+    "user:add": "node server/users.js"
+  },
+  "dependencies": {
+    "pg": "8.16.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

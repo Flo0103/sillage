@@ -1,4 +1,9 @@
 name: sillage
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 services:
   web:
     image: caddy:2.10.2-alpine
@@ -12,14 +17,48 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:?Renseignez ACME_EMAIL dans .env}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./dist:/srv:ro
       - caddy_data:/data
       - caddy_config:/config
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    depends_on:
+      app:
+        condition: service_healthy
+    logging: *logging
+  app:
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      APP_ORIGIN: https://${SILLAGE_DOMAIN:?Renseignez SILLAGE_DOMAIN}
+      PGHOST: db
+      PGUSER: sillage
+      PGDATABASE: sillage
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Exécutez bash deploy/configure.sh}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    logging: *logging
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sillage
+      POSTGRES_DB: sillage
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Exécutez bash deploy/configure.sh}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sillage -d sillage"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *logging
 volumes:
   caddy_data:
   caddy_config:
+  postgres_data:

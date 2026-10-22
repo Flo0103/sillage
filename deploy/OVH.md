@@ -1,59 +1,100 @@
-# Déployer sur un VPS OVH
+# Sillage v2 sur le VPS OVH
 
-Cette configuration sert la version GPX de Sillage en HTTPS. Elle convient à un VPS Linux avec Docker Compose. Elle ne convient pas à un hébergement mutualisé OVH sans Docker. Aucun serveur Strava ni stockage de données utilisateur n’est inclus pour le moment.
+Sillage utilise désormais Caddy (HTTPS), un serveur Node.js et PostgreSQL 17. Les ports de l’application et de PostgreSQL ne sont pas exposés sur Internet. Chaque compte dispose de ses propres sorties et portions. Les inscriptions publiques sont fermées.
 
-## À prévoir
+## Mise à jour depuis la version GPX locale
 
-- Un VPS Ubuntu 24.04 LTS ou Debian avec environ 2 Go de RAM pour commencer.
-- Un nom de domaine ou un sous-domaine, par exemple `gravel.mondomaine.fr`.
-- Un accès SSH au VPS avec une clé, et Docker Engine + le plugin Compose installés selon la documentation officielle Docker.
-- Les ports entrants TCP 80 et 443 ouverts dans le pare-feu du VPS et dans le pare-feu OVH. Le port SSH doit rester accessible. UDP 443 est facultatif (HTTP/3).
+**Avant tout, conserver les anciennes notes** : elles sont dans le navigateur qui a servi à les créer. Si possible utiliser « Exporter » avant la mise à jour. Ne pas effacer les données de ce navigateur. Le transfert vers PostgreSQL sera proposé après connexion au même domaine avec ce même navigateur.
 
-Configurer un enregistrement DNS A vers l’IPv4 du VPS. Ajouter un AAAA seulement si l’IPv6 est configurée et accessible. Vérifier les deux avant de lancer Caddy : une adresse IPv6 erronée peut empêcher l’émission du certificat.
-
-## Accès au dépôt privé
-
-Sur le VPS, créer une clé SSH dédiée à ce dépôt, puis ajouter **sa clé publique uniquement** dans GitHub → dépôt → Settings → Deploy keys. Laisser l’accès en lecture seule. Conserver la clé privée sur le VPS ; ne pas la déposer dans le dépôt ou une conversation. Vérifier l’empreinte SSH de GitHub à partir de la documentation officielle lors de la première connexion.
-
-Cloner le dépôt sous le compte de déploiement :
+Dans le terminal connecté au VPS :
 
 ```sh
-git clone git@github.com:Flo0103/sillage.git
-cd sillage
+cd ~/sillage
+GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sillage_github -o IdentitiesOnly=yes" git pull --ff-only
+bash deploy/configure.sh
+sudo docker compose config --quiet
+sudo docker compose build app
+sudo docker compose up -d
+sudo docker compose ps
+```
+
+`configure.sh` conserve le domaine, l’adresse email et un éventuel mot de passe PostgreSQL existant. Il génère un mot de passe PostgreSQL aléatoire dans `.env` s’il n’y en a pas. Ne pas partager ce fichier. Ne pas modifier ensuite ce mot de passe sans modifier aussi celui du rôle PostgreSQL.
+
+Le démarrage attend que PostgreSQL puis l’application soient prêts. La première construction télécharge Node et le pilote PostgreSQL. En cas d’erreur, garder son message et consulter :
+
+```sh
+sudo docker compose logs --tail=80 app db web
+```
+
+### Créer le premier compte
+
+Remplacer `flo` par l’identifiant souhaité :
+
+```sh
+sudo docker compose exec app node server/users.js flo
+```
+
+Saisir deux fois un mot de passe de 12 caractères minimum. La saisie est masquée. Il ne faut ni envoyer le mot de passe dans la conversation ni le passer dans une commande.
+
+Ouvrir ensuite **https://sillage.gravelspa.be** et se connecter. Pour ajouter d’autres utilisateurs, relancer cette commande avec un autre identifiant. Pour changer un mot de passe oublié, utiliser l’identifiant existant : cela renouvelle son mot de passe et déconnecte ses sessions.
+
+### Anciennes notes locales
+
+Après connexion, cliquer sur « Transférer mes anciennes notes locales ». Confirmer que le compte connecté est bien celui auquel les notes doivent appartenir. L’import est relançable sans doublons et conserve les anciennes copies locales. Les GPX précédemment importés n’étaient pas conservés par la version v1 ; il faut les réimporter. Les exports GeoJSON v1 restent lisibles dans un logiciel SIG, mais leur réimport dans l’application n’est pas implémenté.
+
+## Installation neuve
+
+VPS Ubuntu/Debian avec Docker Engine et Compose, 2 Go de RAM minimum conseillé. Cloner ce dépôt privé avec une clé de déploiement GitHub en lecture seule. Configurer un enregistrement DNS A `sillage.gravelspa.be` vers l’IPv4 du VPS, et ouvrir TCP 80/443. Ne pas ajouter d’AAAA sans IPv6 fonctionnelle. Garder SSH accessible.
+
+```sh
+cd ~/sillage
 cp .env.example .env
 nano .env
+bash deploy/configure.sh
+sudo docker compose config --quiet
+sudo docker compose up -d --build
+sudo docker compose exec app node server/users.js flo
 ```
 
-Renseigner le domaine réel et une adresse de contact. Ne pas ajouter `https://` au domaine. Le fichier `.env` est ignoré par Git.
+Configurer `SILLAGE_DOMAIN` (sans https://) et `ACME_EMAIL` avant lancement. Caddy crée et renouvelle les certificats. Les volumes Caddy existants sont réutilisés lors de la migration v1.
 
-## Validation et lancement
+## Mises à jour suivantes
 
 ```sh
-docker compose config --quiet
-docker compose run --rm --no-deps web caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-docker compose up -d
-docker compose logs --tail=100 web
+cd ~/sillage
+sudo bash deploy/backup.sh
+GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sillage_github -o IdentitiesOnly=yes" git pull --ff-only
+sudo docker compose config --quiet
+sudo docker compose up -d --build --force-recreate
 ```
 
-Caddy obtient et renouvelle automatiquement le certificat. Ouvrir ensuite `https://votre-domaine` et vérifier l’import d’un GPX, une sélection, une notation et un export. La carte nécessite Internet pour Leaflet, les polices et les tuiles OSM ; l’accrochage nécessite Overpass.
+Vérifier l’interface et `sudo docker compose ps`. Les tables sont créées au démarrage sans suppression des données existantes. Cette v2 constitue la première version du schéma PostgreSQL.
 
-Le site sera accessible publiquement à cette adresse. Le dépôt reste privé. Les GPX et notes restent dans le navigateur, sauf la zone envoyée à Overpass lors d’un accrochage. Cette version ne fournit pas de connexion ni de partage de notes.
+## Sauvegarde et restauration
 
-## Mise à jour
-
-Après sauvegarde locale des modifications éventuelles sur le VPS :
+Les données des utilisateurs sont dans le volume `sillage_postgres_data`. **Ne pas utiliser `docker compose down -v`**, qui supprimerait les volumes. Le dossier `backups/` est ignoré par Git et par la construction Docker. Les sauvegardes contiennent des données personnelles et des hachages de mots de passe : conserver une copie protégée hors du VPS.
 
 ```sh
-git pull --ff-only
-docker compose config --quiet
-docker compose run --rm --no-deps web caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-docker compose up -d --force-recreate web
+sudo bash deploy/backup.sh
 ```
 
-Le contenu est monté en lecture seule depuis `dist/`. Le redémarrage prend aussi en compte les modifications du Caddyfile. Pour suivre les correctifs du serveur, mettre à jour explicitement la version de l’image Caddy dans `compose.yaml` après validation.
+Pour restaurer une sauvegarde choisie dans une base vide (opération d’administration, ne pas faire sur une base remplie sans plan de restauration) :
 
-## Données et évolution Strava
+```sh
+gunzip -c backups/NOM-DE-LA-SAUVEGARDE.sql.gz | sudo docker compose exec -T db psql -U sillage -d sillage
+```
 
-Les volumes `caddy_data` et `caddy_config` conservent la configuration et les certificats. Ne pas lancer `docker compose down -v` sans vouloir les supprimer. Les notes sont stockées dans le navigateur : les sauvegarder avec « Exporter mes données ». Changer de domaine crée une nouvelle origine et ne migre pas les notes.
+Conserver aussi `.env` et la configuration du VPS dans un emplacement sécurisé. Les certificats sont dans `caddy_data`. Programmer une sauvegarde régulière après avoir vérifié une première restauration sur une instance de test.
 
-Plus tard, un service API pourra être ajouté à Compose et exposé via Caddy. Le secret Strava devra être fourni côté serveur, avec une base de données et une authentification avant de stocker des parcours personnels. Aucun secret Strava n’est nécessaire pour cette version.
+## Validation à faire après déploiement
+
+1. La racine redirige vers la connexion quand on est déconnecté.
+2. Créer deux comptes, enregistrer une portion avec le premier ; le second ne doit pas la voir.
+3. Importer un GPX ; choisir deux points ; le résultat OSM orange doit rester au-dessus du GPX bleu.
+4. Basculer en manuel et tracer plusieurs points, puis annuler le dernier.
+5. Enregistrer sans nom avec « Grosses pierres / blocs » et un état hiver.
+6. Recharger puis se reconnecter depuis un autre appareil : la portion doit être présente.
+7. Basculer le fond de carte vers « Satellite · Esri ».
+8. Importer les anciennes notes locales puis relancer l’import : aucun doublon.
+
+Les tests Node vérifient la validation, les mots de passe, les géométries et le routage API avec un adaptateur mémoire. Ils ne remplacent pas la vérification sur un vrai PostgreSQL et dans un navigateur. L’environnement de développement ne permettait pas la construction Docker ni un test PostgreSQL complet.
