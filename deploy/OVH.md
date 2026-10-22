@@ -1,118 +1,95 @@
-# Sillage v2 sur le VPS OVH
+# Déployer Sillage sur le VPS OVH
 
-Sillage utilise désormais Caddy (HTTPS), un serveur Node.js et PostgreSQL 17. Les ports de l’application et de PostgreSQL ne sont pas exposés sur Internet. Chaque compte dispose de ses propres sorties et portions. Les inscriptions publiques sont fermées.
+Sillage utilise Caddy pour HTTPS, Node.js pour l’application et **PostgreSQL 17 avec PostGIS 3.6**. Seuls HTTP/HTTPS sont exposés sur Internet ; PostgreSQL et le serveur applicatif restent sur le réseau Docker interne.
 
-## Mise à jour depuis la version GPX locale
+## Mise à jour d’une installation existante vers la version 4
 
-**Avant tout, conserver les anciennes notes** : elles sont dans le navigateur qui a servi à les créer. Si possible utiliser « Exporter » avant la mise à jour. Ne pas effacer les données de ce navigateur. Le transfert vers PostgreSQL sera proposé après connexion au même domaine avec ce même navigateur.
-
-Dans le terminal connecté au VPS :
+Sur le VPS, lancer les commandes une par une :
 
 ```sh
 cd ~/sillage
 GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sillage_github -o IdentitiesOnly=yes" git pull --ff-only
-bash deploy/configure.sh
-sudo docker compose config --quiet
-sudo docker compose build app
-sudo docker compose up -d
+sudo bash deploy/update-postgis.sh
+```
+
+Ce script :
+
+1. Conserve `.env` et génère uniquement les clés manquantes.
+2. Télécharge `postgis/postgis:17-3.6-alpine` et construit l’application avant d’interrompre le site.
+3. Arrête web et app pour suspendre les écritures, puis sauvegarde la base existante dans `backups/`.
+4. Recrée le service db sur **le volume existant**, avec le même majeur PostgreSQL 17 et la même famille Alpine.
+5. Démarre l’application, active PostGIS, ajoute et remplit les géométries, crée les index et les triggers.
+6. Démarre Caddy et vérifie types, SRID, ordre des coordonnées et index spatiaux sur la base réelle.
+
+Une courte interruption est nécessaire. Les comptes, mots de passe, GPX, portions, invitations et fonds WMS sont conservés. Aucun compte n’est à recréer. En cas d’échec, conserver le message et la sauvegarde, sans supprimer les volumes. Ne pas remplacer cette image par une image PostgreSQL 18 sur le volume existant.
+
+```sh
 sudo docker compose ps
-```
-
-`configure.sh` conserve le domaine, l’adresse email et un éventuel mot de passe PostgreSQL existant. Il génère un mot de passe PostgreSQL aléatoire dans `.env` s’il n’y en a pas. Ne pas partager ce fichier. Ne pas modifier ensuite ce mot de passe sans modifier aussi celui du rôle PostgreSQL.
-
-Le démarrage attend que PostgreSQL puis l’application soient prêts. La première construction télécharge Node et le pilote PostgreSQL. En cas d’erreur, garder son message et consulter :
-
-```sh
 sudo docker compose logs --tail=80 app db web
+sudo docker compose exec app node server/check-db.js
 ```
 
-### Créer le premier compte
-
-Remplacer `flo` par l’identifiant souhaité :
-
-```sh
-sudo docker compose exec app node server/users.js flo
-```
-
-Saisir deux fois un mot de passe de 12 caractères minimum. La saisie est masquée. Il ne faut ni envoyer le mot de passe dans la conversation ni le passer dans une commande.
-
-Ouvrir ensuite **https://sillage.gravelspa.be** et se connecter. Pour ajouter d’autres utilisateurs, relancer cette commande avec un autre identifiant. Pour changer un mot de passe oublié, utiliser l’identifiant existant : cela renouvelle son mot de passe et déconnecte ses sessions.
-
-### Anciennes notes locales
-
-Après connexion, cliquer sur « Transférer mes anciennes notes locales ». Confirmer que le compte connecté est bien celui auquel les notes doivent appartenir. L’import est relançable sans doublons et conserve les anciennes copies locales. Les GPX précédemment importés n’étaient pas conservés par la version v1 ; il faut les réimporter. Les exports GeoJSON v1 restent lisibles dans un logiciel SIG, mais leur réimport dans l’application n’est pas implémenté.
+La page Admin affiche aussi la version réelle de PostGIS et les nombres de géométries. L’application refuse de démarrer si la migration PostGIS échoue ; elle ne fonctionne pas silencieusement sans l’extension.
 
 ## Installation neuve
 
-VPS Ubuntu/Debian avec Docker Engine et Compose, 2 Go de RAM minimum conseillé. Cloner ce dépôt privé avec une clé de déploiement GitHub en lecture seule. Configurer un enregistrement DNS A `sillage.gravelspa.be` vers l’IPv4 du VPS, et ouvrir TCP 80/443. Ne pas ajouter d’AAAA sans IPv6 fonctionnelle. Garder SSH accessible.
+Prévoir un VPS Ubuntu/Debian avec Docker Engine et Compose, 2 Go de RAM minimum conseillé, un nom de domaine et un accès SSH par clé. Le dépôt GitHub privé peut être cloné avec une clé de déploiement en lecture seule, dédiée au VPS.
+
+Chez Gandi : enregistrement A `sillage.gravelspa.be` vers l’IPv4 du VPS ; un AAAA seulement si l’IPv6 fonctionne. Ouvrir TCP 80/443 dans les pare-feu du VPS et d’OVH ; conserver SSH accessible. UDP 443 est facultatif.
 
 ```sh
-cd ~/sillage
+git clone git@github.com:Flo0103/sillage.git
+cd sillage
 cp .env.example .env
 nano .env
+```
+
+Renseigner `SILLAGE_DOMAIN=sillage.gravelspa.be` et `ACME_EMAIL` avec une adresse réelle. Pas de `https://` dans le domaine. Puis :
+
+```sh
 bash deploy/configure.sh
-sudo docker compose config --quiet
 sudo docker compose up -d --build
 sudo docker compose exec app node server/users.js flo
+sudo docker compose exec app node server/admin.js flo
+sudo docker compose exec app node server/check-db.js
 ```
 
-Configurer `SILLAGE_DOMAIN` (sans https://) et `ACME_EMAIL` avant lancement. Caddy crée et renouvelle les certificats. Les volumes Caddy existants sont réutilisés lors de la migration v1.
+La commande users demande un mot de passe d’au moins 12 caractères avec saisie masquée. Remplacer `flo` par l’identifiant souhaité. Caddy obtient et renouvelle les certificats. Pour renouveler un mot de passe oublié depuis SSH, relancer users.js avec l’identifiant existant. L’administrateur peut ensuite créer des invitations et des liens de réinitialisation depuis le site.
 
-## Mises à jour suivantes
+## Strava
+
+La connexion reste désactivée sans Client ID/Client Secret. L’import GPX et les autres fonctions ne sont pas bloqués. Voir [STRAVA.md](STRAVA.md) pour créer l’application Strava, renseigner les identifiants **sur le VPS** et activer les événements de révocation.
+
+## Données et sauvegardes
+
+- Volume `sillage_postgres_data` : données utilisateurs, fichiers GPX, géométries PostGIS et jetons Strava chiffrés.
+- `caddy_data` et `caddy_config` : configuration et certificats.
+- `.env` : configuration locale et secrets ; ignoré par Git.
+- `backups/` : sauvegardes privées ; ignoré par Git et par Docker build.
+
+**Ne pas lancer `docker compose down -v`** : cela supprimerait les volumes.
 
 ```sh
-cd ~/sillage
-sudo bash deploy/backup.sh
-GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sillage_github -o IdentitiesOnly=yes" git pull --ff-only
-sudo docker compose config --quiet
-sudo docker compose up -d --build --force-recreate
-```
-
-Vérifier l’interface et `sudo docker compose ps`. Les tables sont créées au démarrage sans suppression des données existantes. Cette v2 constitue la première version du schéma PostgreSQL.
-
-## Sauvegarde et restauration
-
-Les données des utilisateurs sont dans le volume `sillage_postgres_data`. **Ne pas utiliser `docker compose down -v`**, qui supprimerait les volumes. Le dossier `backups/` est ignoré par Git et par la construction Docker. Les sauvegardes contiennent des données personnelles et des hachages de mots de passe : conserver une copie protégée hors du VPS.
-
-```sh
 sudo bash deploy/backup.sh
 ```
 
-Pour restaurer une sauvegarde choisie dans une base vide (opération d’administration, ne pas faire sur une base remplie sans plan de restauration) :
+Conserver une copie protégée hors VPS et tester une restauration sur une instance séparée. Les sauvegardes contiennent des données personnelles et des hachages de mots de passe. Conserver aussi `.env` de façon protégée pour récupérer les clés de chiffrement, sans jamais le partager dans Git ou une conversation. Ne pas remplacer les mots de passe PostgreSQL et clés Strava générés sans procédure de rotation adaptée.
+
+Une restauration d’un fichier SQL se fait dans une base PostGIS vide et compatible, après arrêt de l’application et plan de restauration. Ne pas restaurer sur une base contenant déjà les données :
 
 ```sh
 gunzip -c backups/NOM-DE-LA-SAUVEGARDE.sql.gz | sudo docker compose exec -T db psql -U sillage -d sillage
 ```
 
-Conserver aussi `.env` et la configuration du VPS dans un emplacement sécurisé. Les certificats sont dans `caddy_data`. Programmer une sauvegarde régulière après avoir vérifié une première restauration sur une instance de test.
+## Validation après déploiement
 
-## Validation à faire après déploiement
+- Connexion, import GPX, retour dans le sélecteur et téléchargement du fichier d’origine.
+- Deux comptes : GPX et segments privés isolés ; segments publics visibles par les membres.
+- Filtre hiver, couleurs et légende repliable en bas de carte.
+- Carte redimensionnée avec la fenêtre et avec le bouton plein écran, puis retour au mode normal.
+- Accrochage OSM, changement de tolérance et mode manuel.
+- Création et acceptation d’une invitation ; changement de mot de passe ; gestion des utilisateurs.
+- Vérification PostGIS avec check-db.js et dans Admin.
+- Après configuration Strava : connexion OAuth réelle, sélection gravel, import privé, téléchargement GPX reconstruit et déconnexion.
 
-1. La racine redirige vers la connexion quand on est déconnecté.
-2. Créer deux comptes, enregistrer une portion avec le premier ; le second ne doit pas la voir.
-3. Importer un GPX ; choisir deux points ; le résultat OSM orange doit rester au-dessus du GPX bleu.
-4. Basculer en manuel et tracer plusieurs points, puis annuler le dernier.
-5. Enregistrer sans nom avec « Grosses pierres / blocs » et un état hiver.
-6. Recharger puis se reconnecter depuis un autre appareil : la portion doit être présente.
-7. Basculer le fond de carte vers « Satellite · Esri ».
-8. Importer les anciennes notes locales puis relancer l’import : aucun doublon.
-
-Les tests Node vérifient la validation, les mots de passe, les géométries et le routage API avec un adaptateur mémoire. Ils ne remplacent pas la vérification sur un vrai PostgreSQL et dans un navigateur. L’environnement de développement ne permettait pas la construction Docker ni un test PostgreSQL complet.
-
-## Correctif 2.1 : GPX originaux et affichage
-
-Appliquer la procédure de mise à jour ci-dessus : sauvegarde, `git pull`, puis reconstruction avec `sudo docker compose up -d --build`. Les colonnes GPX sont ajoutées automatiquement au démarrage, sans suppression des sorties ni des comptes. Recharger la page après mise à jour. Aucun compte à recréer. Les anciennes sorties restent accessibles ; leur bouton GPX reconstruit la géométrie lorsque le fichier original n’a jamais été stocké. Les nouveaux imports conservent aussi le fichier d’origine complet (altitude, dates et autres extensions comprises).
-
-## Version 3 : catalogue partagé et administrateur
-
-```sh
-cd ~/sillage
-sudo bash deploy/backup.sh
-GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sillage_github -o IdentitiesOnly=yes" git pull --ff-only
-sudo docker compose up -d --build
-sudo docker compose exec app node server/admin.js TON_IDENTIFIANT
-```
-
-Remplacer `TON_IDENTIFIANT` par l’identifiant de votre compte actuel. Recharger la page : la carte affiche les segments sans le dernier GPX ; le lien Admin apparaît pour le compte promu. Il n’est pas nécessaire de recréer les utilisateurs. Les anciens segments restent privés et peuvent être publiés individuellement dans « Modifier le partage et l’hiver ». Les nouveaux sont publics par défaut entre membres connectés.
-
-Vérifier avec deux comptes que les segments privés et les GPX ne sont pas visibles par un autre membre, alors qu’un segment public l’est. Tester le filtre hiver et les deux légendes. Créer une invitation, l’accepter dans une fenêtre privée, puis vérifier qu’elle n’est plus réutilisable. Tester les changements de mot de passe et la désactivation d’un compte. Vérifier les fonds WMS dans leur étendue géographique et leur support EPSG:3857. L’IGN CartoWeb est proposé pour l’usage non commercial et ne remplace jamais OSM pour le snapping.
+Les tests locaux utilisent des adaptateurs SQL et API simulés. Ils ne remplacent pas ces vérifications sur le VPS et dans un navigateur.

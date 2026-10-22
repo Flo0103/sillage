@@ -1,3 +1,4 @@
+import {spatialBounds} from './spatial.js';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {hashPassword,verifyPassword,tokenHash,winters} from './model.js';
 export function validPassword(p){return typeof p==='string'&&p.length>=12&&p.length<=256;}
@@ -10,7 +11,7 @@ export function wmsConfig(b){
  return {name,url:url.toString(),layers,version:b.version==='1.1.1'?'1.1.1':'1.3.0',styles:String(b.styles||'').slice(0,300),attribution:String(b.attribution||'').trim().slice(0,300)};
 }
 export async function transaction(db,fn){const c=await db.connect();try{await c.query('BEGIN');const result=await fn(c);await c.query('COMMIT');return result;}catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}}
-export async function features({db,req,res,path,method,user,body,json,origin,sessionToken}){
+export async function features({db,req,res,path,method,user,body,json,origin,sessionToken,query=new URLSearchParams()}){
  const reply=(status,data)=>{json(res,status,data);return true;};
  const isAdmin=user?.is_admin===true;
  if(['/api/invitation-info','/api/accept-invitation'].includes(path)&&method==='POST'){
@@ -34,17 +35,19 @@ export async function features({db,req,res,path,method,user,body,json,origin,ses
   await transaction(db,async c=>{const q=await c.query('SELECT password_hash FROM users WHERE id=$1 FOR UPDATE',[user.id]);if(!q.rows[0]||!await verifyPassword(b.currentPassword,q.rows[0].password_hash))throw Error('Mot de passe actuel incorrect.');await c.query('UPDATE users SET password_hash=$1 WHERE id=$2',[await hashPassword(b.newPassword),user.id]);await c.query('DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2',[user.id,sessionToken]);});return reply(200,{ok:true});
  }
  if(path==='/api/catalog'&&method==='GET'){
-  const q=await db.query(`SELECT p.id,p.data,p.created_at,p.is_public,u.username,(p.user_id=$1) AS is_mine FROM portions p JOIN users u ON u.id=p.user_id WHERE p.user_id=$1 OR (p.is_public=true AND u.active=true) ORDER BY p.created_at DESC`,[user.id]);return reply(200,q.rows.map(r=>({...r.data,id:r.id,createdAt:r.created_at,isPublic:r.is_public,owner:r.username,isMine:r.is_mine})));
+  const bounds=spatialBounds(query.get('bbox')),params=[user.id,...(bounds||[])];const spatial=bounds?' AND ST_Intersects(p.geom,ST_MakeEnvelope($2,$3,$4,$5,4326))':'';
+  const q=await db.query(`SELECT p.id,p.data,p.created_at,p.is_public,p.source_strava,u.username,(p.user_id=$1) AS is_mine FROM portions p JOIN users u ON u.id=p.user_id WHERE (p.user_id=$1 OR (p.is_public=true AND p.source_strava=false AND u.active=true))${spatial} ORDER BY p.created_at DESC`,params);return reply(200,q.rows.map(r=>({...r.data,id:r.id,createdAt:r.created_at,isPublic:r.is_public,fromStrava:r.source_strava,owner:r.username,isMine:r.is_mine})));
  }
  const segment=path.match(/^\/api\/portions\/([a-f0-9-]{36})$/);
  if(segment&&method==='PATCH'){
-  const b=await body(req);if(typeof b.isPublic!=='boolean'||!winters.includes(b.winter))throw Error('Visibilité ou état hiver invalide.');const q=await db.query(`UPDATE portions SET is_public=$1,data=jsonb_set(data,'{winter}',to_jsonb($2::text)) WHERE id=$3 AND user_id=$4 RETURNING id`,[b.isPublic,b.winter,segment[1],user.id]);return reply(q.rowCount?200:404,q.rowCount?{ok:true}:{error:'Segment introuvable.'});
+  const b=await body(req);if(typeof b.isPublic!=='boolean'||!winters.includes(b.winter))throw Error('Visibilité ou état hiver invalide.');const q=await db.query(`UPDATE portions SET is_public=$1,data=jsonb_set(data,'{winter}',to_jsonb($2::text)) WHERE id=$3 AND user_id=$4 AND (source_strava=false OR $1=false) RETURNING id`,[b.isPublic,b.winter,segment[1],user.id]);return reply(q.rowCount?200:404,q.rowCount?{ok:true}:{error:'Segment introuvable.'});
  }
  if(path==='/api/wms'&&method==='GET'){const q=await db.query('SELECT id,config FROM wms_layers WHERE user_id=$1 ORDER BY created_at',[user.id]);return reply(200,q.rows.map(r=>({...r.config,id:r.id})));}
  if(path==='/api/wms'&&method==='POST'){const config=wmsConfig(await body(req)),id=randomUUID();await db.query('INSERT INTO wms_layers(id,user_id,config) VALUES($1,$2,$3)',[id,user.id,JSON.stringify(config)]);return reply(201,{...config,id});}
  const layer=path.match(/^\/api\/wms\/([a-f0-9-]{36})$/);if(layer&&method==='DELETE'){const q=await db.query('DELETE FROM wms_layers WHERE id=$1 AND user_id=$2',[layer[1],user.id]);return reply(q.rowCount?200:404,q.rowCount?{ok:true}:{error:'Fond introuvable.'});}
  if(!path.startsWith('/api/admin/'))return false;
  if(!isAdmin)return reply(403,{error:'Accès réservé à l’administrateur.'});
+ if(path==='/api/admin/database'&&method==='GET'){const q=await db.query('SELECT PostGIS_Full_Version() AS version,(SELECT count(*)::int FROM rides WHERE geom IS NOT NULL) AS rides,(SELECT count(*)::int FROM portions WHERE geom IS NOT NULL) AS portions');return reply(200,q.rows[0]);}
  if(path==='/api/admin/users'&&method==='GET'){const q=await db.query('SELECT id,username,is_admin,active,created_at FROM users ORDER BY created_at');return reply(200,q.rows);}
  if(path==='/api/admin/invitations'&&method==='GET'){const q=await db.query('SELECT id,username,expires_at,used_at,revoked_at FROM invitations ORDER BY created_at DESC LIMIT 100');return reply(200,q.rows);}
  const reset=path.match(/^\/api\/admin\/users\/([a-f0-9-]{36})\/reset$/);

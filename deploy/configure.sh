@@ -18,3 +18,17 @@ if ! grep -Eq '^POSTGRES_PASSWORD=.+$' .env; then
 fi
 chmod 600 .env
 echo 'Configuration PostgreSQL prête ; secrets conservés dans .env.'
+
+for task_key in STRAVA_TOKEN_KEY STRAVA_WEBHOOK_SECRET; do
+  if ! grep -Eq "^${task_key}=.+$" .env; then
+    if grep -q "^${task_key}=" .env; then
+      echo "${task_key} est vide : retirez cette ligne puis relancez ce script." >&2
+      exit 1
+    fi
+    umask 077
+    task_secret=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
+    printf '\n%s=%s\n' "$task_key" "$task_secret" >> .env
+  fi
+done
+chmod 600 .env
+echo 'Clés Strava prêtes ; aucun secret affiché.'

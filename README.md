@@ -1,33 +1,51 @@
 # Sillage — carnet gravel
 
-Application en français pour importer des sorties GPX, isoler des portions et les noter. Déployable sur un VPS OVH avec Docker Compose, Caddy et PostgreSQL.
+Application web en français pour retrouver ses sorties, isoler des portions et noter les chemins. Hébergement sur VPS avec Docker Compose, Caddy, Node.js et **PostgreSQL 17 + PostGIS 3.6**.
 
-## Fonctionnement
+## Fonctionnalités
 
-- Connexion par identifiant et mot de passe ; comptes sur invitation, inscriptions publiques fermées.
-- Sorties et portions conservées en PostgreSQL et séparées par utilisateur ; le fichier GPX original est aussi conservé pour les nouveaux imports et peut être téléchargé.
-- Choisir deux points sur un GPX déclenche automatiquement l’accrochage OpenStreetMap.
-- La portion orange se dessine sur un calque au-dessus du GPX bleu.
-- Mode manuel point à point, avec annulation du dernier point et possibilité de repartir d’un tracé vide.
-- Nom facultatif, plaisir sur cinq, technicité, revêtement dont « Grosses pierres / blocs », roulabilité hivernale et commentaire.
-- Fonds OpenStreetMap et satellite Esri, avec attribution.
-- Export des portions en GeoJSON et transfert des anciennes notes locales v1 vers le compte connecté.
-- Aucune trace de démonstration : la carte s’ouvre autour de Spa, sans parcours préchargé.
+- Comptes privés sur invitation, administration des utilisateurs et changement de mot de passe.
+- Import de fichiers GPX, conservation de l’original et choix des sorties enregistrées.
+- Connexion OAuth Strava, sélection paginée de ses activités gravel ou vélo et import de sa propre trace.
+- Sélection de deux points sur un GPX, accrochage OSM automatique ou tracé manuel point à point.
+- Tolérance OSM 75 / 150 / 250 m ; index spatial et A*, cache de dix minutes et réutilisation des zones déjà chargées.
+- Nom facultatif, note sur cinq, technicité, revêtement, état hivernal et commentaire.
+- Carte des segments personnels et publics des membres, filtres hiver et couleurs par note ou revêtement.
+- Fonds OSM, Esri satellite, IGN Belgique CartoWeb et WMS personnalisés par utilisateur.
+- Carte adaptée à la hauteur de la fenêtre, plein écran et légende compacte repliable dans le coin de la carte.
+- Export GeoJSON de ses portions et migration des anciennes notes locales.
 
-## Installation / mise à jour
+## Confidentialité
 
-Voir [le guide OVH](deploy/OVH.md), y compris la migration depuis v1, la création des comptes et les sauvegardes. Cette version nécessite le serveur ; ouvrir simplement `dist/index.html` ou utiliser un serveur statique ne suffit plus.
+Les GPX restent privés. Les nouveaux segments sont publics entre membres par défaut, avec une case pour les rendre privés ; les anciens segments restent privés jusqu’à un choix explicite de leur propriétaire.
+
+Les données importées **via l’API Strava et les portions qui en sont tirées restent privées**, conformément à l’accord de l’API (https://www.strava.com/legal/api). Cette restriction est appliquée côté serveur. Les jetons OAuth sont chiffrés avec AES-256-GCM et liés au compte utilisateur ; aucun jeton ni Client Secret n’est envoyé au navigateur. Les invitations et sessions sont stockées sous forme de hachages. Les mots de passe utilisent scrypt avec un sel aléatoire.
+
+Les sessions durent sept jours. Cookie HttpOnly / Secure / SameSite=Strict, contrôles d’origine pour les écritures et limitation des tentatives de connexion. Le callback OAuth est lié à un état à usage unique, une session d’origine et un cookie nonce dédié. Les événements de révocation utilisent une URL secrète configurée auprès de Strava. Les données Strava locales sont retirées en cas de déconnexion, révocation ou suppression d’activité ; les autres GPX sont conservés.
+
+## PostGIS
+
+Les tables `rides` et `portions` possèdent chacune une colonne `geometry(LineString,4326)` et un index GiST. Les géométries sont remplies à partir des coordonnées existantes et synchronisées par triggers lors des créations et modifications. L’ordre des coordonnées est longitude/latitude dans PostGIS et latitude/longitude dans les tableaux utilisés par Leaflet. Les JSON sont conservés pour compatibilité et pour les attributs.
+
+La migration active explicitement l’extension et vérifie sa présence. L’application ne démarre pas silencieusement avec une base sans PostGIS. La page Admin affiche la version réelle et les nombres de géométries. Le catalogue accepte une emprise optionnelle `bbox=ouest,sud,est,nord` et utilise ST_Intersects en conservant les contrôles de visibilité.
 
 ```sh
-bash deploy/configure.sh
-# Compléter le domaine et l’email dans .env si nécessaire.
-sudo docker compose up -d --build
-sudo docker compose exec app node server/users.js flo
+sudo docker compose exec app node server/check-db.js
 ```
 
-Le pilote `pg` est installé dans l’image Docker ; la version directe est fixée dans `package.json`. Aucun secret n’est inclus dans le dépôt. Les mots de passe utilisateurs sont hachés avec scrypt et sel aléatoire ; sessions aléatoires côté serveur, cookie HttpOnly, Secure et SameSite=Strict, contrôles d’origine et limitation des tentatives de connexion. Les requêtes SQL utilisent des paramètres et filtrent les données par utilisateur connecté.
+Cette commande vérifie l’extension, les types, le SRID, l’ordre du premier point des géométries et les index spatiaux sur la base du VPS.
 
-## Tests
+## Déploiement
+
+Voir [le guide OVH](deploy/OVH.md). Pour une installation existante avant la version 4, utiliser le script de migration qui prépare les images, arrête les écritures, sauvegarde, met à jour PostGIS puis vérifie la base :
+
+```sh
+sudo bash deploy/update-postgis.sh
+```
+
+La connexion Strava reste facultative et désactivée tant que Client ID et Client Secret ne sont pas configurés sur le serveur. Voir [l’activation Strava](deploy/STRAVA.md). Le script `deploy/configure.sh` génère les clés locales nécessaires une fois et les conserve ; ne pas les modifier ensuite sans une procédure de réencryption.
+
+## Tests et validation
 
 Node 22 ou supérieur :
 
@@ -35,63 +53,12 @@ Node 22 ou supérieur :
 npm test
 ```
 
-Les tests de modèle et d’API fonctionnent sans dépendance externe ; l’adaptateur SQL de test est en mémoire. Le serveur nécessite `npm install` et un PostgreSQL configuré via PGHOST, PGPORT, PGUSER, PGPASSWORD et PGDATABASE. Pour du développement local HTTP seulement, définir APP_ORIGIN avec l’origine exacte et COOKIE_SECURE=false. En production, HTTPS et les cookies Secure restent activés.
+Les tests de modèle, de routage API, de confidentialité, d’OAuth, de jetons, de snapping et de DOM simulé fonctionnent sans dépendance externe. Le serveur utilise le pilote `pg` et un vrai PostgreSQL/PostGIS. Les tests SQL en mémoire ne remplacent pas une exécution de la migration sur un vrai PostGIS ; le script de déploiement effectue la vérification sur le VPS. La connexion réelle Strava et l’affichage doivent être vérifiés après configuration dans un navigateur.
 
-## Limites et services externes
+## Services externes et limites
 
-Accrochage approximatif à vérifier, limité à 15 km et aux données OSM disponibles. Overpass peut être lent ou indisponible : le GPS reste visible et le mode manuel est disponible. L’algorithme interpole les longues arêtes OSM, puis relie des ancres espacées de 120 m ; il ne garantit pas les restrictions d’accès, sens de circulation ou le bon choix entre chemins parallèles. Les segments manuels sont droits entre chaque point, sans accrochage automatique. Les GPX à plusieurs segments utilisent le segment le plus long pour éviter de relier des interruptions.
+Leaflet est chargé depuis unpkg, les polices depuis Google Fonts, les tuiles depuis leurs fournisseurs. IGN CartoWeb est fourni pour l’usage non commercial avec attribution IGN / TomTom (https://ngi.be/fr/conditions-dutilisation-pour-le-service-cartoweb-be/). Les WMS sont des services HTTPS publics compatibles EPSG:3857. Changer le fond de carte ne change pas le snapping OSM.
 
-Leaflet est chargé depuis unpkg ; polices depuis Google Fonts ; tuiles depuis OpenStreetMap ou Esri World Imagery (couverture et date variables). La zone sélectionnée est transmise à Overpass pour l’accrochage. Les imports GPX sont limités à 25 Mo / 100 000 points (original complet conservé, segment le plus long affiché) ; 100 sorties récentes sont affichées. Les coordonnées sont stockées en JSONB, sans PostGIS. Les sessions expirent après sept jours. Il n’y a pas encore de récupération de mot de passe par email, de réimport GeoJSON ni de connexion Strava.
+Overpass reçoit la zone géographique sélectionnée, sans le fichier GPX. Accrochage limité à 15 km et aux chemins OSM disponibles. Les modes souples peuvent ignorer quelques ancres GPS isolées, mais ne créent pas de raccordements entre composantes déconnectées ; les détours excessifs restent refusés. Vérifier le résultat, surtout près des chemins parallèles. Le cache serveur est limité à 32 Mo de réponses brutes / 16 zones ; une zone est conservée dans la page. La première requête dépend du service public Overpass. Mesure CPU locale illustrative sur un réseau synthétique avec une trace de 8,5 km : 372 ms avant, 193 ms après, 3 ms pour un nouvel essai avec le graphe préparé ; ce n’est pas une mesure du réseau ou d’un téléphone.
 
-## Correctif 2.1
-
-Login isolé de la grille de l’application, champs contenus sur mobile et desktop. Contrôles de visibilité facultatifs et versions explicites des fichiers CSS/JS pour éviter les mélanges après une mise à jour. Carte de hauteur explicite, recalcul de taille à chaque changement de dimensions, endpoint OSM canonique et message unique en cas d’échec de tuiles. Les pannes du fournisseur restent possibles ; le sélecteur permet de changer de fond.
-
-Les nouvelles colonnes PostgreSQL `rides.gpx_xml` et `rides.file_name` sont ajoutées sans effacer les sorties existantes. Le bouton ↓ GPX télécharge l’original pour les nouveaux imports, ou un GPX reconstruit depuis les coordonnées pour les anciennes sorties (sans altitude ni horodatage non conservés auparavant).
-
-## Correctif 2.1.1 : blocage des tuiles OSM
-
-Le serveur envoyait une politique `same-origin` qui supprimait le Referer des requêtes vers OSM. Elle est remplacée par `strict-origin-when-cross-origin`, également précisée sur les images Leaflet. Seule l’origine du site est transmise aux domaines tiers. Les requêtes vont toujours directement vers l’URL OSM canonique, sans proxy, cache-busting, contournement de blocage ni téléchargement massif. Le cache des tuiles reste géré par le navigateur selon les en-têtes OSM.
-
-Référence : https://operations.osmfoundation.org/policies/tiles/ . Un blocage lié au navigateur, au réseau ou au fournisseur peut subsister ; le réglage local ne prouve pas à lui seul la levée d’un blocage externe.
-
-## Version 3 : catalogue, comptes et fonds de carte
-
-La carte s’ouvre sur les segments, sans charger automatiquement un GPX. « Mes sorties » propose un sélecteur des traces déjà enregistrées, l’import et le téléchargement GPX. Passer à « Carte des segments » masque le GPX et montre les segments filtrés : personnels, publics des autres membres, roulables en hiver (oui / non / selon conditions / non renseigné). Les couleurs sont choisies par note de plaisir ou revêtement, avec une légende.
-
-Les **nouveaux segments sont publics par défaut pour les utilisateurs connectés**. Une case permet de les rendre privés dès la création. Les segments créés avant la migration restent privés ; leur propriétaire peut les publier via « Modifier le partage et l’hiver ». Les GPX complets restent privés. Chaque propriétaire peut modifier la visibilité et l’état hiver de ses segments ; voir un segment public ne donne aucun droit de le modifier ou d’accéder au GPX de son auteur.
-
-« Mon compte » permet de changer son mot de passe avec vérification du mot de passe actuel (les autres sessions sont révoquées) et de gérer ses fonds WMS. Les URLs WMS sont des services HTTPS publics compatibles EPSG:3857 ; nom technique des couches et version WMS sont à renseigner. Les configurations restent dans le compte, et les images sont chargées directement par le navigateur, sans proxy WMS ni requête arbitraire du serveur. Aucun identifiant HTTP n’est accepté dans l’URL.
-
-Le fond **IGN Belgique · Topo** utilise le service WMTS officiel CartoWeb (`https://cartoweb.wmts.ngi.be/1.0.0/topo/default/3857/{z}/{y}/{x}.png`). Attribution IGN / TomTom affichée. Licence non commerciale : https://ngi.be/fr/conditions-dutilisation-pour-le-service-cartoweb-be/ . Les autres usages peuvent nécessiter une autorisation ou licence IGN. Le fond choisi ne change pas l’accrochage OSM.
-
-### Administration
-
-L’administrateur est désigné explicitement une fois depuis le VPS :
-
-```sh
-sudo docker compose exec app node server/admin.js TON_IDENTIFIANT
-```
-
-Remplacer `TON_IDENTIFIANT` par un compte existant. Le lien « Admin » apparaît après rechargement. Les administrateurs peuvent créer/révoquer des invitations, générer un lien de réinitialisation de mot de passe, activer/désactiver, promouvoir/rétrograder et supprimer des comptes. La suppression efface les sorties, segments et configurations de l’utilisateur ; la désactivation conserve les données. Il est impossible de supprimer/désactiver/rétrograder son propre compte dans l’interface, ou de supprimer le dernier administrateur actif.
-
-Les invitations sont des liens à transmettre soi-même, valables sept jours et utilisables une fois. Seul un hachage du jeton est stocké en base ; le lien complet n’est montré qu’à sa création. Le jeton est dans le fragment de l’URL, retiré de la barre d’adresse après lecture, et transmis uniquement à l’API en POST. Une invitation ne peut pas attribuer de droits administrateur. Aucun email n’est envoyé par Sillage.
-
-### Déploiement de cette version
-
-Sauvegarder la base, récupérer le code puis reconstruire les services selon le guide OVH. Les tables et colonnes sont ajoutées automatiquement ; aucun compte n’est administrateur avant la commande explicite ci-dessus. Les tests utilisent un adaptateur SQL mémoire et une simulation DOM. Les services WMS/IGN et l’affichage doivent être vérifiés dans un navigateur après déploiement ; l’environnement de développement ne permet pas de valider le service distant dans un navigateur ni un vrai PostgreSQL.
-
-## Correctif 3.0.1 : fond IGN
-
-Le préréglage IGN utilise les tuiles WMTS CartoWeb en Web Mercator (ordre z/y/x) à la place de requêtes WMS GetMap. Les zooms natifs sont limités à 7–17 et rééchantillonnés au-delà. Les WMS ajoutés par l’utilisateur restent indépendants. Les échecs IGN produisent un seul message de carte au lieu de notifications répétées. La disponibilité réelle du service distant et la levée d’un blocage réseau doivent être vérifiées depuis le navigateur utilisateur.
-
-Un filtrage institutionnel classant le domaine `insufficient-content` nécessite une autorisation ou recatégorisation par l’administrateur réseau ; changer le fond de carte ne modifie pas ce filtrage. Aucun proxy, autre domaine ou mécanisme de contournement n’est ajouté.
-
-## Version 3.1 : accrochage plus rapide et réglable
-
-- Index spatial par cellules pour chercher les candidats proches, A* à la place de Dijkstra et préparation du graphe réutilisée dans la page. Les longues arêtes OSM sont toujours interpolées.
-- Cache en mémoire de dix minutes côté serveur (maximum 32 Mo de réponses brutes, 16 zones) et une zone en mémoire côté navigateur. Les sélections incluses dans une zone déjà chargée la réutilisent. Les requêtes simultanées identiques partagent le téléchargement ; au maximum deux requêtes Overpass sont exécutées en parallèle par instance. Aucune anticipation ni interrogation systématique n’est ajoutée. Le cache porte uniquement sur le réseau routier public OSM, jamais sur les fichiers GPX ou les notes des utilisateurs.
-- Tolérance par défaut de 150 m, ajustable à 75 m (précis) ou 250 m (très souple). La marge de recherche OSM suit cette valeur. Un léger décalage GPS ou quelques ancres intermédiaires isolées peuvent être acceptés ; les extrémités doivent appartenir à une même composante du graphe. Aucun raccordement artificiel n’est ajouté entre des chemins déconnectés.
-- Les modes souples peuvent écarter une ancre isolée, ou jusqu’à 15 % des ancres sur une trace plus longue, sans en ignorer plus de deux consécutives. Les grands détours restent rejetés. Un message indique le décalage maximal des ancres retenues et leur éventuelle mise à l’écart. Vérifier le tracé avant enregistrement, surtout à 250 m et près de chemins parallèles.
-
-Mesure locale illustrative : sur une trace synthétique de 8,5 km dans une grille de 170 chemins, ancien calcul 372 ms, nouveau calcul 193 ms, nouvelle tentative avec graphe préparé 3 ms. Cela mesure le calcul sur cette machine, pas l’attente du service public Overpass, ni les performances sur un téléphone. Les premières requêtes réseau peuvent rester lentes ; les erreurs et réponses partielles ne sont pas mises en cache.
+Les fichiers GPX sont limités à 25 Mo et 100 000 points ; les traces interrompues affichent le segment le plus long, mais le fichier d’origine complet est conservé. Cent sorties récentes sont proposées dans le sélecteur. L’import Strava utilise le flux de coordonnées, pas un GPX original : le GPX téléchargeable est reconstruit, sans altitude ni horodatage. La capacité et les quotas de l’application Strava peuvent limiter les comptes et consultations. Pas de réimport GeoJSON ni de réinitialisation de mot de passe par email ; l’admin peut produire un lien de réinitialisation.

@@ -18,3 +18,37 @@
 /* Les filtres et les légendes restent à proximité du fond de carte. */
 .segmentlegend{top:250px;bottom:auto;left:16px;max-width:260px;}
 @media(max-width:850px){.segmentlegend{top:420px;bottom:auto;left:16px;right:16px;max-width:none}.workspace:has(#editorPanel[hidden]){min-height:680px}.account{justify-content:flex-start}.account #username{max-width:100%;overflow-wrap:anywhere}}
+/* Carte adaptée à la fenêtre : pas de hauteur fixe sur ordinateur. */
+body.app-page{height:100dvh;overflow:hidden;display:flex;flex-direction:column;}
+body.app-page>header{flex:0 0 auto;min-height:88px;height:auto;}
+body.app-page>main{flex:1;min-height:0;height:0;overflow:hidden;}
+body.app-page>main>aside{min-height:0;overflow:auto;}
+body.app-page .workspace{height:100%;min-height:0!important;min-width:0;display:flex;flex-direction:column;overflow:hidden;}
+body.app-page .maphead{height:auto;min-height:64px;flex:0 0 auto;gap:10px;padding:12px 18px;}
+.mapactions{display:flex;gap:6px;flex-shrink:0;}.mapactions button{white-space:nowrap;}
+body.app-page .mapcanvas{position:relative;flex:1;min-height:0;width:100%;overflow:hidden;}
+body.app-page #map{height:100%!important;min-height:0!important;width:100%;}
+body.app-page #editorPanel{top:76px;right:16px;max-height:calc(100% - 92px);}
+body.app-page .mapnotice{top:12px;left:65px;max-width:240px;}
+body.app-page .mapbadge{top:auto;bottom:26px;left:16px;right:auto;max-width:260px;}
+body.app-page .segmentlegend{position:static!important;inset:auto!important;display:block!important;width:178px;max-width:min(178px,65vw);padding:9px 11px;margin:0 0 5px;max-height:45vh;overflow:auto;}
+body.app-page .segmentlegend[hidden]{display:none!important;}
+.segmentlegend summary{font-size:12px;font-weight:700;cursor:pointer;list-style-position:inside;}
+#legendContent{display:flex;flex-direction:column;gap:7px;padding-top:8px;}
+#legendContent strong{font-size:11px;}#legendContent span{display:grid;grid-template-columns:18px 1fr;gap:7px;align-items:center;font-size:11px;line-height:1.4;}
+#legendContent i{width:18px;height:5px;display:block;}
+body.app-page .segmentlegend:not([open]){width:auto;}
+.workspace:fullscreen,body.app-page.map-expanded .workspace{position:fixed;inset:0;z-index:10000;width:100vw;height:100dvh!important;min-height:0!important;background:var(--cream);}
+.workspace:fullscreen #editorPanel,body.app-page.map-expanded #editorPanel{display:none;}
+.workspace:fullscreen .mapcanvas,body.app-page.map-expanded .mapcanvas{height:auto!important;flex:1!important;min-height:0!important;}
+.strava-connect{display:inline-block;background:#315843;color:#fff;padding:12px 15px;border-radius:7px;text-decoration:none;font-size:13px;margin:12px 0;}
+.strava-activity{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:16px 0;border-bottom:1px solid var(--line);}
+.strava-activity strong,.strava-activity small{width:100%;overflow-wrap:anywhere;}.strava-activity a{color:var(--green);font-size:12px;}
+#stravaStatus{line-height:1.7;margin-bottom:10px;}#moreActivities{margin:16px 0;}
+@media(max-width:1100px) and (min-width:851px){body.app-page>main{grid-template-columns:280px minmax(0,1fr)}.mapactions button{padding:8px;font-size:10px}.maphead small{max-width:160px;overflow-wrap:anywhere}}
+@media(max-width:850px){body.app-page{height:auto;min-height:100svh;overflow:auto;display:block;}body.app-page>header{min-height:0;padding:14px 18px;}body.app-page>main{display:flex;flex-direction:column;height:auto;min-height:0;overflow:visible;}body.app-page>main>aside{overflow:visible;}body.app-page .workspace{height:auto;min-height:0!important;overflow:visible;}body.app-page .mapcanvas{height:68svh;min-height:360px;flex:none;}body.app-page #editorPanel{position:static;max-height:none;width:auto;margin:14px 16px;padding:20px;overflow:visible;}body.app-page .maphead{min-height:74px;padding:12px 16px;flex-wrap:wrap;}body.app-page .mapactions{margin-left:auto;}body.app-page .segmentlegend{width:166px;max-width:60vw;}body.app-page .mapnotice{max-width:210px;}.settingspage>main.settings{overflow-wrap:anywhere;}}
+
+body.app-page #editorPanel{top:calc(var(--maphead-height,64px) + 12px);max-height:calc(100% - var(--maphead-height,64px) - 28px);}.privacy-note{font-size:11px;line-height:1.6;color:var(--muted);}@media(max-width:850px){body.app-page #editorPanel{max-height:none;}}
+
+.segmentlegend:not([open]) #legendContent{display:none;}body.app-page.map-expanded{overflow:hidden;}
+body.app-page>header{flex-wrap:wrap;gap:12px;padding:14px 24px;}body.app-page>header nav{height:auto;align-self:stretch;}body.app-page>header .account{flex-wrap:wrap;}@media(max-width:850px){body.app-page>header{padding:14px 18px;}}

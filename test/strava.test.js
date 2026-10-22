@@ -1,0 +1,48 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createStrava,tokenCipher} from '../server/strava.js';
+import {tokenHash} from '../server/model.js';
+import {spatialBounds,spatialSQL} from '../server/spatial.js';
+const user={id:'00000000-0000-0000-0000-000000000001'},key='12'.repeat(32),session='session-hash',secret='ab'.repeat(32);
+const cipher=tokenCipher(key);
+function fixture({expires=999999,fetcher}={}){
+ const calls=[],rides=[];let state=null,connection={athlete_id:'77',tokens:cipher.seal({access_token:'ACCESS_PRIVATE',refresh_token:'REFRESH_PRIVATE',expires_at:expires},user.id)};
+ const db={calls,rides,async query(sql,args=[]){calls.push({sql,args});if(sql.startsWith('INSERT INTO strava_oauth_states'))state={state_hash:args[0],nonce_hash:args[1],user_id:args[2],session_hash:args[3]};
+  if(sql.startsWith('DELETE FROM strava_oauth_states WHERE state_hash')){const found=state&&state.state_hash===args[0]&&state.nonce_hash===args[1]?state:null;state=null;return {rows:found?[found]:[]};}
+  if(sql.startsWith('SELECT u.id FROM sessions'))return {rows:args[0]===session&&args[1]===user.id?[{id:user.id}]:[]};
+  if(sql.startsWith('INSERT INTO strava_connections'))connection={athlete_id:args[1],tokens:args[2]};
+  if(sql.startsWith('SELECT athlete_id,tokens'))return {rows:connection?[connection]:[]};
+  if(sql.startsWith('SELECT athlete_id FROM'))return {rows:connection?[{athlete_id:connection.athlete_id}]:[]};
+  if(sql.startsWith('SELECT user_id FROM strava_connections'))return {rows:connection&&args[0]===connection.athlete_id?[{user_id:user.id}]:[]};
+  if(sql.startsWith('UPDATE strava_connections'))connection.tokens=args[0];
+  if(sql.startsWith('DELETE FROM strava_connections'))connection=null;
+  if(sql.startsWith('SELECT id FROM rides'))return {rows:rides.filter(r=>r.user===args[0]&&r.activity===args[1]).map(r=>({id:r.id}))};
+  if(sql.startsWith('INSERT INTO rides')){rides.push({id:args[0],user:args[1],points:JSON.parse(args[3]),activity:args[5]});return {rows:[{id:args[0]}]};}
+  return {rows:[],rowCount:1};},async connect(){return {query:this.query.bind(this),release(){}};}};
+ const network=[];
+ const fetchMock=async(url,options={})=>{network.push({url,options});if(fetcher)return fetcher(url,options);let data;
+  if(url.endsWith('/oauth/token'))data={athlete:{id:77},access_token:'NEW_ACCESS',refresh_token:'NEW_REFRESH',expires_at:999999};
+  else if(url.includes('/athlete/activities'))data=[{id:101,name:'Gravel',sport_type:'GravelRide',distance:1000,start_date:'2026-10-20'},{id:102,name:'Route',sport_type:'Ride'},{id:103,name:'Course',sport_type:'Run'}];
+  else if(url.includes('/streams'))data={latlng:{data:[[50,5],[50.001,5]]}};
+  else if(url.includes('/activities/'))data={id:101,name:'Ma sortie gravel',sport_type:'GravelRide',athlete:{id:77}};
+  else data={};return new Response(JSON.stringify(data));};
+ const handle=createStrava({clientId:'123',clientSecret:'CLIENT_SECRET_PRIVATE',key,webhookSecret:secret,fetcher:fetchMock,now:()=>2000});
+ async function run(path,method='GET',data={},options={}){let result;const headers={},res={setHeader(k,v){headers[k]=v;},writeHead(status,h={}){result={status,headers:{...headers,...h}};},end(body=''){result={...result,body};}};
+  const handled=await handle({db,path,method,user:options.anonymous?null:user,sessionToken:session,origin:'https://sillage.test',secure:true,req:{headers:{cookie:options.cookie||''}},query:new URLSearchParams(options.query||{}),body:async()=>data,res,json:(r,status,body)=>result={status,body}});return {handled,...result};}
+ return {db,run,network,get connection(){return connection;}};
+}
+test('jetons chiffrés et liés au bon utilisateur',()=>{const sealed=cipher.seal({access_token:'SECRET'},user.id);assert.ok(!sealed.includes('SECRET'));assert.equal(cipher.open(sealed,user.id).access_token,'SECRET');assert.throws(()=>cipher.open(sealed,'autre'));assert.throws(()=>tokenCipher('abc'));});
+test('OAuth exige le nonce, le state, la session d’origine et le scope activité',async()=>{const f=fixture(),begin=await f.run('/api/strava/connect');assert.equal(begin.status,303);const url=new URL(begin.headers.Location),state=url.searchParams.get('state');assert.equal(url.searchParams.get('scope'),'activity:read_all');const nonce=begin.headers['Set-Cookie'].split(';')[0];assert.match(nonce,/sillage_strava_nonce=/);assert.ok(!JSON.stringify(f.db.calls).includes(state));const denied=await f.run('/api/strava/callback','GET',{}, {anonymous:true,query:{state,code:'CODE',scope:'activity:read_all'}});assert.equal(denied.status,400);assert.equal(f.network.length,0);
+ const ok=await f.run('/api/strava/callback','GET',{}, {anonymous:true,cookie:nonce,query:{state,code:'CODE',scope:'activity:read_all'}});assert.equal(ok.status,200);assert.ok(!f.connection.tokens.includes('NEW_ACCESS'));const replay=await f.run('/api/strava/callback','GET',{}, {anonymous:true,cookie:nonce,query:{state,code:'CODE',scope:'activity:read_all'}});assert.equal(replay.status,400);
+});
+test('liste gravel par défaut, élargissement aux sorties vélo, aucun jeton dans la réponse',async()=>{const f=fixture(),gravel=await f.run('/api/strava/activities');assert.equal(gravel.body.activities.length,1);assert.equal(gravel.body.activities[0].id,'101');const cycling=await f.run('/api/strava/activities','GET',{}, {query:{kind:'cycling'}});assert.equal(cycling.body.activities.length,2);assert.doesNotMatch(JSON.stringify(cycling.body),/ACCESS_PRIVATE|REFRESH_PRIVATE/);});
+test('rafraîchit et conserve le nouveau refresh token',async()=>{const f=fixture({expires:1});await f.run('/api/strava/activities');await f.run('/api/strava/activities');assert.equal(f.network.filter(n=>n.url.endsWith('/oauth/token')).length,1);assert.equal(cipher.open(f.connection.tokens,user.id).refresh_token,'NEW_REFRESH');});
+test('import de sa propre activité et dédoublonnage',async()=>{const f=fixture(),a=await f.run('/api/strava/import','POST',{activityId:'101'}),b=await f.run('/api/strava/import','POST',{activityId:'101'});assert.equal(a.status,201);assert.equal(a.body.id,b.body.id);assert.equal(f.db.rides.length,1);assert.equal(f.db.rides[0].user,user.id);assert.equal(f.db.rides[0].points.length,2);assert.equal(f.network.filter(n=>n.url.includes('/streams')).length,1);});
+test('interdit l’import d’une activité appartenant à un autre athlète',async()=>{const f=fixture({fetcher:async()=>new Response(JSON.stringify({sport_type:'GravelRide',athlete:{id:88}}))});const r=await f.run('/api/strava/import','POST',{activityId:'101'});assert.equal(r.status,403);assert.equal(f.db.rides.length,0);assert.equal(f.network.length,1);});
+test('révocation externe supprime les imports privés à la prochaine requête',async()=>{const f=fixture({fetcher:async()=>new Response('{}',{status:401})});await assert.rejects(f.run('/api/strava/activities'),/révoquée/);assert.equal(f.connection,null);assert.ok(f.db.calls.some(q=>q.sql.includes('DELETE FROM portions')&&q.args[0]===user.id));});
+test('webhook vérifié et suppression lors d’une révocation Strava',async()=>{const f=fixture(),path='/api/strava/webhook/'+secret;assert.equal((await f.run('/api/strava/webhook/wrong','POST',{}, {anonymous:true})).handled,false);const challenge=await f.run(path,'GET',{}, {anonymous:true,query:{'hub.mode':'subscribe','hub.verify_token':secret,'hub.challenge':'ok'}});assert.deepEqual(challenge.body,{'hub.challenge':'ok'});await f.run(path,'POST',{owner_id:77,object_type:'athlete',aspect_type:'update',updates:{authorized:'false'}},{anonymous:true});assert.equal(f.connection,null);});
+test('Strava non configuré reste désactivé sans bloquer les autres fonctions',async()=>{const handler=createStrava({clientId:'',clientSecret:'',key:''}),db={query:async()=>({rows:[]})};let result;await handler({path:'/api/strava/status',method:'GET',user,db,res:{},json:(r,s,b)=>result=b});assert.deepEqual(result,{configured:false,connected:false});});
+test('PostGIS : SRID 4326, ordre lon/lat et index spatiaux dans la migration',()=>{assert.deepEqual(spatialBounds('5,50,6,51'),[5,50,6,51]);assert.throws(()=>spatialBounds('50,5,40,6'));assert.match(spatialSQL,/geometry\(LineString,4326\)/);assert.match(spatialSQL,/ST_MakePoint\(\(point->>1\).*\(point->>0\)/);assert.match(spatialSQL,/CREATE INDEX IF NOT EXISTS portions_geom_gist ON portions USING gist\(geom\)/);});
+test('callback refusé si le scope est incomplet ou la session d’origine révoquée',async()=>{for(const reason of ['scope','session']){const f=fixture(),begin=await f.run('/api/strava/connect'),state=new URL(begin.headers.Location).searchParams.get('state'),cookie=begin.headers['Set-Cookie'].split(';')[0];if(reason==='session'){const base=f.db.query.bind(f.db);f.db.query=(sql,args)=>sql.startsWith('SELECT u.id FROM sessions')?Promise.resolve({rows:[]}):base(sql,args);}const r=await f.run('/api/strava/callback','GET',{}, {anonymous:true,cookie,query:{state,code:'code',scope:reason==='scope'?'activity:read':'activity:read_all'}});assert.equal(r.status,400);assert.equal(f.network.length,0);}});
+test('la déconnexion supprime les données locales même quand Strava est indisponible',async()=>{const f=fixture({fetcher:async()=>{throw Error('Network down');}});const r=await f.run('/api/strava/disconnect','POST');assert.equal(r.status,200);assert.equal(r.body.remoteRevoked,false);assert.equal(f.connection,null);});
+test('un quota Strava atteint ne supprime pas la connexion ni les imports',async()=>{const f=fixture({fetcher:async()=>new Response('{}',{status:429})});await assert.rejects(f.run('/api/strava/activities'),e=>e.status===429);assert.notEqual(f.connection,null);assert.ok(!f.db.calls.some(c=>c.sql.startsWith('DELETE FROM rides')));});
