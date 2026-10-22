@@ -57,3 +57,7 @@ Les jetons sont chiffrés avec AES-256-GCM, liés à l’utilisateur, et renouve
 « Déconnecter et supprimer mes imports Strava » retire les connexions, sorties et portions issues de Strava de ce compte. Les autres GPX sont conservés. Les webhooks retirent également les données lors d’une révocation côté Strava ou de la suppression d’une activité. Une réponse Strava 401 lors d’une consultation provoque aussi cette suppression locale. Les sauvegardes privées ont leur propre cycle de rétention et doivent être gérées en conséquence.
 
 La connexion réelle doit être testée avec votre application et vos autorisations après configuration. Les tests automatisés utilisent des réponses Strava simulées.
+
+## Dessin OSM avec une sortie Strava comme repère privé
+
+Le bouton « Créer un nouveau segment indépendant » conserve l’affichage privé de la sortie et remet le formulaire à zéro. Les points du nouveau segment sont posés par le membre sur la carte ; le suivi GPX est désactivé. Le segment enregistré utilise uniquement ces points, le résultat du routage OSM et les attributs saisis, sans nom, identifiant ou lien vers l’activité Strava. Cette séparation technique ne permet pas d’affirmer que Strava exempte le redessin visuel de ses restrictions : ce cas n’est pas explicitement confirmé dans ses textes. Les imports et segments réellement issus du suivi GPX Strava restent privés.

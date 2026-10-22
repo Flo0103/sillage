@@ -15,8 +15,9 @@ export function portion(body){
   const points=coordinates(body.coordinates);
   if(!Number.isInteger(body.rating)||body.rating<1||body.rating>5)throw Error('Choisissez une note de 1 à 5.');
   if(!surfaces.includes(body.surface)||!difficulties.includes(body.difficulty)||!winters.includes(body.winter??'unknown')||!['unknown','yes','no'].includes(body.singleTrack??'unknown'))throw Error('Attributs invalides.');
-  const meters=routeLength(points);
-  return {name:text(body.name,100)||`Portion de ${(meters/1000).toFixed(2).replace('.',',')} km`,rating:body.rating,surface:body.surface,difficulty:body.difficulty,winter:body.winter??'unknown',singleTrack:body.singleTrack??'unknown',notes:text(body.notes,2000),source:text(body.source,200),coordinates:points,snapped:body.snapped===true,mode:['manual','route','snap'].includes(body.mode)?body.mode:'gps',distance:meters};
+  const meters=routeLength(points);let routePoints;
+  if(body.mode==='route'){routePoints=coordinates(body.routePoints??[points[0],points.at(-1)]);if(routePoints.length>12)throw Error('Routage limité à 12 points.');}
+  return {name:text(body.name,100)||`Portion de ${(meters/1000).toFixed(2).replace('.',',')} km`,rating:body.rating,surface:body.surface,difficulty:body.difficulty,winter:body.winter??'unknown',singleTrack:body.singleTrack??'unknown',notes:text(body.notes,2000),source:text(body.source,200),coordinates:points,routePoints,snapped:body.snapped===true,mode:['manual','route','snap'].includes(body.mode)?body.mode:'gps',distance:meters};
 }
 export async function hashPassword(password){const salt=randomBytes(16).toString('hex');const key=await scrypt(password,salt,64);return `${salt}:${key.toString('hex')}`;}
 export async function verifyPassword(password,stored){const[salt,hash]=stored.split(':');const key=await scrypt(password,salt,64);const expected=Buffer.from(hash,'hex');return key.length===expected.length&&timingSafeEqual(key,expected);}

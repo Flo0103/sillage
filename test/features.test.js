@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {features,wmsConfig} from '../server/features.js';
 import {hashPassword,verifyPassword,tokenHash} from '../server/model.js';
+import {insertionIndex,routePosition} from '../dist/route-edit.js';
 import {previewPath} from '../dist/preview.js';
 import {visibleSegments,segmentColor} from '../dist/catalog.js';
 const admin={id:'00000000-0000-0000-0000-000000000001',username:'flo',is_admin:true},member={id:'00000000-0000-0000-0000-000000000002',username:'marie'};
@@ -41,4 +42,12 @@ test('aperçu SVG conserve proportions et bornes avec coordonnées arrondies sû
   const path=previewPath(points);assert.match(path,/^M[0-9.,]+ L[0-9.,]+$/);const pairs=[...path.matchAll(/[ML]([0-9.]+),([0-9.]+)/g)];assert.equal(pairs.length,2);for(const p of pairs){assert.ok(Number(p[1])>=0&&Number(p[1])<=320);assert.ok(Number(p[2])>=0&&Number(p[2])<=136);}
  }
  assert.equal(previewPath([]),'');assert.equal(previewPath([[NaN,5],[50,5]]),'');assert.equal(previewPath(Array.from({length:1000},(_,i)=>[50,5+i*.0001])).split(' ').length,500);
+});
+
+test('insertion de passage respecte l’ordre sur un chemin sinueux',()=>{
+ const path=[[50,5],[50.01,5],[50.01,5.01],[50,5.01]],controls=[path[0],path[2],path[3]];
+ assert.equal(insertionIndex(path,controls,[50.009,5.0001]),1);assert.equal(insertionIndex(path,controls,[50.002,5.01]),2);
+ assert.equal(insertionIndex(path,[path[0],path[3]],[50.01,5.005]),1);
+ assert.equal(insertionIndex(path,controls,[50.002,5.01],[0,.62,1]),2);
+ assert.ok(routePosition(path,[50.005,5])<routePosition(path,[50.005,5.01]));
 });

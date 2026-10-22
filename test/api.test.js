@@ -99,3 +99,17 @@ test('routage authentifié et suppression de sortie réservée à son propriéta
  const routed=await request(app,{url:'/api/route',method:'POST',user:'alice',body:{points}});assert.equal(routed.status,200);assert.equal(calls,1);
  const id='00000000-0000-0000-0000-000000000321';db.rides.push({id,user_id:'alice'});assert.equal((await request(app,{url:'/api/rides/'+id,method:'DELETE',user:'bob'})).status,404);assert.equal(db.rides.length,1);assert.equal((await request(app,{url:'/api/rides/'+id,method:'DELETE',user:'alice'})).status,200);assert.equal(db.rides.length,0);
 });
+
+test('nouveau dessin OSM indépendant public sans données de la sortie privée de référence',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'}),body={coordinates:[[50,5],[50.001,5]],rating:4,surface:'Sable',difficulty:'Facile',mode:'manual',independentOsm:true,source:'Nom Strava à ne pas copier',isPublic:true};
+ const r=await request(app,{url:'/api/portions',method:'POST',user:'alice',body});assert.equal(r.status,201);const p=JSON.parse(r.body);assert.equal(p.isPublic,true);assert.equal(p.fromStrava,false);assert.equal(p.source,'Dessin OSM indépendant');assert.equal(db.saved[0].source_strava,false);
+ const pub=JSON.parse((await request(app,{url:'/api/catalog',user:'bob'})).body);assert.equal(pub.length,1);assert.ok(!JSON.stringify(pub).includes('Nom Strava'));
+ for(const b of [{...body,mode:'snap'},{...body,rideId:'00000000-0000-0000-0000-000000000111'}])assert.equal((await request(app,{url:'/api/portions',method:'POST',user:'alice',body:b})).status,400);
+});
+
+test('points de routage persistés dans le catalogue et modifiables au rechargement',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'}),routePoints=[[50,5],[50.001,5.001],[50.002,5]],body={coordinates:routePoints,routePoints,mode:'route',snapped:true,rating:4,surface:'Gravier fin',difficulty:'Facile'};
+ const r=await request(app,{url:'/api/portions',method:'POST',user:'alice',body});assert.equal(r.status,201);const id=JSON.parse(r.body).id;
+ const loaded=JSON.parse((await request(app,{url:'/api/catalog',user:'alice'})).body)[0];assert.deepEqual(loaded.routePoints,routePoints);
+ const next=[[50,4.999],[50.001,5.002],[50.002,5]];assert.equal((await request(app,{url:'/api/portions/'+id,method:'PATCH',user:'alice',body:{coordinates:next,routePoints:next}})).status,200);assert.deepEqual(db.saved[0].data.routePoints,next);
+});

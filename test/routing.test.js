@@ -23,10 +23,17 @@ test('service public limité à une requête par seconde et file bornée',async(
  for(let i=0;i<jobs.length;i++){await new Promise(r=>setImmediate(r));finish(response({code:'NoRoute'}));await assert.rejects(jobs[i],/Aucun itinéraire/);}
 });
 test('refuse coordonnées invalides, réponse automobile éloignée, itinéraire absent et erreurs amont',async()=>{
- for(const body of [{points:[[500,5],[50,5]]},{points:[[50,5],[50,5]]},{points:[[50,5],[51,6]]},{...request,tolerance:100},{points:[[50,5],[50.001,5],[50.002,5]]}])assert.throws(()=>routeRequest(body));
+ for(const body of [{points:[[500,5],[50,5]]},{points:[[50,5],[50,5]]},{points:[[50,5],[51,6]]},{...request,tolerance:100},{points:Array.from({length:13},(_,i)=>[50+i*.001,5])}])assert.throws(()=>routeRequest(body));
  assert.throws(()=>createRoutingService({base:'http://example.org'}),/HTTPS/);
  const missing=createRoutingService({wait:async()=>{},fetcher:async()=>response({code:'NoRoute'})});await assert.rejects(missing(request),/Aucun itinéraire/);
  const bad=createRoutingService({wait:async()=>{},fetcher:async()=>response({code:'Ok',routes:[{geometry:{type:'LineString',coordinates:[[6,51],[6.001,51.001]]}}]})});await assert.rejects(bad(request),/éloigné/);
  const down=createRoutingService({wait:async()=>{},fetcher:async()=>{throw Error('network');}});await assert.rejects(down(request),e=>e.status===504);
  const limited=createRoutingService({wait:async()=>{},fetcher:async()=>new Response('',{status:429})});await assert.rejects(limited(request),e=>e.status===429);
+});
+
+test('points de passage transmis en ordre, tolérance sur chaque point et fractions des étapes',async()=>{
+ let url;const points=[[50,5],[50.0005,5.0005],[50.001,5.001]];
+ const service=createRoutingService({wait:async()=>{},fetcher:async u=>{url=new URL(u);return response({code:'Ok',routes:[{geometry,legs:[{distance:100},{distance:300}]}],waypoints:points.map(p=>({location:[p[1],p[0]]}))});}});
+ const r=await service({points,tolerance:75});assert.match(url.pathname,/5,50;5.0005,50.0005;5.001,50.001$/);assert.equal(url.searchParams.get('radiuses'),'75;75;75');assert.equal(url.searchParams.get('continue_straight'),'false');assert.deepEqual(r.legFractions,[0,.25,1]);
+ const far=createRoutingService({wait:async()=>{},fetcher:async()=>response({code:'Ok',routes:[{geometry}],waypoints:[{location:[5,50]},{location:[6,51]},{location:[5.001,50.001]}]})});await assert.rejects(far({points,tolerance:75}),/éloigné/);
 });

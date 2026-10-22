@@ -9,3 +9,9 @@ test('mots de passe salés et vérification',async()=>{const p='Une phrase assez
 test('plus court chemin et composante déconnectée',()=>{const graph=new Map([[1,[[2,5],[3,1]]],[3,[[2,1]]],[2,[]],[4,[]]]);assert.deepEqual(shortest(graph,1,2),[1,3,2]);assert.throws(()=>shortest(graph,1,4));});
 test('accrochage sur un long segment OSM sans nœud au milieu',()=>{const original=[[50,5.002],[50,5.004],[50,5.006],[50,5.008]];const result=matchOSM(original,[{id:1,nodes:[1,2],geometry:[{lat:50,lon:5},{lat:50,lon:5.01}]}]);assert.ok(result.length>2);assert.ok(Math.abs(routeLength(result)-routeLength(original))<80);assert.ok(result.every(p=>p[0]===50));});
 test('ne raccorde pas artificiellement deux chemins déconnectés',()=>{assert.throws(()=>matchOSM([[50,5],[50,5.01]],[{id:1,nodes:[1,2],geometry:[{lat:50,lon:5},{lat:50,lon:5.001}]},{id:2,nodes:[3,4],geometry:[{lat:50,lon:5.009},{lat:50,lon:5.01}]}]),/éloignée|reliés/);});
+
+test('routage conserve ses points de passage et refuse des points non valides ou trop nombreux',()=>{
+ const routePoints=[[50,5],[50.0005,5.0005],[50.001,5]],p=portion({...input,mode:'route',routePoints});assert.deepEqual(p.routePoints,routePoints);
+ assert.deepEqual(portion({...input,mode:'route'}).routePoints,[input.coordinates[0],input.coordinates[1]]);
+ assert.throws(()=>portion({...input,mode:'route',routePoints:[[500,5],[50,5]]}));assert.throws(()=>portion({...input,mode:'route',routePoints:Array.from({length:13},(_,i)=>[50+i*.001,5])}));
+});

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
 import {distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds} from '../dist/geo.js';
+import {insertionIndex} from '../dist/route-edit.js';
 import {visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,escapeHTML} from '../dist/catalog.js';
 const html=await readFile(new URL('../dist/index.html',import.meta.url),'utf8');
 const previewScript=(await readFile(new URL('../dist/preview.js',import.meta.url),'utf8')).replace(/^export /gm,'');
@@ -16,7 +17,7 @@ function context({optionalMissing=false}={}){
  const document={body:element(),addEventListener(){},getElementById:id=>elements.get(id)||null,createElement:()=>element(),createTextNode:text=>({textContent:text}),querySelector:()=>null};
  const fetch=async(path,options={})=>{calls.push({path,options});const data=path==='/api/me'?{username:'alice'}:['/api/portions','/api/catalog','/api/wms'].includes(path)?[]:path==='/api/rides'?options.method==='POST'?{id:ride.id}:[ride]:ride;return {ok:true,status:200,json:async()=>data};};
  const xml={querySelector:()=>null,getElementsByTagNameNS:(ns,tag)=>tag==='trkpt'?points.map(p=>({hasAttribute:()=>true,getAttribute:n=>n==='lat'?String(p[0]):String(p[1])})):[]};
- const ctx={document,fetch,distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds,visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,escapeHTML,location:{replace(){}},localStorage:{getItem:()=>null},AbortController,console,setTimeout:()=>1,clearTimeout(){},innerWidth:1200,Blob,URL,URLSearchParams,confirm:()=>true,DOMParser:class{parseFromString(){return xml;}}};
+ const ctx={document,fetch,insertionIndex,distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds,visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,escapeHTML,location:{replace(){}},localStorage:{getItem:()=>null},AbortController,console,setTimeout:()=>1,clearTimeout(){},innerWidth:1200,Blob,URL,URLSearchParams,confirm:()=>true,DOMParser:class{parseFromString(){return xml;}}};
  return {elements,calls,ctx};
 }
 test('choix d’une sortie sauvegardée sans dépendre des contrôles facultatifs',async()=>{
@@ -123,7 +124,7 @@ test('choix Strava et aperçu dans le panneau, ouverture directe puis nouveau se
  elements.get('rideSource').value='strava';await elements.get('rideSource').onchange();assert.equal(elements.get('stravaPicker').hidden,false);assert.equal(elements.get('stravaRideSelect').children.length,2);
  elements.get('stravaRideSelect').value='101';elements.get('stravaRideSelect').onchange();assert.equal(elements.get('stravaRidePreview').children[2].textContent,'Gravel Spa');assert.equal(elements.get('openStravaRide').disabled,false);
  await elements.get('openStravaRide').onclick();assert.equal(access.state().currentRide.source_type,'strava');assert.equal(elements.get('publicSegment').disabled,true);assert.equal(elements.get('rideSource').value,'saved');assert.ok(calls.some(c=>c.path==='/api/strava/import'&&JSON.parse(c.options.body).activityId==='101'));
- elements.get('independentSegment').onclick();assert.equal(access.state().trace,0);assert.equal(access.state().selected,0);assert.equal(access.state().currentRide,null);assert.equal(elements.get('publicSegment').disabled,false);assert.doesNotMatch(html,/id="legacyImport"/);
+ elements.get('independentSegment').onclick();assert.equal(access.state().trace,2);assert.equal(access.state().selected,0);assert.equal(access.state().currentRide.source_type,'strava');assert.equal(elements.get('publicSegment').disabled,false);assert.doesNotMatch(html,/id="legacyImport"/);
 });
 
 test('chargement de sortie : réponse tardive ignorée après choix plus récent ou retour au catalogue',async()=>{
@@ -133,4 +134,48 @@ test('chargement de sortie : réponse tardive ignorée après choix plus récent
  const answer=name=>({ok:true,status:200,json:async()=>({id:name,name,coordinates:[[50,5],[50.001,5]],distance:111})});
  const first=access.loadRide('a'),second=access.loadRide('b');b(answer('b'));await second;a(answer('a'));await first;assert.equal(access.state().ride,'b');
  const third=access.loadRide('c');elements.get('savedTab').onclick();c(answer('c'));await third;assert.equal(access.state().view,'saved');assert.equal(access.state().ride,'b');
+});
+
+test('déplacer départ, arrivée et passages recalcule tous les points sans perdre leur ordre',async()=>{
+ const {ctx,elements,calls}=context(),base=ctx.fetch;
+ ctx.fetch=async(path,options)=>{if(path==='/api/route'){calls.push({path,options});const points=JSON.parse(options.body).points;return {ok:true,status:200,json:async()=>({coordinates:points,legFractions:points.map((_,i)=>i/(points.length-1)),stats:{maxOffset:0,ignoredAnchors:0}})};}if(path==='/api/osm')return {ok:false,status:503,json:async()=>({error:'Indisponible'})};return base(path,options);};
+ const access=await vm.runInNewContext(`(async()=>{${script}\nsetView('explore');endpoints=[[50,5],[50.002,5]];selected=endpoints.map(p=>[...p]);snapped=true;return {insertVia,moveRouteControl,removeVia,setMode,state:()=>JSON.stringify(routeControls())};})()`,ctx);
+ await access.insertVia(1,[50.001,5.001]);assert.equal(JSON.parse(access.state()).length,3);await access.moveRouteControl(0,[50,4.999]);await access.moveRouteControl(2,[50.003,5]);await access.moveRouteControl(1,[50.001,5.002]);
+ const expected=[[50,4.999],[50.001,5.002],[50.003,5]];assert.deepEqual(JSON.parse(access.state()),expected);assert.deepEqual(JSON.parse(calls.filter(c=>c.path==='/api/route').at(-1).options.body).points,expected);
+ access.setMode('manual');access.setMode('route');assert.deepEqual(JSON.parse(access.state()),expected);assert.equal(elements.get('waypointList').children.length,3);
+ await access.removeVia(0);assert.deepEqual(JSON.parse(access.state()),[expected[0],expected[2]]);
+});
+test('dessin indépendant garde le repère Strava privé et envoie uniquement les nouveaux points OSM',async()=>{
+ const {ctx,elements,calls}=context();const access=await vm.runInNewContext(`(async()=>{${script}\ncurrentRide={id:'00000000-0000-0000-0000-000000000001',source_type:'strava',name:'Activité privée',coordinates:[[51,6],[51.001,6]],distance:111};trace=[[51,6],[51.001,6]];selected=trace.map(p=>[...p]);$('independentSegment').onclick();setMode('snap');setMode('manual');choose({lat:50,lng:5});choose({lat:50.001,lng:5});rating=4;update();return {mode,points:JSON.stringify(selected),trace:trace.length};})()`,ctx);
+ assert.equal(access.mode,'manual');assert.equal(access.trace,2);assert.equal(access.points,'[[50,5],[50.001,5]]');assert.equal(elements.get('autoMode').disabled,true);assert.equal(elements.get('publicSegment').checked,true);
+ elements.get('surface').value='Sable';elements.get('difficulty').value='Facile';elements.get('winter').value='unknown';elements.get('singleTrack').value='unknown';await elements.get('ratingForm').onsubmit({preventDefault(){}});
+ const saved=JSON.parse(calls.find(c=>c.path==='/api/portions'&&c.options.method==='POST').options.body);assert.equal(saved.independentOsm,true);assert.equal(saved.rideId,null);assert.equal(saved.source,'Dessin OSM indépendant');assert.equal(saved.isPublic,true);assert.ok(!JSON.stringify(saved).includes('Activité privée'));assert.deepEqual(saved.coordinates,[[50,5],[50.001,5]]);
+});
+
+test('aperçus OSM créés à visibilité, attribution et Referer présents, ressources libérées',async()=>{
+ const visibility=[],resize=[],tiles=[],maps=[];let removed=0,disconnected=0;
+ const ctx={document:{createElement:()=>({...element(),clientWidth:320,clientHeight:185})},IntersectionObserver:class{constructor(fn){this.fn=fn;visibility.push(this);}observe(node){this.node=node;}disconnect(){disconnected++;}},ResizeObserver:class{constructor(fn){this.fn=fn;resize.push(this);}observe(){}disconnect(){disconnected++;}}};
+ ctx.L={latLngBounds:p=>p,map:(node,options)=>{const map={node,options,fitBounds(points,opts){this.points=points;this.fit=opts;},invalidateSize(){},remove(){removed++;}};maps.push(map);return map;},tileLayer:(url,options)=>{const tile={url,options,events:{},on(n,fn){this.events[n]=fn;return this;},addTo(){return this;}};tiles.push(tile);return tile;},polyline:()=>({addTo(){}})};
+ const access=vm.runInNewContext(`${previewScript}\n({renderPreview,disposePreviews})`,ctx),container=element(),item={name:'Sentier',coordinates:[[50,5],[50.001,5]]};
+ access.renderPreview(container,item);assert.equal(maps.length,0);visibility[0].fn([{isIntersecting:true}]);assert.equal(maps.length,1);assert.equal(maps[0].options.scrollWheelZoom,false);assert.equal(maps[0].fit.maxZoom,16);assert.equal(tiles[0].url,'https://tile.openstreetmap.org/{z}/{x}/{y}.png');assert.equal(tiles[0].options.referrerPolicy,'strict-origin-when-cross-origin');assert.match(tiles[0].options.attribution,/OpenStreetMap/);
+ const graphic=container.children[0],notice=graphic.children.at(-1);tiles[0].events.tileerror();assert.equal(notice.hidden,false);tiles[0].events.loading();tiles[0].events.load();assert.equal(notice.hidden,true);
+ access.renderPreview(container,null);assert.equal(removed,1);assert.equal(disconnected,2);visibility[0].fn([{isIntersecting:true}]);assert.equal(maps.length,1);
+});
+
+test('glissement réel de marqueur et de ligne ajoute un passage, recalcul à la fin seulement, annulation propre',async()=>{
+ const {ctx,calls,elements}=context(),base=ctx.fetch,markers=[],lines=[],listeners=new Map();let mapDragging=true;
+ ctx.window={addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener:(name,fn)=>{if(listeners.get(name)===fn)listeners.delete(name);}};
+ const dom=()=>({...element(),events:{},addEventListener(name,fn){this.events[name]=fn;}});
+ const layer=(coords,options={})=>({coords,options,events:{},node:dom(),removed:false,layers:[],on(n,fn){this.events[n]=fn;return this;},addTo(target){target.layers?.push(this);return this;},clearLayers(){for(const l of this.layers)l.removed=true;this.layers=[];},bindTooltip(){return this;},getElement(){return this.node;},getLatLng(){return {lat:this.coords[0],lng:this.coords[1]};},setLatLng(p){this.coords=Array.isArray(p)?p:[p.lat,p.lng];return this;},setLatLngs(p){this.coords=p;return this;},remove(){this.removed=true;}});
+ const map={setView(){return this;},createPane(){},getPane(){return {style:{}};},on(){return this;},invalidateSize(){},fitBounds(){},hasLayer(){return false;},mouseEventToLatLng:e=>({lat:e.lat,lng:e.lng}),dragging:{enabled:()=>mapDragging,disable:()=>mapDragging=false,enable:()=>mapDragging=true}};
+ const tile=()=>layer();tile.wms=tile;
+ ctx.L={map:()=>map,tileLayer:tile,layerGroup:()=>layer(),polyline:(p,o)=>{const l=layer(p,o);lines.push(l);return l;},marker:(p,o)=>{const l=layer(p,o);markers.push(l);return l;},divIcon:o=>o,latLngBounds:p=>p,DomEvent:{stopPropagation(){}},control:{layers:()=>({addTo(){return this;}}),zoom:()=>({addTo(){}})}};
+ ctx.fetch=async(path,options)=>{if(path==='/api/route'){calls.push({path,options});const points=JSON.parse(options.body).points;return {ok:true,status:200,json:async()=>({coordinates:points,legFractions:points.map((_,i)=>i/(points.length-1)),stats:{maxOffset:0,ignoredAnchors:0}})};}if(path==='/api/osm')return {ok:false,status:503,json:async()=>({error:'Indisponible'})};return base(path,options);};
+ const access=await vm.runInNewContext(`(async()=>{${script}\nsetView('explore');endpoints=[[50,5],[50.002,5]];selected=endpoints.map(p=>[...p]);snapped=true;rating=4;drawSelection();update();return {controls:()=>JSON.stringify(routeControls())};})()`,ctx);
+ const start=markers.find(m=>m.options.draggable&&!m.removed);start.events.dragstart();start.setLatLng([50.0001,5]);start.events.dragend({target:start});await new Promise(r=>setImmediate(r));assert.equal(JSON.parse(access.controls())[0][0],50.0001);
+ const line=lines.filter(l=>l.options.className==='routing-draggable'&&!l.removed).at(-1),event={pointerId:7,button:0,isPrimary:true,clientX:100,clientY:100,lat:50.001,lng:5,preventDefault(){},stopPropagation(){}};
+ const before=calls.filter(c=>c.path==='/api/route').length;line.node.events.pointerdown(event);assert.equal(mapDragging,false);listeners.get('pointermove')({...event,clientX:120,clientY:110,lat:50.001,lng:5.001});assert.equal(calls.filter(c=>c.path==='/api/route').length,before);
+ listeners.get('pointerup')({...event,clientX:120,clientY:110,lat:50.001,lng:5.001});await new Promise(r=>setImmediate(r));assert.equal(mapDragging,true);assert.equal(listeners.size,0);assert.deepEqual(JSON.parse(access.controls()),[[50.0001,5],[50.001,5.001],[50.002,5]]);assert.equal(calls.filter(c=>c.path==='/api/route').length,before+1);
+ const next=lines.filter(l=>l.options.className==='routing-draggable'&&!l.removed).at(-1);next.node.events.pointerdown({...event,pointerId:8});listeners.get('pointercancel')({pointerId:8});assert.equal(mapDragging,true);assert.equal(listeners.size,0);assert.equal(calls.filter(c=>c.path==='/api/route').length,before+1);
+ elements.get('surface').value='Sable';elements.get('difficulty').value='Facile';elements.get('winter').value='yes';elements.get('singleTrack').value='yes';await elements.get('ratingForm').onsubmit({preventDefault(){}});const saved=JSON.parse(calls.find(c=>c.path==='/api/portions'&&c.options.method==='POST').options.body);assert.equal(saved.routePoints.length,3);
 });

@@ -45,7 +45,7 @@ export async function features({db,req,res,path,method,user,body,json,origin,ses
   if(b.isPublic!==undefined&&typeof b.isPublic!=='boolean')throw Error('Visibilité invalide.');
   const isPublic=b.isPublic??old.is_public;if(old.source_strava&&isPublic)return reply(404,{error:'Segment introuvable.'});
   // Only editable fields are accepted. Ride attribution and Strava provenance cannot be changed.
-  const edits={};for(const key of ['name','rating','surface','difficulty','winter','singleTrack','notes','coordinates','snapped','mode'])if(b[key]!==undefined)edits[key]=b[key];
+  const edits={};for(const key of ['name','rating','surface','difficulty','winter','singleTrack','notes','coordinates','snapped','mode','routePoints'])if(b[key]!==undefined)edits[key]=b[key];
   const data=portion({...old.data,...edits,source:old.data.source});
   const q=await db.query('UPDATE portions SET data=$1,is_public=$2 WHERE id=$3 AND user_id=$4 AND (source_strava=false OR $2=false) RETURNING id',[JSON.stringify(data),isPublic,segment[1],user.id]);
   return reply(q.rowCount?200:404,q.rowCount?{...data,id:segment[1],isPublic,fromStrava:old.source_strava}:{error:'Segment introuvable.'});
