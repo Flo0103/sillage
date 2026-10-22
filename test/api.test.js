@@ -13,6 +13,7 @@ function database(){const saved=[],rides=[];return {saved,rides,queries:[],async
  if(sql.startsWith('UPDATE portions SET data=')){const r=saved.find(r=>r.id===args[2]&&r.user===args[3]);if(!r||r.source_strava&&args[1])return {rowCount:0};r.data=JSON.parse(args[0]);r.is_public=args[1];return {rowCount:1,rows:[{id:r.id}]};}
  if(sql.startsWith('SELECT id,data'))return {rows:saved.filter(r=>r.user===args[0]).map(r=>({id:r.id,data:r.data,is_public:r.is_public,created_at:new Date()}))};
  if(sql.startsWith('DELETE FROM portions')){const i=saved.findIndex(r=>r.id===args[0]&&r.user===args[1]);if(i<0)return {rowCount:0};saved.splice(i,1);return {rowCount:1};}
+ if(sql.startsWith('DELETE FROM rides')){const i=rides.findIndex(r=>r.id===args[0]&&r.user_id===args[1]);if(i<0)return {rowCount:0};rides.splice(i,1);return {rowCount:1};}
  if(sql.startsWith('SELECT id,source_type FROM rides'))return {rows:rides.filter(r=>r.id===args[0]&&r.user_id===args[1])};
  if(sql.startsWith('INSERT INTO rides')){rides.push({id:args[0],user_id:args[1],name:args[2],coordinates:JSON.parse(args[3]),distance:args[4],gpx_xml:args[5],file_name:args[6]});return {rowCount:1,rows:[]};}
  if(sql.startsWith('SELECT id,name,distance'))return {rows:rides.filter(r=>r.user_id===args[0]).map(r=>({...r,gpx_available:r.gpx_xml!==null}))};
@@ -90,4 +91,11 @@ test('édition d’un segment Strava ne retire pas sa provenance ni sa confident
  const db=database(),app=createApp(db,{origin:'https://sillage.test'}),rideId='00000000-0000-0000-0000-000000000222';db.rides.push({id:rideId,user_id:'alice',source_type:'strava'});
  const created=JSON.parse((await request(app,{url:'/api/portions',method:'POST',user:'alice',body:{coordinates:[[50,5],[50.001,5]],rating:4,surface:'Sable',difficulty:'Facile',rideId}})).body);
  const r=await request(app,{url:'/api/portions/'+created.id,method:'PATCH',user:'alice',body:{name:'Sentier privé',singleTrack:'yes',isPublic:false,fromStrava:false,source_strava:false,rideId:null}});assert.equal(r.status,200);const updated=JSON.parse(r.body);assert.equal(updated.fromStrava,true);assert.equal(updated.isPublic,false);assert.equal(updated.singleTrack,'yes');assert.deepEqual(JSON.parse((await request(app,{url:'/api/catalog',user:'bob'})).body),[]);
+});
+
+test('routage authentifié et suppression de sortie réservée à son propriétaire',async()=>{
+ const db=database();let calls=0;const points=[[50,5],[50.001,5]],app=createApp(db,{origin:'https://sillage.test',routingService:async b=>{calls++;assert.deepEqual(b.points,points);return {coordinates:points,engine:'OSRM vélo / FOSSGIS'};}});
+ assert.equal((await request(app,{url:'/api/route',method:'POST',body:{points}})).status,401);assert.equal(calls,0);
+ const routed=await request(app,{url:'/api/route',method:'POST',user:'alice',body:{points}});assert.equal(routed.status,200);assert.equal(calls,1);
+ const id='00000000-0000-0000-0000-000000000321';db.rides.push({id,user_id:'alice'});assert.equal((await request(app,{url:'/api/rides/'+id,method:'DELETE',user:'bob'})).status,404);assert.equal(db.rides.length,1);assert.equal((await request(app,{url:'/api/rides/'+id,method:'DELETE',user:'alice'})).status,200);assert.equal(db.rides.length,0);
 });

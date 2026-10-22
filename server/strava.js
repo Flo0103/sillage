@@ -18,7 +18,7 @@ export function createStrava({clientId=process.env.STRAVA_CLIENT_ID,clientSecret
   });}catch(e){if(e.stravaUnauthorized)await removeData(db,userId);throw e;}
  }
  const api=(path,token,options={})=>request('https://www.strava.com/api/v3'+path,{...options,headers:{Authorization:`Bearer ${token}`,...options.headers}});
- function callbackPage(res,ok){const message=ok?'Votre compte Strava est connecté.':'La connexion Strava a échoué ou a été refusée. Réessayez depuis Sillage.';res.writeHead(ok?200:400,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer'});res.end(`<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Strava — Sillage</title><p>${message}</p><p><a href="/strava.html">Revenir à Sillage</a></p>${ok?'<script>location.replace("/strava.html")</script>':''}</html>`);}
+ function callbackPage(res,ok){const message=ok?'Votre compte Strava est connecté.':'La connexion Strava a échoué ou a été refusée. Réessayez depuis Sillage.';res.writeHead(ok?200:400,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer'});res.end(`<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Strava — Sillage</title><p>${message}</p><p><a href="/?source=strava">Revenir à Sillage</a></p>${ok?'<script>location.replace("/?source=strava")</script>':''}</html>`);}
  const webhookPath=/^[a-f0-9]{64}$/.test(webhookSecret||'')?'/api/strava/webhook/'+webhookSecret:null;
  const handle=async function({db,req,res,path,query,method,user,sessionToken,origin,secure,body,json}){
   const reply=(status,data)=>{json(res,status,data);return true;};
@@ -56,7 +56,7 @@ export function createStrava({clientId=process.env.STRAVA_CLIENT_ID,clientSecret
   }
   try{
    if(path==='/api/strava/activities'&&method==='GET'){
-    const c=await connection(db,user.id),page=Number(query.get('page')||1);if(!Number.isInteger(page)||page<1||page>200)throw Error('Page invalide.');const all=await api(`/athlete/activities?page=${page}&per_page=50`,c.access_token);if(!Array.isArray(all))throw Error('Réponse Strava invalide.');const onlyGravel=query.get('kind')!=='cycling';const activities=all.filter(a=>onlyGravel?a.sport_type==='GravelRide':isCycling(a)).map(a=>({id:String(a.id),name:a.name,distance:a.distance,startDate:a.start_date,sportType:a.sport_type||a.type}));return reply(200,{activities,hasMore:all.length===50,page});
+    const c=await connection(db,user.id),page=Number(query.get('page')||1);if(!Number.isInteger(page)||page<1||page>200)throw Error('Page invalide.');const all=await api(`/athlete/activities?page=${page}&per_page=50`,c.access_token);if(!Array.isArray(all))throw Error('Réponse Strava invalide.');const onlyGravel=query.get('kind')!=='cycling';const activities=all.filter(a=>onlyGravel?a.sport_type==='GravelRide':isCycling(a)).map(a=>({id:String(a.id),name:a.name,distance:a.distance,startDate:a.start_date,sportType:a.sport_type||a.type,preview:decodePolyline(a.map?.summary_polyline)}));return reply(200,{activities,hasMore:all.length===50,page});
    }
    if(path==='/api/strava/import'&&method==='POST'){
     const b=await body(req),id=String(b.activityId||'');if(!/^\d{1,20}$/.test(id))throw Error('Activité invalide.');const existing=await db.query('SELECT id FROM rides WHERE user_id=$1 AND strava_activity_id=$2',[user.id,id]);if(existing.rows.length)return reply(200,{id:existing.rows[0].id});
@@ -67,4 +67,15 @@ export function createStrava({clientId=process.env.STRAVA_CLIENT_ID,clientSecret
   return false;
  };
  handle.isWebhook=path=>!!webhookPath&&path===webhookPath;return handle;
+}
+
+// Bounded decoder for Strava's summary polylines (precision 1e5, lat/lon).
+export function decodePolyline(text){
+ if(typeof text!=='string'||text.length>200000)return [];
+ let i=0,lat=0,lon=0;const points=[];
+ function delta(){let n=0,shift=0,b;do{if(i>=text.length||shift>30)throw Error('Polyline invalide');b=text.charCodeAt(i++)-63;if(b<0||b>63)throw Error('Polyline invalide');n|=(b&31)<<shift;shift+=5;}while(b>=32);return n&1?~(n>>>1):n>>>1;}
+ try{while(i<text.length){lat+=delta();lon+=delta();const p=[lat/1e5,lon/1e5];if(Math.abs(p[0])>90||Math.abs(p[1])>180)return [];points.push(p);if(points.length>30000)return [];}}
+ catch{return [];}
+ if(points.length<=400)return points;
+ return Array.from({length:400},(_,j)=>points[Math.round(j*(points.length-1)/399)]);
 }

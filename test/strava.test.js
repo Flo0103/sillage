@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {createStrava,tokenCipher} from '../server/strava.js';
+import {createStrava,tokenCipher,decodePolyline} from '../server/strava.js';
 import {tokenHash} from '../server/model.js';
 import {spatialBounds,spatialSQL} from '../server/spatial.js';
 const user={id:'00000000-0000-0000-0000-000000000001'},key='12'.repeat(32),session='session-hash',secret='ab'.repeat(32);
@@ -46,3 +46,12 @@ test('PostGIS : SRID 4326, ordre lon/lat et index spatiaux dans la migration',()
 test('callback refusé si le scope est incomplet ou la session d’origine révoquée',async()=>{for(const reason of ['scope','session']){const f=fixture(),begin=await f.run('/api/strava/connect'),state=new URL(begin.headers.Location).searchParams.get('state'),cookie=begin.headers['Set-Cookie'].split(';')[0];if(reason==='session'){const base=f.db.query.bind(f.db);f.db.query=(sql,args)=>sql.startsWith('SELECT u.id FROM sessions')?Promise.resolve({rows:[]}):base(sql,args);}const r=await f.run('/api/strava/callback','GET',{}, {anonymous:true,cookie,query:{state,code:'code',scope:reason==='scope'?'activity:read':'activity:read_all'}});assert.equal(r.status,400);assert.equal(f.network.length,0);}});
 test('la déconnexion supprime les données locales même quand Strava est indisponible',async()=>{const f=fixture({fetcher:async()=>{throw Error('Network down');}});const r=await f.run('/api/strava/disconnect','POST');assert.equal(r.status,200);assert.equal(r.body.remoteRevoked,false);assert.equal(f.connection,null);});
 test('un quota Strava atteint ne supprime pas la connexion ni les imports',async()=>{const f=fixture({fetcher:async()=>new Response('{}',{status:429})});await assert.rejects(f.run('/api/strava/activities'),e=>e.status===429);assert.notEqual(f.connection,null);assert.ok(!f.db.calls.some(c=>c.sql.startsWith('DELETE FROM rides')));});
+
+test('aperçu des sorties Strava fourni dans la liste, sans exposer les jetons',async()=>{
+ const f=fixture({fetcher:async url=>new Response(JSON.stringify(url.includes('/athlete/activities')?[{id:101,name:'Gravel',sport_type:'GravelRide',map:{summary_polyline:'_p~iF~ps|U_ulLnnqC_mqNvxq`@'}}]:{}))});
+ const r=await f.run('/api/strava/activities');assert.equal(r.status,200);assert.deepEqual(r.body.activities[0].preview[0],[38.5,-120.2]);assert.equal(r.body.activities[0].preview.length,3);assert.ok(!JSON.stringify(r.body).includes('PRIVATE'));assert.equal(f.network.length,1);
+});
+test('polyline aperçu bornée et géométrie invalide ignorée',()=>{
+ assert.deepEqual(decodePolyline(''),[]);assert.deepEqual(decodePolyline('~'),[]);assert.deepEqual(decodePolyline('a'.repeat(200001)),[]);
+ const points=decodePolyline('??'.repeat(500));assert.equal(points.length,400);assert.deepEqual(points[0],[0,0]);
+});

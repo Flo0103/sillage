@@ -1,4 +1,5 @@
 import { createStrava } from './strava.js';
+import { createRoutingService } from './routing.js';
 import { createOSMService } from './osm.js';
 import { features } from './features.js';
 import { createServer } from 'node:http';
@@ -7,7 +8,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { coordinates, portion, routeLength, verifyPassword, tokenHash, hashPassword } from './model.js';
 const root=fileURLToPath(new URL('../dist/',import.meta.url));
-export function createApp(db,{origin,secure=true,osmService=createOSMService(),stravaService=createStrava()}={}){
+export function createApp(db,{origin,secure=true,osmService=createOSMService(),routingService=createRoutingService(),stravaService=createStrava()}={}){
   if(!origin)throw Error('APP_ORIGIN doit être renseigné.');
   const sessionCookie='sillage_session';
   const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
@@ -34,6 +35,7 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),s
       }
       const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(sessionCookie+'='))?.slice(sessionCookie.length+1);
       let user;if(token&&/^[a-f0-9]{64}$/.test(token)){const q=await db.query('SELECT u.id,u.username,u.is_admin FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active=true',[tokenHash(token)]);user=q.rows[0];}
+      if(path==='/app-icon.png'&&method==='GET'){res.writeHead(200,{'Content-Type':'image/png','Cache-Control':'public, max-age=86400'});return res.end(await readFile(root+'app-icon.png'));}
       if(['/login.html','/login.js','/style.css','/invite.html','/invite.js'].includes(path)){const file=path.slice(1);res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8');res.setHeader('Cache-Control','no-store');return res.end(await readFile(root+file));}
       if(await stravaService({db,req,res,path,query,method,user,body,json,origin,secure,sessionToken:token?tokenHash(token):null}))return;
       if(await features({db,req,res,path,query,method,user,body,json,origin,sessionToken:token?tokenHash(token):null}))return;
@@ -50,6 +52,7 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),s
         res.writeHead(200,{'Content-Type':'application/gpx+xml; charset=utf-8','Content-Disposition':`attachment; filename="sillage-${download[1]}.gpx"`,'Cache-Control':'no-store'});return res.end(gpx);
       }
       const ride=path.match(/^\/api\/rides\/([a-f0-9-]{36})$/);
+      if(ride&&method==='DELETE'){const q=await db.query('DELETE FROM rides WHERE id=$1 AND user_id=$2',[ride[1],user.id]);return json(res,q.rowCount?200:404,q.rowCount?{ok:true}:{error:'Sortie introuvable.'});}
       if(ride&&method==='GET'){const q=await db.query('SELECT id,name,coordinates,distance,source_type FROM rides WHERE id=$1 AND user_id=$2',[ride[1],user.id]);return q.rows.length?json(res,200,q.rows[0]):json(res,404,{error:'Sortie introuvable.'});}
       if(path==='/api/portions'&&method==='GET'){const q=await db.query('SELECT id,data,created_at,is_public,source_strava FROM portions WHERE user_id=$1 ORDER BY created_at DESC',[user.id]);return json(res,200,q.rows.map(r=>({...r.data,id:r.id,createdAt:r.created_at,isPublic:r.is_public,fromStrava:r.source_strava})));}
       if(path==='/api/portions'&&method==='POST'){const b=await body(req),p=portion(b),id=randomUUID();if(b.isPublic!==undefined&&typeof b.isPublic!=='boolean')throw Error('Visibilité invalide.');let sourceRide=null,fromStrava=false;if(b.rideId){const q=await db.query('SELECT id,source_type FROM rides WHERE id=$1 AND user_id=$2',[b.rideId,user.id]);sourceRide=q.rows[0];if(!sourceRide)throw Error('Sortie source introuvable.');fromStrava=sourceRide.source_type==='strava';}const isPublic=!fromStrava&&b.isPublic!==false;await db.query('INSERT INTO portions(id,user_id,data,is_public,source_ride_id,source_strava) VALUES($1,$2,$3,$4,$5,$6)',[id,user.id,JSON.stringify(p),isPublic,sourceRide?.id||null,fromStrava]);return json(res,201,{...p,id,isPublic,fromStrava});}
@@ -59,8 +62,9 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),s
         const client=await db.connect();let imported=0;try{await client.query('BEGIN');for(const r of validated){const q=await client.query('INSERT INTO portions(id,user_id,data,legacy_id,is_public) VALUES($1,$2,$3,$4,false) ON CONFLICT(user_id,legacy_id) DO NOTHING',[randomUUID(),user.id,JSON.stringify(r.data),r.key]);imported+=q.rowCount;}await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}return json(res,200,{imported});
       }
       const item=path.match(/^\/api\/portions\/([a-f0-9-]{36})$/);if(item&&method==='DELETE'){const q=await db.query('DELETE FROM portions WHERE id=$1 AND user_id=$2',[item[1],user.id]);return json(res,q.rowCount?200:404,q.rowCount?{ok:true}:{error:'Portion introuvable.'});}
+      if(path==='/api/route'&&method==='POST')return json(res,200,await routingService(await body(req)));
       if(path==='/api/osm'&&method==='POST'){const b=await body(req);return json(res,200,await osmService(b.bbox));}
-      if(method==='GET'&&['/','/index.html','/app.js','/geo.js','/osm-worker.js','/catalog.js','/account.html','/account.js','/admin.html','/admin.js','/common.js','/strava.html','/strava-client.js'].includes(path)){if((path==='/admin.html'||path==='/admin.js')&&!user.is_admin)return json(res,403,{error:'Accès réservé à l’administrateur.'});const file=path==='/'?'index.html':path.slice(1);res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript; charset=utf-8':'text/html; charset=utf-8');return res.end(await readFile(root+file));}
+      if(method==='GET'&&['/','/index.html','/app.js','/geo.js','/preview.js','/osm-worker.js','/catalog.js','/account.html','/account.js','/admin.html','/admin.js','/common.js','/strava.html','/strava-client.js'].includes(path)){if((path==='/admin.html'||path==='/admin.js')&&!user.is_admin)return json(res,403,{error:'Accès réservé à l’administrateur.'});const file=path==='/'?'index.html':path.slice(1);res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript; charset=utf-8':'text/html; charset=utf-8');return res.end(await readFile(root+file));}
       return json(res,404,{error:'Ressource introuvable.'});
     }catch(e){if(e.code||e.name==='TypeError'&&e.message==='fetch failed'){console.error('Request failed:',e.code||e.name);return json(res,503,{error:'Service temporairement indisponible.'});}return json(res,e.status||400,{error:e.name==='TimeoutError'?'OSM est trop lent. Utilisez le mode manuel.':e.message||'Requête invalide.'});}
   });

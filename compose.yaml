@@ -29,6 +29,7 @@ services:
     init: true
     environment:
       APP_ORIGIN: https://${SILLAGE_DOMAIN:?Renseignez SILLAGE_DOMAIN}
+      BIKE_ROUTING_URL: ${BIKE_ROUTING_URL:-https://routing.openstreetmap.de/routed-bike/route/v1/driving/}
       STRAVA_CLIENT_ID: ${STRAVA_CLIENT_ID:-}
       STRAVA_CLIENT_SECRET: ${STRAVA_CLIENT_SECRET:-}
       STRAVA_TOKEN_KEY: ${STRAVA_TOKEN_KEY:-}

@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {features,wmsConfig} from '../server/features.js';
 import {hashPassword,verifyPassword,tokenHash} from '../server/model.js';
+import {previewPath} from '../dist/preview.js';
 import {visibleSegments,segmentColor} from '../dist/catalog.js';
 const admin={id:'00000000-0000-0000-0000-000000000001',username:'flo',is_admin:true},member={id:'00000000-0000-0000-0000-000000000002',username:'marie'};
 function dbWith(fn){const db={calls:[],async query(sql,args=[]){this.calls.push({sql,args});return fn(sql,args);},async connect(){return {query:this.query.bind(this),release(){}};}};return db;}
@@ -33,4 +34,11 @@ test('single tracks filtrés en préservant les anciens segments non renseignés
  const items=[{id:1,isMine:true,singleTrack:'yes'},{id:2,isMine:true,singleTrack:'no'},{id:3,isMine:true}];
  assert.deepEqual(visibleSegments(items,{singleTrack:'yes'}).map(s=>s.id),[1]);assert.deepEqual(visibleSegments(items,{singleTrack:'no'}).map(s=>s.id),[2]);assert.deepEqual(visibleSegments(items,{singleTrack:'unknown'}).map(s=>s.id),[3]);
  assert.notEqual(segmentColor(items[0],'singleTrack'),segmentColor(items[1],'singleTrack'));assert.match(segmentColor(items[2],'singleTrack'),/^#/);
+});
+
+test('aperçu SVG conserve proportions et bornes avec coordonnées arrondies sûres',()=>{
+ for(const points of [[[50,5],[50.01,5]],[[50,5],[50,5.01]],[[50,5],[50.01,5.01]],[[50,5],[50,5]]]){
+  const path=previewPath(points);assert.match(path,/^M[0-9.,]+ L[0-9.,]+$/);const pairs=[...path.matchAll(/[ML]([0-9.]+),([0-9.]+)/g)];assert.equal(pairs.length,2);for(const p of pairs){assert.ok(Number(p[1])>=0&&Number(p[1])<=320);assert.ok(Number(p[2])>=0&&Number(p[2])<=136);}
+ }
+ assert.equal(previewPath([]),'');assert.equal(previewPath([[NaN,5],[50,5]]),'');assert.equal(previewPath(Array.from({length:1000},(_,i)=>[50,5+i*.0001])).split(' ').length,500);
 });
