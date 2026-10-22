@@ -1,5 +1,5 @@
-import {distance,routeLength,matchOSM} from './geo.js?v=3.0.0';
-import {visibleSegments,segmentColor,ratingColors,surfaceColors,escapeHTML} from './catalog.js?v=3.0.0';
+import {distance,routeLength,matchOSM} from './geo.js?v=3.0.1';
+import {visibleSegments,segmentColor,ratingColors,surfaceColors,escapeHTML} from './catalog.js?v=3.0.1';
 const $=id=>document.getElementById(id);
 const setHidden=(id,value)=>{const element=$(id);if(element)element.hidden=value;};
 let trace=[],selected=[],gpsSelection=[],records=[],rides=[],first=null,last=null,rating=0,mode='auto',snapped=false,busy=false,view='saved',currentRide=null,map,routeLayer,selectionLayer,marks,snapController,snapVersion=0,catalog=[],catalogLayer,layerControl;
@@ -37,11 +37,12 @@ if(typeof L!=='undefined'){
  map=L.map('map',{zoomControl:false}).setView([50.49,5.86],11);map.createPane('gpxPane');map.getPane('gpxPane').style.zIndex=410;map.createPane('portionPane');map.getPane('portionPane').style.zIndex=450;
  const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{updateWhenIdle:true,keepBuffer:3,referrerPolicy:'strict-origin-when-cross-origin',attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',maxZoom:19}).addTo(map);
  const satellite=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',maxZoom:19});
- const ign=L.tileLayer.wms('https://cartoweb.wms.ngi.be/service',{layers:'CartoWeb-TOPO',version:'1.3.0',format:'image/png',transparent:false,referrerPolicy:'strict-origin-when-cross-origin',attribution:'© <a href="https://ngi.be/">IGN Belgique</a> / TomTom · CartoWeb (non commercial)',maxZoom:20});
+ const ign=L.tileLayer('https://cartoweb.wmts.ngi.be/1.0.0/topo/default/3857/{z}/{y}/{x}.png',{minNativeZoom:7,maxNativeZoom:17,maxZoom:20,tileSize:256,updateWhenIdle:true,keepBuffer:2,referrerPolicy:'strict-origin-when-cross-origin',attribution:'© <a href="https://ngi.be/">IGN Belgique</a> / TomTom · CartoWeb (non commercial)'});
  layerControl=L.control.layers({'OpenStreetMap':osm,'Satellite · Esri':satellite,'IGN Belgique · Topo':ign},null,{position:'topleft'}).addTo(map);
- ign.on('tileerror',()=>{if(map.hasLayer(ign))toast('Le fond IGN ne se charge pas. Essayez un autre fond.');});L.control.zoom({position:'topleft'}).addTo(map);
+L.control.zoom({position:'topleft'}).addTo(map);
  const notice=$('mapNotice');let failures=0;
  const showNotice=message=>{if(notice){notice.textContent=message;notice.hidden=false;}};
+ let ignFailed=false;ign.on('loading',()=>{ignFailed=false;});ign.on('tileerror',()=>{ignFailed=true;if(map.hasLayer(ign))showNotice('Les tuiles IGN sont indisponibles. Vérifiez la connexion au service CartoWeb ou choisissez un autre fond.');});ign.on('load',()=>{if(!ignFailed&&map.hasLayer(ign))setHidden('mapNotice',true);});
  osm.on('tileerror',()=>{if(!map.hasLayer(osm))return;if(++failures>=3)showNotice('Certaines tuiles OSM ne se chargent pas. Vous pouvez choisir Satellite dans le sélecteur de couches.');});
  osm.on('loading',()=>{failures=0;});
  osm.on('load',()=>{if(failures===0)setHidden('mapNotice',true);});

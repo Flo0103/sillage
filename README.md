@@ -63,7 +63,7 @@ Les **nouveaux segments sont publics par défaut pour les utilisateurs connecté
 
 « Mon compte » permet de changer son mot de passe avec vérification du mot de passe actuel (les autres sessions sont révoquées) et de gérer ses fonds WMS. Les URLs WMS sont des services HTTPS publics compatibles EPSG:3857 ; nom technique des couches et version WMS sont à renseigner. Les configurations restent dans le compte, et les images sont chargées directement par le navigateur, sans proxy WMS ni requête arbitraire du serveur. Aucun identifiant HTTP n’est accepté dans l’URL.
 
-Le fond **IGN Belgique · Topo** utilise le service WMS officiel CartoWeb (`https://cartoweb.wms.ngi.be/service`, couche `CartoWeb-TOPO`). Attribution IGN / TomTom affichée. Licence non commerciale : https://ngi.be/fr/conditions-dutilisation-pour-le-service-cartoweb-be/ . Les autres usages peuvent nécessiter une autorisation ou licence IGN. Le fond choisi ne change pas l’accrochage OSM.
+Le fond **IGN Belgique · Topo** utilise le service WMTS officiel CartoWeb (`https://cartoweb.wmts.ngi.be/1.0.0/topo/default/3857/{z}/{y}/{x}.png`). Attribution IGN / TomTom affichée. Licence non commerciale : https://ngi.be/fr/conditions-dutilisation-pour-le-service-cartoweb-be/ . Les autres usages peuvent nécessiter une autorisation ou licence IGN. Le fond choisi ne change pas l’accrochage OSM.
 
 ### Administration
 
@@ -80,3 +80,9 @@ Les invitations sont des liens à transmettre soi-même, valables sept jours et 
 ### Déploiement de cette version
 
 Sauvegarder la base, récupérer le code puis reconstruire les services selon le guide OVH. Les tables et colonnes sont ajoutées automatiquement ; aucun compte n’est administrateur avant la commande explicite ci-dessus. Les tests utilisent un adaptateur SQL mémoire et une simulation DOM. Les services WMS/IGN et l’affichage doivent être vérifiés dans un navigateur après déploiement ; l’environnement de développement ne permet pas de valider le service distant dans un navigateur ni un vrai PostgreSQL.
+
+## Correctif 3.0.1 : fond IGN
+
+Le préréglage IGN utilise les tuiles WMTS CartoWeb en Web Mercator (ordre z/y/x) à la place de requêtes WMS GetMap. Les zooms natifs sont limités à 7–17 et rééchantillonnés au-delà. Les WMS ajoutés par l’utilisateur restent indépendants. Les échecs IGN produisent un seul message de carte au lieu de notifications répétées. La disponibilité réelle du service distant et la levée d’un blocage réseau doivent être vérifiées depuis le navigateur utilisateur.
+
+Un filtrage institutionnel classant le domaine `insufficient-content` nécessite une autorisation ou recatégorisation par l’administrateur réseau ; changer le fond de carte ne modifie pas ce filtrage. Aucun proxy, autre domaine ou mécanisme de contournement n’est ajouté.
