@@ -33,10 +33,10 @@ test('erreurs OSM signalÃ©es sans rafale de notifications et carte redimensionnÃ
  const {ctx,elements}=context();elements.get('mapNotice').hidden=true;const tiles=[],active=new Set(),events={};let resized=0;
  const map={setView(){return this;},createPane(){return {style:{}};},getPane(){return {style:{}};},on(name,fn){events[name]=fn;return this;},hasLayer(layer){return active.has(layer);},invalidateSize(){resized++;},fitBounds(){}};
  const layer=()=>({events:{},on(name,fn){this.events[name]=fn;return this;},addTo(target){if(target===map)active.add(this);return this;},clearLayers(){}});
- ctx.L={map:()=>map,tileLayer:(url)=>{const item=layer();item.url=url;tiles.push(item);return item;},layerGroup:layer,polyline:layer,latLngBounds:p=>p,control:{layers:()=>({addTo(){}}),zoom:()=>({addTo(){}})}};
+ ctx.L={map:()=>map,tileLayer:(url,options)=>{const item=layer();item.url=url;item.options=options;tiles.push(item);return item;},layerGroup:layer,polyline:layer,latLngBounds:p=>p,control:{layers:()=>({addTo(){}}),zoom:()=>({addTo(){}})}};
  ctx.ResizeObserver=class{constructor(fn){this.fn=fn;}observe(){this.fn();}};
  await vm.runInNewContext(`(async()=>{${script}})()`,ctx);
- const osm=tiles[0];assert.equal(osm.url,'https://tile.openstreetmap.org/{z}/{x}/{y}.png');assert.ok(resized>0);
+ const osm=tiles[0];assert.equal(osm.url,'https://tile.openstreetmap.org/{z}/{x}/{y}.png');assert.equal(osm.options.referrerPolicy,'strict-origin-when-cross-origin');assert.ok(resized>0);
  osm.events.loading();osm.events.tileerror();osm.events.tileerror();assert.equal(elements.get('mapNotice').hidden,true);osm.events.tileerror();assert.equal(elements.get('mapNotice').hidden,false);assert.match(elements.get('mapNotice').textContent,/tuiles OSM/);assert.equal(elements.get('toast').textContent,'');
  active.delete(osm);events.baselayerchange();assert.equal(elements.get('mapNotice').hidden,true);osm.events.tileerror();assert.equal(elements.get('mapNotice').hidden,true);
 });

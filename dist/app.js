@@ -1,4 +1,4 @@
-import {distance,routeLength,matchOSM} from './geo.js?v=2.1.0';
+import {distance,routeLength,matchOSM} from './geo.js?v=2.1.1';
 const $=id=>document.getElementById(id);
 const setHidden=(id,value)=>{const element=$(id);if(element)element.hidden=value;};
 let trace=[],selected=[],gpsSelection=[],records=[],rides=[],first=null,last=null,rating=0,mode='auto',snapped=false,busy=false,view='explore',currentRide=null,map,routeLayer,selectionLayer,marks,snapController,snapVersion=0;
@@ -34,7 +34,7 @@ async function snap(){
 function setMode(next){if(next===mode)return;cancelSnap();mode=next;snapped=false;if(mode==='manual'){selected=selected.length>1?[selected[0],selected.at(-1)]:selected;status('Mode manuel : ajoutez des points sur la carte. Annulez le dernier point si nécessaire.');}else{selected=[];gpsSelection=[];first=last=null;status('Choisissez deux points sur le GPX pour l’accrochage automatique.');}drawSelection();update();}
 if(typeof L!=='undefined'){
  map=L.map('map',{zoomControl:false}).setView([50.49,5.86],11);map.createPane('gpxPane');map.getPane('gpxPane').style.zIndex=410;map.createPane('portionPane');map.getPane('portionPane').style.zIndex=450;
- const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{updateWhenIdle:true,keepBuffer:3,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',maxZoom:19}).addTo(map);
+ const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{updateWhenIdle:true,keepBuffer:3,referrerPolicy:'strict-origin-when-cross-origin',attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',maxZoom:19}).addTo(map);
  const satellite=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',maxZoom:19});
  L.control.layers({'OpenStreetMap':osm,'Satellite · Esri':satellite},null,{position:'topleft'}).addTo(map);L.control.zoom({position:'topleft'}).addTo(map);
  const notice=$('mapNotice');let failures=0;

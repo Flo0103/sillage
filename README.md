@@ -48,3 +48,9 @@ Leaflet est chargé depuis unpkg ; polices depuis Google Fonts ; tuiles depuis O
 Login isolé de la grille de l’application, champs contenus sur mobile et desktop. Contrôles de visibilité facultatifs et versions explicites des fichiers CSS/JS pour éviter les mélanges après une mise à jour. Carte de hauteur explicite, recalcul de taille à chaque changement de dimensions, endpoint OSM canonique et message unique en cas d’échec de tuiles. Les pannes du fournisseur restent possibles ; le sélecteur permet de changer de fond.
 
 Les nouvelles colonnes PostgreSQL `rides.gpx_xml` et `rides.file_name` sont ajoutées sans effacer les sorties existantes. Le bouton ↓ GPX télécharge l’original pour les nouveaux imports, ou un GPX reconstruit depuis les coordonnées pour les anciennes sorties (sans altitude ni horodatage non conservés auparavant).
+
+## Correctif 2.1.1 : blocage des tuiles OSM
+
+Le serveur envoyait une politique `same-origin` qui supprimait le Referer des requêtes vers OSM. Elle est remplacée par `strict-origin-when-cross-origin`, également précisée sur les images Leaflet. Seule l’origine du site est transmise aux domaines tiers. Les requêtes vont toujours directement vers l’URL OSM canonique, sans proxy, cache-busting, contournement de blocage ni téléchargement massif. Le cache des tuiles reste géré par le navigateur selon les en-têtes OSM.
+
+Référence : https://operations.osmfoundation.org/policies/tiles/ . Un blocage lié au navigateur, au réseau ou au fournisseur peut subsister ; le réglage local ne prouve pas à lui seul la levée d’un blocage externe.

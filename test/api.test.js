@@ -48,3 +48,5 @@ test('anciennes sorties sans original : téléchargement GPX reconstruit',async(
  const app=createApp(db,{origin:'https://sillage.test'}),res=await request(app,{url:'/api/rides/00000000-0000-0000-0000-000000000001/gpx',user:'alice'});
  assert.equal(res.status,200);assert.match(res.body,/Bois &amp; rivière/);assert.match(res.body,/<trkpt lat="50.001" lon="5"/);
 });
+
+test('la politique de Referer identifie le site auprès des services cartographiques',async()=>{const app=createApp(database(),{origin:'https://sillage.test'});const res=await request(app,{url:'/login.html'});assert.equal(res.status,200);assert.equal(res.headers['Referrer-Policy'],'strict-origin-when-cross-origin');});
