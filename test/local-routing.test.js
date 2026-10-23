@@ -56,3 +56,15 @@ test('calcul local prioritaire : aucun secours qui contourne un sens unique ; pa
  const noRoute=createRoutingService({localRouting:async()=>{throw Object.assign(Error('sens interdit'),{localNoPath:true});},fetcher:async()=>{external++;}});await assert.rejects(noRoute({points:[b,a],allowRestricted:true}),/sens interdit/);assert.equal(external,0);
  const fallback=createRoutingService({wait:async()=>{},localRouting:async()=>{throw Error('OSM indisponible');},fetcher:async()=>{external++;return Response.json({code:'Ok',routes:[{geometry:{type:'LineString',coordinates:[[5,50],[5,50.001]]}}]});}});const response=await fallback({points:[a,b],allowRestricted:true});assert.match(response.warning,/secours/);assert.equal(response.accessPolicy,'provider');assert.equal(external,1);
 });
+
+test('cas réel Spa : rue entière dans les deux sens avec ou sans passage intermédiaire',async()=>{
+ const {readFile}=await import('node:fs/promises'),fixture=JSON.parse(await readFile(new URL('fixtures/spa-jeu-de-paume.json',import.meta.url),'utf8'));
+ const direct=routeOnOSM(fixture.endpoints,fixture.elements),reverse=routeOnOSM(fixture.endpoints.slice().reverse(),fixture.elements),length=r=>r.analysis.surfaces.reduce((n,s)=>n+s.distance,0);
+ assert.ok(Math.abs(length(direct)-822.7)<.5);assert.ok(Math.abs(length(reverse)-length(direct))<.1);
+ // Le raccourci voisin en grade4 est moins adapté : le profil gravel conserve la rue en grade2.
+ for(const points of [[fixture.endpoints[0],fixture.via,fixture.endpoints[1]],[fixture.endpoints[1],fixture.via,fixture.endpoints[0]]]){
+  const r=routeOnOSM(points,fixture.elements);assert.ok(Math.abs(length(r)-822.7)<.5);const gravel=r.analysis.surfaces.find(s=>s.type==='Gravier');assert.ok(Math.abs(gravel.distance-389.8)<.5);assert.equal(r.analysis.surfaceRuns.find(s=>s.type==='Gravier').unpaved,true);assert.ok(r.analysis.accessRuns.some(s=>/destination/.test(s.label)));
+ }
+ // Le raccord du changement de revêtement est le même identifiant OSM, sans raccord fictif.
+ const asphalt=fixture.elements.find(w=>w.id===330261170),gravel=fixture.elements.find(w=>w.id===1293634009);assert.equal(asphalt.nodes.at(-1),3065855837);assert.equal(gravel.nodes.at(-1),3065855837);
+});

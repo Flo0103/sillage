@@ -123,3 +123,15 @@ Mise à jour habituelle (`git pull --ff-only`, puis `sudo docker compose up -d -
 Sur un itinéraire existant, cliquer **Actualiser les revêtements OSM** puis **Modifier l’itinéraire** et enregistrer pour conserver la nouvelle analyse. L’altitude ne doit pas être redemandée. Vérifier les pointillés au changement de revêtement, les « ! » et leurs infobulles uniquement aux accès limités, puis la sauvegarde et la réouverture. Tester le cas signalé rue du Jeu de Paume à Spa : il n’a pas pu être vérifié sur les données OSM réelles depuis l’environnement de développement. Les tests automatisés couvrent une rue découpée au changement de revêtement, les nœuds rapprochés et les sens vélo dans les deux directions.
 
 Vérifier aussi le repli/réouverture de la bibliothèque sur desktop et mobile, sans perte du parcours. Les contrôles de carte passent sur plusieurs lignes si nécessaire. Les tests de contrôleur et API sont simulés ; le rendu dans un vrai navigateur et les services publics restent à vérifier sur le VPS.
+
+### Cas réel Spa et secours de données 6.4.1
+
+Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d --build --wait`. Aucun secret ni changement de base. Le serveur peut désormais utiliser `api.openstreetmap.org` en HTTPS comme secours pour les petites zones si Overpass est indisponible. Le routage local est conservé dans ce cas ; le moteur OSRM public reste le dernier recours, annoncé par un avertissement.
+
+Après déploiement :
+
+```sh
+sudo docker compose exec app node server/check-routing.js
+```
+
+La commande affiche d’abord `Sillage 6.4.1`, puis trois résultats avec moteur, source et longueur. Le test en ligne complet (accrochage du départ puis routage sur les données OSM réelles) a donné environ 823 m entre les extrémités dans les deux sens, et la même longueur avec le passage gravel explicite, dont environ 390 m de gravier. Ces tests vérifient le passage au changement de revêtement ; il ne doit pas produire le détour OSRM d’environ 1,23 km observé pendant le diagnostic. Les distances peuvent évoluer avec les données OSM. L’ancienne mention d’absence de test réel en 6.4 est désormais levée pour le moteur et ces données ; le rendu dans le navigateur et le résultat sur le VPS restent à vérifier après déploiement.

@@ -5,9 +5,9 @@ export function validateBox(value){
  return value;
 }
 const contains=(a,b)=>a[0]<=b[0]&&a[1]<=b[1]&&a[2]>=b[2]&&a[3]>=b[3];
-export function createOSMService({fetcher=(...args)=>fetch(...args),now=Date.now,ttl=600000,maxBytes=32*1024*1024}={}){
- const cache=new Map(),pending=new Map();let bytes=0,active=0;
- function prune(){for(const[key,item]of cache)if(now()-item.time>ttl){cache.delete(key);bytes-=item.bytes;}}
+export function createOSMService({fetcher=(...args)=>fetch(...args),now=Date.now,ttl=600000,maxBytes=32*1024*1024,mapFallback=false,wait=ms=>new Promise(r=>setTimeout(r,ms))}={}){
+ const cache=new Map(),pending=new Map(),mapAreaBackoff=new Map();let bytes=0,active=0,overpassBackoff=0,mapBackoff=0,mapLast=-Infinity,mapQueue=Promise.resolve();
+ function prune(){for(const[k,t]of mapAreaBackoff)if(now()>=t)mapAreaBackoff.delete(k);for(const[key,item]of cache)if(now()-item.time>(item.ttl??ttl)){cache.delete(key);bytes-=item.bytes;}}
  return async function getOSM(input){
   const bbox=validateBox(input);prune();
   for(const[key,item]of cache)if(contains(item.bbox,bbox)){cache.delete(key);cache.set(key,item);return {...item.data,cached:true};}
@@ -18,16 +18,41 @@ export function createOSMService({fetcher=(...args)=>fetch(...args),now=Date.now
   const operation=(async()=>{
    active++;try{
     const query=`[out:json][timeout:20];way[highway][highway!~"motorway|trunk|motorway_link|trunk_link|steps|construction|proposed"](${box.join(',')});out body geom;`;
-    const response=await fetcher('https://overpass-api.de/api/interpreter',{method:'POST',headers:{'User-Agent':'Sillage/6.4 (+https://sillage.gravelspa.be)'},body:new URLSearchParams({data:query}),signal:AbortSignal.timeout(25000)});
-    if(!response.ok)throw Object.assign(Error('OSM est temporairement indisponible. Réessayez ou utilisez le mode manuel.'),{status:502});
-    let raw='';const limit=20*1024*1024;
-    if(response.body?.getReader){const reader=response.body.getReader(),decoder=new TextDecoder();let size=0;try{for(;;){const{done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>limit){await reader.cancel();throw Error('Trop de données OSM. Réduisez la portion.');}raw+=decoder.decode(value,{stream:true});}raw+=decoder.decode();}finally{reader.releaseLock();}}
-    else{raw=await response.text();if(Buffer.byteLength(raw)>limit)throw Error('Trop de données OSM. Réduisez la portion.');}
-    const parsed=JSON.parse(raw);if(!Array.isArray(parsed.elements)||parsed.remark)throw Error('Réponse OSM incomplète. Réessayez plus tard.');
-    const data={elements:parsed.elements,bbox:box},size=Buffer.byteLength(raw);
-    if(size<=maxBytes){while(cache.size&&(bytes+size>maxBytes||cache.size>=16)){const first=cache.keys().next().value;bytes-=cache.get(first).bytes;cache.delete(first);}cache.set(key,{data,bbox:box,bytes:size,time:now()});bytes+=size;}
+    const small=(box[2]-box[0])*(box[3]-box[1])<=.001;let parsed,source='Overpass';
+    try{
+     if(mapFallback&&now()<overpassBackoff)throw Error('Overpass en pause après une panne.');
+     const response=await fetcher('https://overpass-api.de/api/interpreter',{method:'POST',headers:{'User-Agent':'Sillage/6.4.1 (+https://sillage.gravelspa.be)'},body:new URLSearchParams({data:query}),signal:AbortSignal.timeout(mapFallback&&small?8000:25000)});
+     if(!response.ok)throw Object.assign(Error('OSM est temporairement indisponible. Réessayez ou utilisez le mode manuel.'),{status:502});
+     parsed=await osmJSON(response);if(!Array.isArray(parsed.elements)||parsed.remark)throw Error('Réponse OSM incomplète. Réessayez plus tard.');
+    }catch(error){
+     if(!mapFallback)throw error;overpassBackoff=now()+60000;
+     if(!small||now()<mapBackoff||now()<(mapAreaBackoff.get(key)??0))throw error;
+     const job=mapQueue.catch(()=>{}).then(async()=>{
+      if(now()<mapBackoff)throw error;await wait(Math.max(0,1000-(now()-mapLast)));mapLast=now();
+      try{const [south,west,north,east]=box,url=new URL('https://api.openstreetmap.org/api/0.6/map.json');url.searchParams.set('bbox',[west,south,east,north].join(','));
+       const response=await fetcher(url.toString(),{headers:{'User-Agent':'Sillage/6.4.1 (+https://sillage.gravelspa.be)','Accept':'application/json'},signal:AbortSignal.timeout(10000)});
+       if(!response.ok)throw Object.assign(Error(`Source OSM directe indisponible (${response.status}).`),{mapArea:response.status===400,status:response.status});try{return {elements:osmMapWays(await osmJSON(response))};}catch(e){throw Object.assign(e,{mapArea:true});}
+      }catch(e){if(e.mapArea){if(mapAreaBackoff.size>=64)mapAreaBackoff.delete(mapAreaBackoff.keys().next().value);mapAreaBackoff.set(key,now()+60000);}else mapBackoff=now()+60000;throw e;}
+     });mapQueue=job.catch(()=>{});parsed=await job;source='OSM API';
+    }
+    const data={elements:parsed.elements,bbox:box,source},size=Buffer.byteLength(JSON.stringify(parsed));
+    if(size<=maxBytes){while(cache.size&&(bytes+size>maxBytes||cache.size>=16)){const first=cache.keys().next().value;bytes-=cache.get(first).bytes;cache.delete(first);}cache.set(key,{data,bbox:box,bytes:size,time:now(),ttl:source==='OSM API'?Math.max(ttl,3600000):ttl});bytes+=size;}
     return {...data,cached:false};
    }finally{active--;}
   })();pending.set(key,operation);try{return await operation;}finally{pending.delete(key);}
  };
+}
+
+async function osmJSON(response){
+ const limit=20*1024*1024;let raw='';
+ if(response.body?.getReader){const reader=response.body.getReader(),decoder=new TextDecoder();let size=0;try{for(;;){const{done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>limit){await reader.cancel();throw Error('Trop de données OSM. Réduisez la portion.');}raw+=decoder.decode(value,{stream:true});}raw+=decoder.decode();}finally{reader.releaseLock();}}
+ else{raw=await response.text();if(Buffer.byteLength(raw)>limit)throw Error('Trop de données OSM. Réduisez la portion.');}return JSON.parse(raw);
+}
+export function osmMapWays(data){
+ if(!Array.isArray(data.elements)||data.remark)throw Error('Réponse OSM incomplète.');
+ const nodes=new Map(data.elements.filter(e=>e.type==='node'&&Number.isFinite(e.lat)&&Number.isFinite(e.lon)).map(e=>[e.id,{lat:e.lat,lon:e.lon}]));
+ const ways=data.elements.filter(e=>e.type==='way'&&e.tags?.highway&&!/^(motorway|trunk|motorway_link|trunk_link|steps|construction|proposed)$/.test(e.tags.highway)).map(w=>{
+  if(!Array.isArray(w.nodes)||w.nodes.length<2||w.nodes.some(id=>!nodes.has(id)))throw Error('Géométrie OSM incomplète.');
+  return {type:'way',id:w.id,nodes:w.nodes,geometry:w.nodes.map(id=>nodes.get(id)),tags:w.tags};
+ });if(!ways.length)throw Error('Aucun chemin OSM disponible.');return ways;
 }
