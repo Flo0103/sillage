@@ -135,3 +135,11 @@ sudo docker compose exec app node server/check-routing.js
 ```
 
 La commande affiche d’abord `Sillage 6.4.1`, puis trois résultats avec moteur, source et longueur. Le test en ligne complet (accrochage du départ puis routage sur les données OSM réelles) a donné environ 823 m entre les extrémités dans les deux sens, et la même longueur avec le passage gravel explicite, dont environ 390 m de gravier. Ces tests vérifient le passage au changement de revêtement ; il ne doit pas produire le détour OSRM d’environ 1,23 km observé pendant le diagnostic. Les distances peuvent évoluer avec les données OSM. L’ancienne mention d’absence de test réel en 6.4 est désormais levée pour le moteur et ces données ; le rendu dans le navigateur et le résultat sur le VPS restent à vérifier après déploiement.
+
+### Performances et profil 6.5
+
+Mise à jour habituelle (`git pull --ff-only`, puis `sudo docker compose up -d --build --wait`), sans migration ni nouvelle clé. Recharger complètement la page pour charger les scripts et styles `v=6.5.0`. Les caches restent en mémoire et se remplissent au premier usage après un redémarrage ; le premier chargement d’une zone dépend des services publics. Les réseaux préparés et les résultats sont bornés, et les données expirées ne sont pas réutilisées par le cache de zone.
+
+Vérifier après déploiement : ajouter plusieurs points voisins puis déplacer un point, annuler et rétablir ; les portions anciennes doivent rester intactes. Vérifier les sens uniques, les pointillés et la rue du Jeu de Paume avec `sudo docker compose exec app node server/check-routing.js` (version 6.5.0 et environ 823 m dans les deux sens). Les temps affichés peuvent varier avec l’état des services ; le cache doit surtout éviter des téléchargements supplémentaires sur des zones déjà chargées.
+
+Pour le profil : vérifier les graduations régulières, le dégradé léger et l’option « Points haut et bas », puis redimensionner la fenêtre, replier la bibliothèque et passer en plein écran sans perdre le curseur. En mode « Pente », les descentes doivent être bleues, le plat blanc bordé et les montées rouges. Les libellés de légende gardent les signes. Desktop et mobile ont été vérifiés dans Chromium avec API de démonstration ; la connexion au site réel et les données de chaque compte restent à vérifier sur le VPS.

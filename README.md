@@ -134,3 +134,27 @@ sudo docker compose exec app node server/check-routing.js
 ```
 
 Cette commande vérifie l’accrochage initial puis effectue trois calculs en lecture seule : les deux sens entre les extrémités, puis la rue entière avec un passage gravel. Elle affiche la version de Sillage, la source de données, le moteur, les distances, les surfaces et les avertissements éventuels. Elle ne consulte ni les comptes ni la base. Elle sort avec un code non nul si un calcul échoue ou utilise le secours public. L’enchaînement accrochage initial puis routage a aussi été vérifié en ligne avec ces deux fournisseurs : la source OSM directe a rendu 823 m dans les deux sens, avec 390 m de gravier. Les données minimales réelles utilisées dans les tests sont dans `test/fixtures/spa-jeu-de-paume.json` : © OpenStreetMap contributors, sous ODbL, avec source et licence incluses.
+
+## Planificateur et profil plus fluides (6.5)
+
+Le planificateur et les segments utilisent le même moteur. Les réseaux OSM préparés (graphe dirigé et index spatial des arêtes) sont désormais réutilisés au lieu d’être reconstruits pour chaque étape. Seules les arêtes contenant les nouveaux points sont divisées dans une surcouche propre à la requête ; le graphe partagé ne reçoit jamais de points virtuels. Le cache est borné à quatre réseaux et 250 000 arêtes ; les résultats récents sont également bornés. Les règles de sens unique, les restrictions annotées et le coût des pistes restent identiques.
+
+Avant de télécharger un nouveau cadre de 650 m de marge, le moteur essaie une zone déjà disponible avec au moins la marge d’accrochage nécessaire. Une recherche voisine peut aussi attendre le téléchargement d’accrochage initial en cours, si sa couverture suffit. Si le cache ne fournit pas de raccord ou propose un grand détour, le calcul reprend avec une zone plus large. L’expiration des données reste respectée. Les échecs Overpass sont espacés progressivement (1, 2, 4, 8 puis 15 minutes), sans prolonger la pause à chaque utilisation de la source de secours ; un succès réinitialise ce délai. Les limites et le débit des fournisseurs sont conservés.
+
+Le regroupement des clics passe de 250 à 100 ms et l’analyse différée de 900 à 300 ms. L’altitude reste indépendante du routage : une réponse d’altitude ne redessine plus la ligne simple ni ne relance le routage. Le rendu des couleurs est mis en cache, les calques inchangés sont conservés et la liste de passages n’est construite qu’à son ouverture. Les anciennes portions conservent leur géométrie et leurs analyses.
+
+Mesures locales du 23 octobre 2026 (Node 24, 80 couples de points distincts, hors HTTP et téléchargement) : sur le réseau réel de Spa utilisé pendant le diagnostic, médiane 4,86 → 0,69 ms et 95e percentile 10,32 → 1,27 ms. Sur une grille de 14 000 nœuds, médiane 86,18 → 0,70 ms, après préparation initiale. Ce sont des mesures CPU dans l’environnement de développement, pas une promesse de délai sur le VPS. La séquence accrochage + deux sens + passage gravel utilise deux téléchargements de zone au lieu de trois dans la comparaison simulée. Le diagnostic en ligne conserve 823 m dans chaque cas ; la variante avec passage a réutilisé la zone chargée au lieu d’en télécharger une autre.
+
+```sh
+npm run bench:routing
+# Option : instantané JSON OSM local, contenant le réseau de Spa
+node test/benchmark-routing.js /chemin/vers/spa-map.json
+```
+
+Ces commandes se lancent dans le checkout de développement ; les tests et benchmarks ne sont pas copiés dans l’image Docker de production. Le premier calcul d’une nouvelle zone dépend toujours des services OSM et peut nécessiter leur délai de secours.
+
+Le profil sous la carte adopte la largeur réelle de son conteneur pour préserver la taille de la police, avec redimensionnement sans perdre le curseur. Ses graduations d’altitude sont des multiples réguliers arrondis (par exemple 100, 200, 300 m), adaptés à l’amplitude ; elles ne sont plus les seuls minima/maxima exacts. Des lignes de grille, des repères de distance et un léger dégradé lié à l’altitude facilitent la lecture. « Points haut et bas » affiche facultativement les extrema lissés, sans modifier les données enregistrées. Les lacunes d’altitude restent visibles et les miniatures utilisent le même rendu.
+
+La palette de pente est divergente : bleu foncé pour les fortes descentes, bleu pâle puis blanc autour de zéro (±0,5 %), rose puis rouge vif pour les fortes montées. La légende indique explicitement « Descente », « Plat » et « Montée » avec les signes. Un liseré neutre maintient les portions blanches lisibles sur le fond de carte. Les valeurs restent issues du profil estimé et lissé existant ; aucune nouvelle source d’altitude ni migration de base n’est introduite.
+
+Validation : tests fonctionnels de cache, concurrence, expiration, arêtes longues, graphe dirigé comparé à un Dijkstra indépendant, rendu réutilisé, axes, palettes et redimensionnement. Vérification Chromium réelle sur desktop et mobile avec données de démonstration et tuiles simulées : police non étirée, absence de débordement horizontal, options d’extrema et curseur synchronisé avec la carte. Le diagnostic de routage utilise les services OSM réels ; le VPS reste à mettre à jour séparément.

@@ -34,3 +34,17 @@ test('accrochage initial puis itinéraire complet à Spa : petite emprise, aucun
  const nearest=await route.nearest({point:fixture.endpoints[0],allowRestricted:true,tolerance:150});assert.deepEqual(nearest.point,fixture.endpoints[0]);const [w,s,e,n]=boxes[0];assert.ok((e-w)*(n-s)<.0003);
  for(const points of [fixture.endpoints,fixture.endpoints.slice().reverse()]){const r=await route({points,allowRestricted:true,purpose:'itinerary'});assert.equal(r.osmSource,'OSM API');assert.ok(Math.abs(r.analysis.surfaces.reduce((sum,s)=>sum+s.distance,0)-822.7)<.5);assert.ok(r.analysis.surfaceRuns.some(s=>s.type==='Gravier'&&s.unpaved));}
 });
+
+test('étapes rapprochées : réutilisation du cache avec la marge nécessaire plutôt que téléchargement de chaque grand cadre',async()=>{
+ let calls=0,clock=0;const osm=createOSMService({ttl:1000,now:()=>clock,fetcher:async()=>{calls++;return Response.json({elements:fixture.elements});}}),route=createLocalRouting({osmService:osm});
+ await route({points:fixture.endpoints,tolerance:150});assert.equal(calls,1);await route({points:[fixture.endpoints[0],fixture.via,fixture.endpoints[1]],tolerance:150});assert.equal(calls,1);assert.ok(osm.peek([50.492,5.867,50.496,5.872]));clock=1001;assert.equal(osm.peek([50.492,5.867,50.496,5.872]),null);await route({points:fixture.endpoints,tolerance:150});assert.equal(calls,2);
+});
+test('un accrochage en cours chauffe la zone pour une étape voisine sans requête concurrente supplémentaire',async()=>{
+ let calls=0,release;const osm=createOSMService({fetcher:()=>{calls++;return new Promise(r=>release=()=>r(Response.json({elements:fixture.elements})));}}),local=createLocalRouting({osmService:osm});const start=local.nearest({point:fixture.endpoints[0],tolerance:150});await new Promise(r=>setImmediate(r));assert.equal(calls,1);
+ const pending=local({points:[fixture.endpoints[0],[50.4921965,5.8699391]],tolerance:150});await new Promise(r=>setImmediate(r));assert.equal(calls,1);release();const [nearest,result]=await Promise.all([start,pending]);assert.equal(nearest.point[0],fixture.endpoints[0][0]);assert.ok(result.coordinates.length>2);assert.equal(calls,1);
+});
+
+test('échecs Overpass espacés progressivement sans repousser la reprise à chaque utilisation du secours',async()=>{
+ let clock=0,attempts=0;const service=createOSMService({mapFallback:true,now:()=>clock,wait:async()=>{},fetcher:async url=>{if(String(url).includes('overpass')){attempts++;if(attempts!==3)throw Error('occupied');return Response.json({elements:fixture.elements});}return Response.json(apiData());}});
+ const box=n=>[50+n*.02,5,50.005+n*.02,5.005];await service(box(0));assert.equal(attempts,1);clock=30000;await service(box(1));assert.equal(attempts,1);clock=61000;await service(box(2));assert.equal(attempts,2);clock=130000;await service(box(3));assert.equal(attempts,2);clock=182000;await service(box(4));assert.equal(attempts,3);clock=183000;await service(box(5));assert.equal(attempts,4);clock=244000;await service(box(6));assert.equal(attempts,5);
+});

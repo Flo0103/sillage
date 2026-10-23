@@ -1,14 +1,14 @@
-import {buildElevationModel,pointAtDistance,elevationAt,slopeAt,routeRenderRuns,kilometreMarkers,renderElevationChart,setChartCursor,elevationColors,slopeBins,routeSurfaceColors} from './elevation.js?v=6.4.0';
-import {ItineraryDraft,planSummary} from './planner.js?v=6.4.0';
-import {insertionIndex} from './route-edit.js?v=6.4.0';
-import {previewPath,renderPreview,disposePreviews} from './preview.js?v=6.4.0';
-import {distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds} from './geo.js?v=6.4.0';
-import {visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML} from './catalog.js?v=6.4.0';
+import {buildElevationModel,pointAtDistance,elevationAt,slopeAt,routeRenderRuns,kilometreMarkers,renderElevationChart,resizeElevationChart,setChartCursor,elevationColors,slopeBins,routeSurfaceColors} from './elevation.js?v=6.5.0';
+import {ItineraryDraft,planSummary} from './planner.js?v=6.5.0';
+import {insertionIndex} from './route-edit.js?v=6.5.0';
+import {previewPath,renderPreview,disposePreviews} from './preview.js?v=6.5.0';
+import {distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds} from './geo.js?v=6.5.0';
+import {visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML} from './catalog.js?v=6.5.0';
 const $=id=>document.getElementById(id);
 const setHidden=(id,value)=>{const element=$(id);if(element)element.hidden=value;};
 let trace=[],selected=[],gpsSelection=[],records=[],rides=[],first=null,last=null,rating=0,mode='route',snapped=false,busy=false,view='saved',currentRide=null,map,routeLayer,selectionLayer,marks,snapController,snapVersion=0,catalog=[],catalogLayer,layerControl,osmSnapshot=null,editingSegment=null,snapWorker=null,workerReject=null,surfaceTouched=false,geometryChanged=false,endpoints=[],modeDrafts=new Map(),ridePreviewVersion=0,rideLoadVersion=0,stravaActivities=[],stravaPage=0,stravaBusy=false,stravaState={configured:false,connected:false},pickedSegmentId=null,viaPoints=[],routeLegFractions=null,routeDrag=null,independentOsm=false,planRecords=[],editingPlan=null,planReadOnly=false,planLoadVersion=0,importedTraces=null,importedLayer=null,overlayVersion=0,planRecalcTimer=null;
 let planDraft=new ItineraryDraft(),planRoutingRunning=false,planMetricsRunning=false,planAnalysisTask=null,planSaving=false,planRouteController=null,planMetricsController=null,planStartController=null,routeClickSuppressed=0,planViewing=false,selectedPlanPoint=null,profileCache=null,mainChartModel=null,previewChartModel=null,previewChartNode=null,previewPercentNode=null,profileCursor=null,kilometreLayer=null,planAnalysisAllowed=new Set(),planKnownLegs=new Set(),planAnalysisTimer=null,accessLayer=null,sidebarCollapsed=false;
-const accessMidpoints=new WeakMap();
+const accessMidpoints=new WeakMap();let selectionStamp=[];
 const canDraw=()=> (view==='explore'||view==='planner')&&!(view==='planner'&&(planReadOnly||planViewing));
 const pointLimit=()=>view==='planner'?200:12;
 const winterLabels={unknown:'Hiver non renseigné',yes:'Roulable en hiver',no:'Non roulable en hiver',conditions:'Hiver selon conditions'};
@@ -32,6 +32,7 @@ function reset(){cancelSnap();planRouteController?.abort();planMetricsController
 function routeControls(){return endpoints.length>1?[endpoints[0],...viaPoints,endpoints[1]]:endpoints.map(p=>[...p]);}
 function renderWaypoints(){
  const list=$('waypointList');if(!list)return;list.replaceChildren();setHidden('routeEditControls',mode!=='route'||!canDraw());setHidden('pointSettings',view!=='planner'||!canDraw()||selectedPlanPoint===null||selectedPlanPoint>=planDraft.points.length);
+ if(view==='planner'&&!$('waypointDetails').open)return;
  const controls=routeControls();for(let i=0;i<controls.length;i++){const row=document.createElement('li'),label=document.createElement('span');label.textContent=i===0?'A · Départ':i===controls.length-1?'B · Arrivée':`Passage ${i}`;row.append(label);if(view==='planner'&&i>0){const toggle=document.createElement('input'),choice=document.createElement('label');choice.className='checklabel waypoint-mode';toggle.type='checkbox';toggle.checked=planDraft.legs[i-1]?.mode==='manual';toggle.onchange=()=>setPointMode(i,toggle.checked);choice.append(toggle,document.createTextNode('Sans routage depuis le précédent'));row.append(choice);}if(i>0&&i<controls.length-1){const remove=document.createElement('button');remove.type='button';remove.className='textbutton';remove.textContent='Retirer';remove.setAttribute('aria-label',`Retirer le passage ${i}`);remove.onclick=()=>removeVia(i-1);row.append(remove);}list.append(row);}
 }
 function validMapPoint(p){return Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)&&Math.abs(p[0])<=90&&Math.abs(p[1])<=180;}
@@ -67,9 +68,9 @@ function startRouteDrag(event){
  drag.cancel=e=>{if(e.pointerId===drag.pointerId)cancelRouteDrag();};window.addEventListener('pointermove',drag.move,{passive:false});window.addEventListener('pointerup',drag.up);window.addEventListener('pointercancel',drag.cancel);drag.blur=cancelRouteDrag;window.addEventListener('blur',drag.blur);
 }
 function drawSelection(){
- if(!map)return;selectionLayer.clearLayers();marks.clearLayers();accessLayer?.clearLayers();kilometreLayer?.clearLayers();if(view!=='planner')clearElevationCursor();
- if(selected.length>1){L.polyline(selected,{pane:'portionPane',color:'#faf8f1',weight:10,opacity:1,interactive:false}).addTo(selectionLayer);
-  if(view==='planner'){for(const run of routeRenderRuns(planDraft.legs,$('planColorMode').value||'simple',currentProfile()))L.polyline(run.coordinates,{pane:'portionPane',color:run.color,weight:6,opacity:1,dashArray:run.dashArray,interactive:false}).addTo(selectionLayer);}else L.polyline(selected,{pane:'portionPane',color:'#b5654c',weight:6,opacity:1,interactive:false}).addTo(selectionLayer);
+ if(!map)return;const color=$('planColorMode').value||'simple',runs=view==='planner'?routeRenderRuns(planDraft.legs,color,currentProfile()):null,stamp=[view,mode,canDraw(),...(view==='planner'?[color,runs,...planDraft.points]:selected)],redraw=stamp.length!==selectionStamp.length||stamp.some((v,i)=>v!==selectionStamp[i]);if(redraw){selectionLayer.clearLayers();selectionStamp=stamp;}marks.clearLayers();accessLayer?.clearLayers();kilometreLayer?.clearLayers();if(view!=='planner')clearElevationCursor();
+ if(redraw&&selected.length>1){L.polyline(selected,{pane:'portionPane',color:'#faf8f1',weight:10,opacity:1,interactive:false}).addTo(selectionLayer);
+  if(view==='planner'){if(color==='slope')L.polyline(selected,{pane:'portionPane',color:'#53625c',weight:8,opacity:.65,interactive:false}).addTo(selectionLayer);for(const run of runs)L.polyline(run.coordinates,{pane:'portionPane',color:run.color,weight:6,opacity:1,dashArray:run.dashArray,interactive:false}).addTo(selectionLayer);}else L.polyline(selected,{pane:'portionPane',color:'#b5654c',weight:6,opacity:1,interactive:false}).addTo(selectionLayer);
   if(mode==='route'&&canDraw()){const line=L.polyline(selected,{pane:'portionPane',color:'#b5654c',weight:20,opacity:0,interactive:true,className:'routing-draggable'}).addTo(selectionLayer);line.on('click',e=>{L.DomEvent.stopPropagation(e);if(view==='planner'&&Date.now()>routeClickSuppressed){const point=[e.latlng.lat,e.latlng.lng];void insertVia(insertionIndex(selected,routeControls(),point,routeLegFractions),point);}});const path=line.getElement?.();if(path)path.addEventListener('pointerdown',startRouteDrag,{passive:false});}
  }
  if(view==='planner')drawAccessWarnings();
@@ -121,7 +122,7 @@ function calculateOSM(points,elements,tolerance,version,calculationMode=mode){
  const onProgress=p=>{if(version===snapVersion&&calculationMode!=='surface')showProgress(p);};
  if(typeof Worker==='undefined')return Promise.resolve((calculationMode==='route'?routeOSM:matchOSMDetailed)(points,elements,{tolerance,onProgress}));
  return new Promise((resolve,reject)=>{
-  const worker=new Worker('/osm-worker.js?v=6.4.0',{type:'module'});snapWorker=worker;workerReject=reject;
+  const worker=new Worker('/osm-worker.js?v=6.5.0',{type:'module'});snapWorker=worker;workerReject=reject;
   const finish=()=>{worker.terminate();if(snapWorker===worker){snapWorker=null;workerReject=null;}};
   worker.onmessage=({data})=>{if(version!==snapVersion)return;if(data.progress){onProgress(data.progress);return;}finish();if(data.error)reject(Error(data.error));else resolve(data.result);};
   worker.onerror=()=>{finish();reject(Error('Le calcul OSM a échoué. Réessayez ou utilisez le mode manuel.'));};worker.postMessage({points,elements,tolerance,mode:calculationMode});
@@ -303,7 +304,7 @@ $('showImportedTraces').onchange=loadImportedTraces;
 function syncPlanner(){
  selected=planDraft.coordinates();const points=planDraft.points;endpoints=points.length>1?[points[0],points.at(-1)]:points.map(p=>[...p]);viaPoints=points.slice(1,-1);routeLegFractions=planDraft.fractions();first=endpoints[0]||null;last=endpoints[1]||null;gpsSelection=points.map(p=>[...p]);snapped=planDraft.complete();busy=planDraft.legs.some(l=>!l.coordinates);mode='route';drawSelection();update();
 }
-function plannerChanged(){for(const l of planDraft.legs)if(!planKnownLegs.has(l.id))planAnalysisAllowed.add(l.id);planKnownLegs=new Set(planDraft.legs.map(l=>l.id));planViewing=false;geometryChanged=true;profileCache=null;mainChartModel=null;clearElevationCursor();modeDrafts.clear();syncPlanner();status('Itinéraire modifié. Seules les portions concernées sont recalculées.');clearTimeout(planRecalcTimer);planRecalcTimer=setTimeout(()=>{planRecalcTimer=null;void calculatePlanLegs();},250);}
+function plannerChanged(){for(const l of planDraft.legs)if(!planKnownLegs.has(l.id))planAnalysisAllowed.add(l.id);planKnownLegs=new Set(planDraft.legs.map(l=>l.id));planViewing=false;geometryChanged=true;profileCache=null;mainChartModel=null;clearElevationCursor();modeDrafts.clear();syncPlanner();status('Itinéraire modifié. Seules les portions concernées sont recalculées.');clearTimeout(planRecalcTimer);planRecalcTimer=setTimeout(()=>{planRecalcTimer=null;void calculatePlanLegs();},100);}
 async function calculatePlanLegs(){
  if(planRoutingRunning||view!=='planner'||planReadOnly||planViewing)return;planRoutingRunning=true;let failed=false;
  try{for(;;){if(view!=='planner'||planReadOnly)break;const draft=planDraft,i=draft.legs.findIndex(l=>!l.coordinates);if(i<0)break;const edge=draft.legs[i];planRouteController=new AbortController();busy=true;update();status(`Routage de la portion ${i+1} / ${draft.legs.length}…`);
@@ -313,7 +314,7 @@ async function calculatePlanLegs(){
 }
 const needsElevation=l=>!!l.coordinates&&(!l.analysis||!Object.hasOwn(l.analysis,'elevation'));
 const needsSurface=l=>!!l.coordinates&&(!Array.isArray(l.analysis?.surfaces)||!Array.isArray(l.analysis?.surfaceRuns));
-function schedulePlanAnalysis(){clearTimeout(planAnalysisTimer);if(!planDraft.legs.some(l=>planAnalysisAllowed.has(l.id)&&(needsElevation(l)||needsSurface(l))))return;planAnalysisTimer=setTimeout(()=>{planAnalysisTimer=null;void analysePlanLegs();},900);}
+function schedulePlanAnalysis(){clearTimeout(planAnalysisTimer);if(!planDraft.legs.some(l=>planAnalysisAllowed.has(l.id)&&(needsElevation(l)||needsSurface(l))))return;planAnalysisTimer=setTimeout(()=>{planAnalysisTimer=null;void analysePlanLegs();},300);}
 function analysePlanLegs(retry=false){clearTimeout(planAnalysisTimer);planAnalysisTimer=null;if(planAnalysisTask)return planAnalysisTask;planAnalysisTask=runPlanAnalysis(retry).finally(()=>{planAnalysisTask=null;});return planAnalysisTask;}
 function updateAnalysisDisplay(kind){if(kind==='surface'||['slope','altitude'].includes($('planColorMode').value))drawSelection();updatePlanStats();}
 async function runPlanAnalysis(retry=false){
@@ -388,7 +389,7 @@ function currentProfile(){
  if(!profileCache||profileCache.draft!==planDraft||profileCache.legs.length!==planDraft.legs.length||profileCache.legs.some((l,i)=>l!==planDraft.legs[i]))profileCache={draft:planDraft,legs:planDraft.legs.slice(),model:buildElevationModel(planDraft.legs)};return profileCache.model;
 }
 function updateElevationPanel(){
- if(view!=='planner')return;const model=currentProfile();if(mainChartModel!==model){renderElevationChart($('elevationGraph'),model,{onSeek:seekElevation});mainChartModel=model;$('elevationSeek').max=Math.max(1,Math.round(model.total));$('elevationSeek').disabled=model.min===null;$('elevationSeek').value='0';$('elevationReadout').textContent=model.min===null?'Altitudes indisponibles ou en cours de calcul.':'Survolez le graphe ou déplacez le curseur.';clearElevationCursor();if(planViewing&&editingPlan?.id===$('planSelect').value&&previewChartNode){previewChartModel=model;renderElevationChart(previewChartNode,model,{compact:true,onSeek:seekElevation});if(previewPercentNode)previewPercentNode.textContent=surfacePercentages(planSummary(planDraft.legs)).map(([label])=>label).join(' · ');}}
+ if(view!=='planner')return;const model=currentProfile();if(mainChartModel!==model){renderElevationChart($('elevationGraph'),model,{onSeek:seekElevation,showExtrema:$('profileExtrema').checked});mainChartModel=model;$('elevationSeek').max=Math.max(1,Math.round(model.total));$('elevationSeek').disabled=model.min===null;$('elevationSeek').value='0';$('elevationReadout').textContent=model.min===null?'Altitudes indisponibles ou en cours de calcul.':'Survolez le graphe ou déplacez le curseur.';clearElevationCursor();if(planViewing&&editingPlan?.id===$('planSelect').value&&previewChartNode){previewChartModel=model;renderElevationChart(previewChartNode,model,{compact:true,onSeek:seekElevation});if(previewPercentNode)previewPercentNode.textContent=surfacePercentages(planSummary(planDraft.legs)).map(([label])=>label).join(' · ');}}
  if(planViewing&&editingPlan?.id===$('planSelect').value&&previewPercentNode)previewPercentNode.textContent=surfacePercentages(planSummary(planDraft.legs)).map(([label])=>label).join(' · ');
  const summary=planSummary(planDraft.legs);$('profileSummary').textContent=`${(model.total/1000).toFixed(1)} km${summary.elevationCoverage?` · D+ ${summary.ascent} m · D− ${summary.descent} m`:''}`;
 }
@@ -417,11 +418,11 @@ function restorePlanContext(context){editingPlan=context.editingPlan;planReadOnl
 function clearCurrentPlan(){
  if(view!=='planner'||!planDraft.points.length)return;planLoadVersion++;cancelSnap();planRouteController?.abort();planMetricsController?.abort();planStartController?.abort();planDraft.context=capturePlanContext();const empty={editingPlan:null,planReadOnly:false,planViewing:false,name:'',notes:'',isPublic:false,manual:false};planDraft.clear(empty);restorePlanContext(empty);selectedPlanPoint=null;$('planSelect').value='';previewPlan();syncPlanner();status('Itinéraire effacé de la carte. Utilisez ↶ Annuler pour le restaurer.');
 }
-$('pointIncomingManual').onchange=()=>{if(selectedPlanPoint!==null)setPointMode(selectedPlanPoint,$('pointIncomingManual').checked);};$('closePointSettings').onclick=()=>{selectedPlanPoint=null;setHidden('pointSettings',true);};
-$('elevationSeek').oninput=()=>seekElevation($('elevationSeek').value);$('planColorMode').onchange=()=>{drawSelection();renderMapLegend();};$('elevationPanel').ontoggle=()=>resizeElevationPanel();
+$('waypointDetails').ontoggle=()=>renderWaypoints();$('pointIncomingManual').onchange=()=>{if(selectedPlanPoint!==null)setPointMode(selectedPlanPoint,$('pointIncomingManual').checked);};$('closePointSettings').onclick=()=>{selectedPlanPoint=null;setHidden('pointSettings',true);};
+$('profileExtrema').onchange=()=>{if(view==='planner')renderElevationChart($('elevationGraph'),currentProfile(),{onSeek:seekElevation,showExtrema:$('profileExtrema').checked});};$('elevationSeek').oninput=()=>seekElevation($('elevationSeek').value);$('planColorMode').onchange=()=>{drawSelection();renderMapLegend();};$('elevationPanel').ontoggle=()=>resizeElevationPanel();
 $('editPlan').onclick=()=>{if(view!=='planner'||!editingPlan?.isMine)return;planViewing=false;planReadOnly=false;drawSelection();update();status('Glissez un point pour le corriger. Cliquez dessus pour choisir le routage depuis le précédent.');};
-function resizeElevationPanel(){const height=$('elevationPanel').hidden?0:$('elevationPanel').getBoundingClientRect?.().height||0;$('workspace').style.setProperty('--profile-height',height+'px');map?.invalidateSize({pan:false});}
-if(typeof ResizeObserver!=='undefined')new ResizeObserver(resizeElevationPanel).observe($('elevationPanel'));
+function resizeElevationPanel(){resizeElevationChart($('elevationGraph'));resizeElevationChart(previewChartNode);const height=$('elevationPanel').hidden?0:$('elevationPanel').getBoundingClientRect?.().height||0;$('workspace').style.setProperty('--profile-height',height+'px');map?.invalidateSize({pan:false});}
+if(typeof ResizeObserver!=='undefined'){const observer=new ResizeObserver(resizeElevationPanel);observer.observe($('elevationPanel'));observer.observe($('planPreview'));}
 
 try{const me=await api('/api/me');$('username').textContent=me.username;setHidden('adminLink',!me.isAdmin);[records,rides,catalog]=await Promise.all([api('/api/portions'),api('/api/rides'),api('/api/catalog')]);renderRides();void loadStravaStatus();
  if(map){const layers=await api('/api/wms');for(const w of layers){const layer=L.tileLayer.wms(w.url,{layers:w.layers,version:w.version,styles:w.styles,format:'image/png',transparent:false,referrerPolicy:'strict-origin-when-cross-origin',attribution:escapeHTML(w.attribution),maxZoom:20});layer.on('tileerror',()=>{if(map.hasLayer(layer))toast('Le fond '+w.name+' est indisponible.');});layerControl.addBaseLayer(layer,escapeHTML(w.name));}}

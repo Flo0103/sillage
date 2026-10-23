@@ -68,3 +68,22 @@ test('cas réel Spa : rue entière dans les deux sens avec ou sans passage inter
  // Le raccord du changement de revêtement est le même identifiant OSM, sans raccord fictif.
  const asphalt=fixture.elements.find(w=>w.id===330261170),gravel=fixture.elements.find(w=>w.id===1293634009);assert.equal(asphalt.nodes.at(-1),3065855837);assert.equal(gravel.nodes.at(-1),3065855837);
 });
+
+test('graphe et résultats réutilisés sans modifier le réseau ni mélanger les contrôles entre requêtes',async()=>{
+ const {prepareOSM}=await import('../server/local-routing.js'),elements=[way([1,2,3],[a,b,c],{oneway:'yes',surface:'gravel'})],prepared=prepareOSM(elements),first=routeOnOSM([[50.0001,5],[50.0019,5]],elements);
+ assert.equal(first.cached,false);assert.equal(routeOnOSM([[50.0001,5],[50.0019,5]],elements).cached,true);assert.equal(prepareOSM(elements),prepared);const other=routeOnOSM([[50.0002,5],[50.0018,5]],elements);assert.equal(other.coordinates[0][0],50.0002);assert.equal(prepared.nodes.size,3);assert.ok([...prepared.graph.values()].flat().every(edge=>!edge.to.startsWith('control:')));
+ assert.throws(()=>routeOnOSM([[50.0018,5],[50.0002,5]],elements),e=>e.localNoPath);const fresh=structuredClone(elements);fresh[0].tags.oneway='no';assert.ok(routeOnOSM([[50.0018,5],[50.0002,5]],fresh).coordinates.length);assert.notEqual(prepareOSM(fresh),prepared);
+});
+test('index spatial trouve aussi le milieu des longues arêtes et refuse les projections confondues',()=>{
+ const elements=[way([1,2],[[50,5],[50,5.8]])],r=routeOnOSM([[50.0001,5.5],[50.0001,5.5001]],elements,{tolerance:75});assert.ok(r.coordinates.every(p=>p[0]===50));assert.ok(r.stats.maxOffset<12);assert.ok(r.coordinates[0][1]<r.coordinates.at(-1)[1]);assert.throws(()=>routeOnOSM([[50.0001,5.5],[50.0002,5.5]],elements),e=>e.localNoPath);
+});
+test('un raccord absent ou un grand détour dans un cache partiel entraîne une recherche plus large',async()=>{
+ const partial=[way([1,4,5,2],[a,[50.01,5],[50.01,5.001],[50,5.001]])],full=[...partial,way([1,2],[a,[50,5.001]])];let calls=0;const osm=async()=>{calls++;return {elements:full};};osm.peek=()=>({elements:partial,cached:true});const local=createLocalRouting({osmService:osm}),r=await local({points:[a,[50,5.001]],tolerance:150});assert.equal(calls,1);assert.equal(r.coordinates.length,2);
+});
+
+test('réutilisation de nombreuses paires : mêmes distances qu’un Dijkstra indépendant sur un réseau dirigé',async()=>{
+ const {distance}=await import('../server/model.js'),size=4,nodes=Array.from({length:size*size},(_,i)=>[50+Math.floor(i/size)*.0005,5+i%size*.0007]),ways=[],graph=nodes.map(()=>[]);
+ for(let row=0;row<size;row++)for(let col=0;col<size;col++){const id=row*size+col;for(const next of [col+1<size?id+1:null,row+1<size?id+size:null]){if(next===null)continue;ways.push(way([id,next],[nodes[id],nodes[next]],{oneway:'yes'}));graph[id].push([next,distance(nodes[id],nodes[next])]);}}
+ function expected(start,end){const ds=nodes.map(()=>Infinity),visited=new Set();ds[start]=0;for(;;){let at=-1;for(let i=0;i<ds.length;i++)if(!visited.has(i)&&Number.isFinite(ds[i])&&(at<0||ds[i]<ds[at]))at=i;if(at<0)return Infinity;if(at===end)return ds[at];visited.add(at);for(const [next,meters]of graph[at])ds[next]=Math.min(ds[next],ds[at]+meters);}}
+ for(let start=0;start<nodes.length;start++)for(let end=0;end<nodes.length;end++){if(start===end)continue;const meters=expected(start,end);if(!Number.isFinite(meters))assert.throws(()=>routeOnOSM([nodes[start],nodes[end]],ways),e=>e.localNoPath);else{const result=routeOnOSM([nodes[start],nodes[end]],ways),actual=result.analysis.surfaces.reduce((n,s)=>n+s.distance,0);assert.ok(Math.abs(actual-meters)<.01);}}
+});

@@ -6,9 +6,9 @@ export function validateBox(value){
 }
 const contains=(a,b)=>a[0]<=b[0]&&a[1]<=b[1]&&a[2]>=b[2]&&a[3]>=b[3];
 export function createOSMService({fetcher=(...args)=>fetch(...args),now=Date.now,ttl=600000,maxBytes=32*1024*1024,mapFallback=false,wait=ms=>new Promise(r=>setTimeout(r,ms))}={}){
- const cache=new Map(),pending=new Map(),mapAreaBackoff=new Map();let bytes=0,active=0,overpassBackoff=0,mapBackoff=0,mapLast=-Infinity,mapQueue=Promise.resolve();
+ const cache=new Map(),pending=new Map(),mapAreaBackoff=new Map();let bytes=0,active=0,overpassBackoff=0,overpassFailures=0,mapBackoff=0,mapLast=-Infinity,mapQueue=Promise.resolve();
  function prune(){for(const[k,t]of mapAreaBackoff)if(now()>=t)mapAreaBackoff.delete(k);for(const[key,item]of cache)if(now()-item.time>(item.ttl??ttl)){cache.delete(key);bytes-=item.bytes;}}
- return async function getOSM(input){
+ const getOSM=async function(input){
   const bbox=validateBox(input);prune();
   for(const[key,item]of cache)if(contains(item.bbox,bbox)){cache.delete(key);cache.set(key,item);return {...item.data,cached:true};}
   const step=.0025;let box=[Math.floor(bbox[0]/step)*step,Math.floor(bbox[1]/step)*step,Math.ceil(bbox[2]/step)*step,Math.ceil(bbox[3]/step)*step].map(x=>Number(x.toFixed(6)));
@@ -18,14 +18,14 @@ export function createOSMService({fetcher=(...args)=>fetch(...args),now=Date.now
   const operation=(async()=>{
    active++;try{
     const query=`[out:json][timeout:20];way[highway][highway!~"motorway|trunk|motorway_link|trunk_link|steps|construction|proposed"](${box.join(',')});out body geom;`;
-    const small=(box[2]-box[0])*(box[3]-box[1])<=.001;let parsed,source='Overpass';
+    const small=(box[2]-box[0])*(box[3]-box[1])<=.001,overpassAttempt=!mapFallback||now()>=overpassBackoff;let parsed,source='Overpass';
     try{
-     if(mapFallback&&now()<overpassBackoff)throw Error('Overpass en pause après une panne.');
+     if(!overpassAttempt)throw Error('Overpass en pause après une panne.');
      const response=await fetcher('https://overpass-api.de/api/interpreter',{method:'POST',headers:{'User-Agent':'Sillage/6.4.1 (+https://sillage.gravelspa.be)'},body:new URLSearchParams({data:query}),signal:AbortSignal.timeout(mapFallback&&small?8000:25000)});
      if(!response.ok)throw Object.assign(Error('OSM est temporairement indisponible. Réessayez ou utilisez le mode manuel.'),{status:502});
-     parsed=await osmJSON(response);if(!Array.isArray(parsed.elements)||parsed.remark)throw Error('Réponse OSM incomplète. Réessayez plus tard.');
+     parsed=await osmJSON(response);if(!Array.isArray(parsed.elements)||parsed.remark)throw Error('Réponse OSM incomplète. Réessayez plus tard.');overpassFailures=0;overpassBackoff=0;
     }catch(error){
-     if(!mapFallback)throw error;overpassBackoff=now()+60000;
+     if(!mapFallback)throw error;if(overpassAttempt){overpassFailures=Math.min(5,overpassFailures+1);overpassBackoff=now()+Math.min(900000,60000*2**(overpassFailures-1));}
      if(!small||now()<mapBackoff||now()<(mapAreaBackoff.get(key)??0))throw error;
      const job=mapQueue.catch(()=>{}).then(async()=>{
       if(now()<mapBackoff)throw error;await wait(Math.max(0,1000-(now()-mapLast)));mapLast=now();
@@ -41,6 +41,8 @@ export function createOSMService({fetcher=(...args)=>fetch(...args),now=Date.now
    }finally{active--;}
   })();pending.set(key,operation);try{return await operation;}finally{pending.delete(key);}
  };
+ getOSM.peek=(input,{inFlight=false}={})=>{const bbox=validateBox(input);prune();let best=null,key;for(const[k,item]of cache)if(contains(item.bbox,bbox)&&(!best||(item.bbox[2]-item.bbox[0])*(item.bbox[3]-item.bbox[1])>(best.bbox[2]-best.bbox[0])*(best.bbox[3]-best.bbox[1]))){best=item;key=k;}if(!best){if(inFlight)for(const[k,job]of pending)if(contains(k.split(',').map(Number),bbox))return job.then(data=>({...data,cached:true}));return null;}cache.delete(key);cache.set(key,best);return {...best.data,cached:true};};
+ return getOSM;
 }
 
 async function osmJSON(response){
