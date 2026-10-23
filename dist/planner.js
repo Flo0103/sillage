@@ -5,15 +5,17 @@ const point=p=>[...p];
 const leg=(mode,coordinates=null)=>({id:++serial,mode,coordinates,analysis:null});
 // Edges are immutable: snapshots share their geometry, not mutable arrays.
 export class ItineraryDraft{
- constructor(){this.points=[];this.legs=[];this.past=[];this.future=[];}
- snapshot(){return {points:this.points.map(point),legs:this.legs.slice()};}
+ constructor(){this.points=[];this.legs=[];this.past=[];this.future=[];this.context=null;}
+ snapshot(){return {points:this.points.map(point),legs:this.legs.slice(),context:this.context};}
  remember(){this.past.push(this.snapshot());if(this.past.length>60)this.past.shift();this.future=[];}
- restore(state){this.points=state.points.map(point);this.legs=state.legs.slice();}
+ restore(state){this.points=state.points.map(point);this.legs=state.legs.slice();this.context=state.context??null;}
  undo(){if(!this.past.length)return false;this.future.push(this.snapshot());this.restore(this.past.pop());return true;}
  redo(){if(!this.future.length)return false;this.past.push(this.snapshot());this.restore(this.future.pop());return true;}
  append(p,mode='route'){if(this.points.length&&distance(this.points.at(-1),p)<(mode==='route'?5:2))throw Error('Choisissez un point un peu plus éloigné.');if(this.points.length>=200)throw Error('Maximum 200 points par itinéraire.');this.remember();if(this.points.length)this.legs.push(leg(mode,mode==='manual'?[point(this.points.at(-1)),point(p)]:null));this.points.push(point(p));}
  move(index,p){if(!this.points[index])return;for(const other of [this.points[index-1],this.points[index+1]])if(other&&distance(other,p)<2)throw Error('Les points doivent être distincts.');this.remember();this.points[index]=point(p);for(const i of [index-1,index])if(this.legs[i])this.legs[i]=leg(this.legs[i].mode,this.legs[i].mode==='manual'?[point(this.points[i]),point(this.points[i+1])]:null);}
- insert(index,p,manual=false){if(index<1||index>=this.points.length)return;if(distance(this.points[index-1],p)<2||distance(this.points[index],p)<2)throw Error('Éloignez le nouveau point de ses voisins.');if(this.points.length>=200)throw Error('Maximum 200 points par itinéraire.');this.remember();const mode=manual?'manual':this.legs[index-1].mode;this.points.splice(index,0,point(p));this.legs.splice(index-1,1,leg(mode,mode==='manual'?[point(this.points[index-1]),point(p)]:null),leg(mode,mode==='manual'?[point(p),point(this.points[index+1])]:null));}
+ insert(index,p,manual=false){if(index<1||index>=this.points.length)return;if(distance(this.points[index-1],p)<2||distance(this.points[index],p)<2)throw Error('Éloignez le nouveau point de ses voisins.');if(this.points.length>=200)throw Error('Maximum 200 points par itinéraire.');this.remember();const outgoing=this.legs[index-1].mode,mode=manual?'manual':outgoing;this.points.splice(index,0,point(p));this.legs.splice(index-1,1,leg(mode,mode==='manual'?[point(this.points[index-1]),point(p)]:null),leg(outgoing,outgoing==='manual'?[point(p),point(this.points[index+1])]:null));}
+ clear(context=null){this.remember();this.points=[];this.legs=[];this.context=context;}
+ setIncomingMode(index,mode){if(index<=0||index>=this.points.length||!['manual','route'].includes(mode)||this.legs[index-1].mode===mode)return false;this.remember();this.legs[index-1]=leg(mode,mode==='manual'?[point(this.points[index-1]),point(this.points[index])]:null);return true;}
  remove(index){if(index<0||index>=this.points.length)return;this.remember();if(index===0)this.legs.shift();else if(index===this.points.length-1)this.legs.pop();else{const mode=this.legs[index-1].mode==='manual'||this.legs[index].mode==='manual'?'manual':'route';this.legs.splice(index-1,2,leg(mode,mode==='manual'?[point(this.points[index-1]),point(this.points[index+1])]:null));}this.points.splice(index,1);}
  resolve(id,result){const i=this.legs.findIndex(l=>l.id===id);if(i<0)return false;const old=this.legs[i];if(old.coordinates)return false;const path=result.coordinates.map(point);if(path.length<2)return false;
   // A completed neighbouring leg stays byte-for-byte intact when extending a route.
