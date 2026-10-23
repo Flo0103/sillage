@@ -5,17 +5,19 @@ Application web en français pour retrouver ses sorties, isoler des portions et 
 ## Fonctionnalités
 
 - Comptes privés sur invitation, administration des utilisateurs et changement de mot de passe.
+- Onglet « Carte · sorties et segments » commun à la consultation et au dessin, avec bibliothèques repliables et bouton « Dessiner un segment ». La sortie chargée reste visible en quittant le dessin ; les segments existants laissent passer les clics pendant le tracé.
 - Bibliothèque de sorties GPX / Strava avec menus déroulants, aperçu sur fond OSM, téléchargement et suppression de ses sorties (et segments liés). Conservation des GPX originaux.
 - Connexion OAuth Strava, sélection paginée et aperçu de ses activités gravel / vélo directement dans le panneau latéral, puis import de sa propre trace. Le lien « Mon compte » reste disponible pour gérer la connexion.
 - Routage local OSM pour les étapes courtes, avec secours OSRM / FOSSGIS pour les grandes emprises ou les pannes ; snapping qui suit le GPX en option et tracé manuel point à point. Départ et arrivée déplaçables, glissement de la route pour ajouter des passages, déplacement et suppression des passages. Les points sont conservés au changement de mode et les points du routage sont enregistrés avec le segment.
 - Tolérance OSM 75 / 150 / 250 m ; index spatial, A*, cache de dix minutes et réutilisation des zones téléchargées. Calcul dans un Web Worker avec annulation et progression des points GPS traités.
 - Nom facultatif, note sur cinq, technicité, revêtement, single track (oui / non / non renseigné), état hivernal et commentaire. Revêtement suggéré depuis les tags OSM des chemins parcourus, modifiable à la main.
 - Catalogue de segments avec menu déroulant et aperçu ; segments personnels et publics visibles aussi pendant la création. Filtres hiver / single track ; couleurs par note, revêtement ou single track. Cliquer sur son segment ouvre l’édition complète, avec possibilité de redessiner.
-- Fonds OSM, CyclOSM vélo, Esri satellite, IGN Belgique CartoWeb et WMS personnalisés par utilisateur.
+- Fonds OSM, CyclOSM vélo, Esri satellite, IGN Belgique CartoWeb et WMS personnalisés par utilisateur. Panneau « Carte et légendes » commun aux fonds, superpositions, filtres et palettes ; ombrage Esri World Hillshade facultatif, superposé à tout fond, avec transparence réglable de 0 à 100 %.
 - Carte adaptée à la hauteur de la fenêtre, plein écran et légende compacte repliable dans le coin de la carte. Sur ordinateur, le panneau latéral et l’éditeur ont un défilement indépendant de la carte.
 - Onglet « Itinéraires » : parcours indépendants jusqu’à 500 km et 200 points, routage vélo avec corrections manuelles locales, annuler/rétablir, passages déplaçables, enregistrement privé par défaut ou public entre membres, bibliothèque, modification de ses parcours, copie des parcours publics et export GPX.
 - Case « Toutes mes traces importées » : superposition de toutes les sorties du compte connecté, y compris les imports Strava, sans rendre les sorties d’autres comptes accessibles. Les géométries de superposition sont simplifiées pour l’affichage, les originaux restent inchangés.
 - Export GeoJSON de ses portions. Le bouton de transfert des anciennes notes locales est supprimé.
+- Profil coloré et ligne d’altitude avec la même palette terrain que la carte ; notes de plaisir dans une palette indigo distincte. Après enregistrement, l’itinéraire passe directement en consultation avec bornes kilométriques ; « Modifier » retrouve les points de passage.
 - Palette sable / olive / argile avec accents citron, nouvelle icône dans l’en-tête et les favoris, interface adaptée au mobile et à l’ordinateur.
 
 ## Confidentialité

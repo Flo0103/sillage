@@ -28,3 +28,26 @@ body.app-page.sidebar-collapsed>main{grid-template-columns:minmax(0,1fr)}body.ap
 
 .elevation-panel{padding:12px 20px 10px;max-height:42dvh;background:#faf8f1}.elevation-panel>summary{font-family:Manrope,system-ui,sans-serif;font-weight:700;font-size:13px;letter-spacing:-.15px}.elevation-panel>summary span{font-family:'DM Sans',system-ui,sans-serif;font-size:12px;font-variant-numeric:tabular-nums}.profile-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:9px 0 3px;color:var(--muted)}.profile-toolbar>span{font-size:9px;font-weight:600;letter-spacing:1.2px}.profile-option{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:500;cursor:pointer}.profile-option input{width:14px;height:14px;min-height:0;margin:0;padding:0}.elevation-chart,.mini-elevation .elevation-chart{height:auto;max-width:100%}.elevation-chart text{font-family:'DM Sans',system-ui,sans-serif;font-size:11px;font-weight:500;font-variant-numeric:tabular-nums;fill:#74786c}.elevation-line{stroke:#39483e;stroke-width:1.8;stroke-linecap:round}.profile-grid{stroke:#d8d8cd;stroke-width:1;vector-effect:non-scaling-stroke;stroke-dasharray:2 4}.profile-grid.vertical{stroke:#e8e7df;stroke-dasharray:none}.profile-extremum circle{fill:#b5654c;stroke:#faf8f1;stroke-width:2;vector-effect:non-scaling-stroke}.profile-extremum text{fill:var(--ink);font-weight:700;paint-order:stroke;stroke:#faf8f1;stroke-width:4px;stroke-linejoin:round}.profile-seek{border-top:1px solid var(--line);padding-top:8px;margin-top:3px;font-variant-numeric:tabular-nums}.profile-seek output{font-size:12px}.elevation-panel>small{font-size:10px;margin-top:7px}.mini-elevation{background:#f3f2e9;border:0;border-radius:5px;padding:5px 2px;margin-top:8px}.segmentlegend i{box-shadow:inset 0 0 0 1px #39483e30}
 @media(max-width:500px){.elevation-panel{padding:10px 12px;max-height:50dvh}.elevation-panel>summary span{font-size:10px;display:block;margin:4px 0 0 15px}.profile-option{font-size:10px}.profile-seek{grid-template-columns:minmax(60px,1fr) auto;gap:5px 12px}.profile-seek label{grid-column:1/-1}.profile-seek output{font-size:10px;max-width:180px}.elevation-panel>small{font-size:9px}}
+
+/* Shared map display panel: background, overlays, filters and keys. */
+.segmentlegend{width:248px;max-width:min(248px,calc(100vw - 32px));max-height:min(66dvh,520px);padding:0;overflow:hidden;font-family:'DM Sans',system-ui,sans-serif}
+.segmentlegend>summary{padding:12px 14px;font-size:12px;letter-spacing:.1px}
+.segmentlegend[open]>summary{border-bottom:1px solid var(--line)}
+.map-panel-body{padding:3px 13px 12px;max-height:min(55dvh,440px);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.map-panel-body details{padding:10px 0;border-bottom:1px solid var(--line)}
+.map-panel-body details>summary{font-size:11px;font-weight:600;cursor:pointer}
+.map-panel-body label{font-size:11px;margin:10px 0 5px;line-height:1.4}
+.map-panel-body select{font-size:11px;padding:8px;width:100%;min-width:0;min-height:34px}
+.map-panel-body .checklabel{display:flex;gap:8px;align-items:center;font-size:11px}
+.map-panel-body input[type=checkbox]{width:15px;height:15px;min-height:0;margin:0;flex:none}
+.map-panel-body input[type=range]{width:100%;padding:0;accent-color:var(--olive);height:24px;min-height:0}
+.map-panel-body .quiet,.map-panel-body .empty{font-size:10px;margin:6px 0;line-height:1.4}
+.map-panel-body .map-color-control{display:block;margin:10px 0}
+#hillshadeValue{float:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+#legendContent{padding-top:12px;gap:6px}#legendContent strong{font-size:11px}
+.elevation-line{stroke-width:2.5}.mini-elevation .elevation-line{stroke-width:2}
+@media(max-width:850px){.segmentlegend{max-height:52dvh}.map-panel-body{max-height:42dvh}.mapactions{justify-content:flex-start;margin-left:0}.maphead small{max-width:100%}#drawSegment,#finishDrawing{border-color:var(--olive)}}
+
+.sidebar-section>summary{cursor:pointer;font-size:13px;font-weight:650;list-style-position:inside;padding:5px 0}.sidebar-section[open]>summary{margin-bottom:12px}.map-settings-link{display:inline-block;font-size:10px;color:var(--green);margin-top:7px}#hillshadeStatus:empty{display:none}
+
+.segmentlegend{max-height:max(90px,calc(var(--mapcanvas-height,600px) - 110px))}.map-panel-body{max-height:max(45px,min(55dvh,calc(var(--mapcanvas-height,600px) - 160px)))}#planViewActions{margin:12px 0 20px}#planViewActions .primary{width:100%}

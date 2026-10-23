@@ -57,7 +57,7 @@ test('catalogue initial, filtres personnel/public/hiver et légende sans GPX',as
  await vm.runInNewContext(`(async()=>{${script}})()`,ctx);assert.equal(elements.get('editorPanel').hidden,true);assert.equal(elements.get('gpxLegend').hidden,true);assert.equal(elements.get('segmentLegend').hidden,false);assert.equal(elements.get('savedList').children.length,1);assert.equal(elements.get('segmentSelect').children.length,2);
  elements.get('showMine').checked=false;elements.get('showMine').onchange();assert.equal(elements.get('savedList').children.length,1);
  elements.get('winterFilter').value='yes';elements.get('winterFilter').onchange();assert.equal(elements.get('savedList').children.length,0);assert.equal(elements.get('segmentSelect').children[0].textContent,'Aucun segment avec ces filtres');
- elements.get('colorMode').value='surface';elements.get('colorMode').onchange();assert.equal(elements.get('legendContent').children[0].textContent,'Revêtement');
+ elements.get('colorMode').value='surface';elements.get('colorMode').onchange();assert.equal(elements.get('legendContent').children[0].textContent,'Segments · Revêtement');
 });
 test('changer la tolérance réutilise les données OSM déjà chargées dans la page',async()=>{
  const {ctx,elements,calls}=context(),base=ctx.fetch;ctx.fetch=async(path,options)=>{if(path==='/api/osm'){calls.push({path,options});return {ok:true,status:200,json:async()=>({bbox:[49.99,4.99,50.02,5.03],elements:[{id:1,nodes:[1,2],geometry:[{lat:50,lon:5},{lat:50,lon:5.02}]}]})};}return base(path,options);};
@@ -79,7 +79,7 @@ test('segments et légende restent visibles lors de la création sans recentrage
  const events={},drawn=[];let fits=0;const map={setView(){return this;},createPane(){},getPane(){return {style:{}};},on(n,fn){events[n]=fn;return this;},invalidateSize(){},fitBounds(){fits++;},hasLayer(){return false;}};
  const layer=()=>({on(){return this;},addTo(){return this;},clearLayers(){},bindTooltip(){return this;}}),tile=()=>layer();tile.wms=tile;
  ctx.L={map:()=>map,tileLayer:tile,layerGroup:layer,polyline:(coordinates,options)=>{drawn.push({coordinates,options});return layer();},latLngBounds:p=>p,control:{layers:()=>({addTo(){return this;}}),zoom:()=>({addTo(){}})}};
- await vm.runInNewContext(`(async()=>{${script}})()`,ctx);const before=drawn.length;elements.get('explore').onclick();assert.ok(drawn.length>before);assert.equal(elements.get('segmentLegend').hidden,false);assert.equal(elements.get('catalogFilters').hidden,false);
+ await vm.runInNewContext(`(async()=>{${script}})()`,ctx);const before=drawn.length;elements.get('drawSegment').onclick();assert.ok(drawn.length>before);assert.equal(drawn.at(-1).options.interactive,false);assert.equal(elements.get('segmentLegend').hidden,false);assert.equal(elements.get('catalogFilters').hidden,false);
  const count=fits;elements.get('singleTrackFilter').value='no';elements.get('singleTrackFilter').onchange();assert.equal(fits,count);assert.equal(elements.get('segmentCount').textContent,'0 segment(s) affiché(s)');
 });
 test('snapping Worker publie une progression réelle et un résultat tardif annulé ne modifie pas la sélection',async()=>{
@@ -137,7 +137,7 @@ test('chargement de sortie : réponse tardive ignorée après choix plus récent
  const access=await vm.runInNewContext(`(async()=>{${script}\nreturn {loadRide,state:()=>({ride:currentRide?.name,view})};})()`,ctx);
  const answer=name=>({ok:true,status:200,json:async()=>({id:name,name,coordinates:[[50,5],[50.001,5]],distance:111})});
  const first=access.loadRide('a'),second=access.loadRide('b');b(answer('b'));await second;a(answer('a'));await first;assert.equal(access.state().ride,'b');
- const third=access.loadRide('c');elements.get('savedTab').onclick();c(answer('c'));await third;assert.equal(access.state().view,'saved');assert.equal(access.state().ride,'b');
+ const third=access.loadRide('c');elements.get('finishDrawing').onclick();c(answer('c'));await third;assert.equal(access.state().view,'saved');assert.equal(access.state().ride,'b');
 });
 
 test('déplacer départ, arrivée et passages recalcule tous les points sans perdre leur ordre',async()=>{
@@ -170,7 +170,7 @@ test('glissement réel de marqueur et de ligne ajoute un passage, recalcul à la
  const {ctx,calls,elements}=context(),base=ctx.fetch,markers=[],lines=[],listeners=new Map();let mapDragging=true;
  ctx.window={addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener:(name,fn)=>{if(listeners.get(name)===fn)listeners.delete(name);}};
  const dom=()=>({...element(),events:{},addEventListener(name,fn){this.events[name]=fn;}});
- const layer=(coords,options={})=>({coords,options,events:{},node:dom(),removed:false,layers:[],on(n,fn){this.events[n]=fn;return this;},addTo(target){target.layers?.push(this);return this;},clearLayers(){for(const l of this.layers)l.removed=true;this.layers=[];},bindTooltip(){return this;},getElement(){return this.node;},getLatLng(){return {lat:this.coords[0],lng:this.coords[1]};},setLatLng(p){this.coords=Array.isArray(p)?p:[p.lat,p.lng];return this;},setLatLngs(p){this.coords=p;return this;},remove(){this.removed=true;}});
+ const layer=(coords,options={})=>({coords,options,events:{},node:dom(),removed:false,layers:[],on(n,fn){this.events[n]=fn;return this;},addTo(target){this.removed=false;target.layers?.push(this);return this;},setOpacity(value){this.opacity=value;return this;},clearLayers(){for(const l of this.layers)l.removed=true;this.layers=[];},bindTooltip(){return this;},getElement(){return this.node;},getLatLng(){return {lat:this.coords[0],lng:this.coords[1]};},setLatLng(p){this.coords=Array.isArray(p)?p:[p.lat,p.lng];return this;},setLatLngs(p){this.coords=p;return this;},remove(){this.removed=true;}});
  const map={setView(){return this;},createPane(){},getPane(){return {style:{}};},on(){return this;},invalidateSize(){},fitBounds(){},hasLayer(){return false;},mouseEventToLatLng:e=>({lat:e.lat,lng:e.lng}),dragging:{enabled:()=>mapDragging,disable:()=>mapDragging=false,enable:()=>mapDragging=true}};
  const tile=()=>layer();tile.wms=tile;
  ctx.L={map:()=>map,tileLayer:tile,layerGroup:()=>layer(),polyline:(p,o)=>{const l=layer(p,o);lines.push(l);return l;},marker:(p,o)=>{const l=layer(p,o);markers.push(l);return l;},divIcon:o=>o,latLngBounds:p=>p,DomEvent:{stopPropagation(){}},control:{layers:()=>({addTo(){return this;}}),zoom:()=>({addTo(){}})}};
@@ -253,8 +253,8 @@ test('les segments et les imports laissent passer les clics de dessin ; le non-b
 });
 
 function profilePlan({mine=true}={}){const points=[[50,5],[50.1,5],[50.2,5]],make=(a,b,lo,hi)=>({mode:'route',coordinates:[a,b],analysis:{surfaces:[{type:'Gravier',distance:11119.5}],surfaceRuns:[{type:'Gravier',unpaved:true,coordinates:[a,b]}],errors:[],elevation:{ascent:hi-lo,descent:0,spacing:60,profile:[{at:0,altitude:lo},{at:11119.5,altitude:hi}]}}});return {id:'00000000-0000-0000-0000-000000000999',name:'Tour des bois',notes:'Pause au sommet',isMine:mine,isPublic:!mine,owner:mine?'alice':'bob',coordinates:points,routePoints:points,mode:'route',snapped:true,distance:22239,legs:[make(points[0],points[1],100,200),make(points[1],points[2],200,350)]};}
-function interactiveMap(ctx){const markers=[],lines=[],events={};let zoom=14;const layer=(coords,options={})=>({coords,options,layers:[],events:{},removed:false,on(name,fn){this.events[name]=fn;return this;},addTo(target){target.layers?.push(this);return this;},clearLayers(){for(const l of this.layers)l.removed=true;this.layers=[];},bindTooltip(){return this;},getLatLng(){return {lat:this.coords[0],lng:this.coords[1]};},setLatLng(p){this.coords=p;return this;},remove(){this.removed=true;}});
- const map={layers:[],setView(){return this;},createPane(){},getPane(){return {style:{}};},on(name,fn){events[name]=fn;return this;},invalidateSize(){},fitBounds(){},hasLayer(){return false;},getZoom:()=>zoom,getBounds:()=>({contains:()=>true})},tile=()=>layer();tile.wms=tile;
+function interactiveMap(ctx){const markers=[],lines=[],events={};let zoom=14;const layer=(coords,options={})=>({coords,options,layers:[],events:{},removed:false,on(name,fn){this.events[name]=fn;return this;},addTo(target){this.removed=false;target.layers?.push(this);return this;},setOpacity(value){this.opacity=value;return this;},clearLayers(){for(const l of this.layers)l.removed=true;this.layers=[];},bindTooltip(){return this;},getLatLng(){return {lat:this.coords[0],lng:this.coords[1]};},setLatLng(p){this.coords=p;return this;},remove(){this.removed=true;}});
+ const map={layers:[],setView(){return this;},createPane(){},getPane(){return {style:{}};},on(name,fn){events[name]=fn;return this;},invalidateSize(){},fitBounds(){},hasLayer(layer){return this.layers.includes(layer)&&!layer.removed;},getZoom:()=>zoom,getBounds:()=>({contains:()=>true})},tile=(url,options)=>{const l=layer(null,options);l.url=url;return l;};tile.wms=tile;
  ctx.L={map:()=>map,tileLayer:tile,layerGroup:()=>layer(),polyline:(p,o)=>{const l=layer(p,o);lines.push(l);return l;},marker:(p,o)=>{const l=layer(p,o);markers.push(l);return l;},divIcon:o=>o,latLngBounds:p=>p,DomEvent:{stopPropagation(){}},control:{layers:()=>({addTo(){return this;}}),zoom:()=>({addTo(){}})}};
  return {map,markers,lines,events,setZoom(value){zoom=value;events['zoomend moveend']();}};
 }
@@ -299,7 +299,7 @@ test('bibliothèque repliable du planificateur : redimensionne la carte, conserv
  const {ctx,elements}=context(),fake=interactiveMap(ctx);let resizes=0;fake.map.invalidateSize=()=>resizes++;
  const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();planDraft.append([50,5]);planDraft.append([50.01,5],'manual');syncPlanner();return {state:()=>JSON.stringify(planDraft.snapshot()),setView};})()`,ctx),before=access.state();
  const baseline=resizes;elements.get('toggleSidebar').onclick();assert.equal(ctx.document.body.classList.contains('sidebar-collapsed'),true);assert.equal(elements.get('toggleSidebar').hidden,false);assert.match(elements.get('toggleSidebar').textContent,/Afficher/);assert.equal(access.state(),before);assert.ok(resizes>baseline);
- elements.get('toggleSidebar').onclick();assert.equal(ctx.document.body.classList.contains('sidebar-collapsed'),false);assert.equal(access.state(),before);elements.get('toggleSidebar').onclick();access.setView('saved');assert.equal(ctx.document.body.classList.contains('sidebar-collapsed'),false);assert.equal(elements.get('toggleSidebar').hidden,true);access.setView('planner');assert.equal(ctx.document.body.classList.contains('sidebar-collapsed'),true);
+ elements.get('toggleSidebar').onclick();assert.equal(ctx.document.body.classList.contains('sidebar-collapsed'),false);assert.equal(access.state(),before);elements.get('toggleSidebar').onclick();access.setView('saved');assert.equal(ctx.document.body.classList.contains('sidebar-collapsed'),true);assert.equal(elements.get('toggleSidebar').hidden,false);access.setView('planner');assert.equal(ctx.document.body.classList.contains('sidebar-collapsed'),true);
 });
 test('actualiser les surfaces d’un itinéraire enregistré garde les altitudes et ne demande aucune altitude',async()=>{
  const {ctx,elements,calls}=context(),base=ctx.fetch,p=profilePlan();p.legs[1].analysis=null;
@@ -335,4 +335,31 @@ test('réponses d’altitude ne redessinent pas la ligne simple ; changement de 
 test('la liste de passages du planificateur est construite uniquement lorsqu’elle est dépliée',async()=>{
  const {ctx,elements}=context(),base=ctx.fetch,p=profilePlan();ctx.fetch=async(path,options)=>path==='/api/plans/'+p.id?{ok:true,status:200,json:async()=>p}:base(path,options);
  await vm.runInNewContext(`(async()=>{${script}\nawait loadPlan('${p.id}');$('editPlan').onclick();})()`,ctx);assert.equal(elements.get('waypointList').children.length,0);elements.get('waypointDetails').open=true;elements.get('waypointDetails').ontoggle();assert.equal(elements.get('waypointList').children.length,3);elements.get('waypointDetails').open=false;elements.get('waypointDetails').ontoggle();assert.equal(elements.get('waypointList').children.length,0);
+});
+
+
+test('onglet Carte commun : bibliothèques visibles en consultation et dessin, sortie conservée et clics libres',async()=>{
+ const {ctx,elements}=context(),fake=interactiveMap(ctx);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadRide('00000000-0000-0000-0000-000000000001');$('finishDrawing').onclick();return {state:()=>({view,ride:currentRide?.id,trace:trace.length,selected:selected.length}),drawCatalog};})()`,ctx);
+ assert.equal(elements.has('savedTab'),false);assert.equal((html.match(/class="nav(?: active)?"/g)||[]).length,2);assert.equal(elements.get('rideChooser').hidden,false);assert.equal(elements.get('segmentBrowser').hidden,false);assert.equal(elements.get('editorPanel').hidden,true);assert.equal(elements.get('explore').classList.contains('active'),true);const before=access.state();
+ elements.get('drawSegment').onclick();assert.equal(elements.get('editorPanel').hidden,false);assert.equal(elements.get('rideChooser').hidden,false);assert.equal(elements.get('segmentBrowser').hidden,false);assert.equal(access.state().ride,before.ride);assert.equal(access.state().trace,2);
+ elements.get('explore').onclick();assert.equal(access.state().view,'explore');elements.get('finishDrawing').onclick();assert.equal(access.state().view,'saved');assert.equal(access.state().ride,before.ride);assert.equal(access.state().trace,2);assert.ok(fake.lines.some(l=>!l.removed&&l.options.pane==='gpxPane'));
+ elements.get('showLoadedRide').checked=false;elements.get('showLoadedRide').onchange();assert.equal(fake.lines.filter(l=>!l.removed&&l.options.pane==='gpxPane').length,0);assert.equal(access.state().trace,2);
+});
+
+test('panneau carte unique : fonds WMS et relief indépendant, transparence sans modifier le dessin',async()=>{
+ const {ctx,elements}=context(),base=ctx.fetch,fake=interactiveMap(ctx);ctx.fetch=async(path,options)=>path==='/api/wms'?{ok:true,status:200,json:async()=>[{name:'Mon WMS',url:'https://example.org/wms',layers:'topo'}]}:base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();planDraft.append([50,5]);planDraft.append([50.01,5],'manual');syncPlanner();return {state:()=>JSON.stringify(planDraft.snapshot()),relief:hillshadeLayer};})()`,ctx),before=access.state();
+ assert.equal(elements.get('baseMapSelect').children.length,5);assert.equal(elements.get('baseMapSelect').children[4].textContent,'Mon WMS');assert.equal(fake.map.hasLayer(access.relief),false);assert.equal(access.relief.options.pane,'reliefPane');
+ elements.get('showHillshade').checked=true;elements.get('showHillshade').onchange();assert.equal(fake.map.hasLayer(access.relief),true);assert.equal(elements.get('hillshadeSettings').hidden,false);elements.get('hillshadeTransparency').value='80';elements.get('hillshadeTransparency').oninput();assert.ok(Math.abs(access.relief.opacity-.2)<1e-9);assert.equal(elements.get('hillshadeValue').textContent,'80 %');
+ elements.get('baseMapSelect').value='base-4';elements.get('baseMapSelect').onchange();assert.equal(fake.map.hasLayer(access.relief),true);assert.ok(fake.map.layers.some(l=>!l.removed&&l.url==='https://example.org/wms'));assert.equal(access.state(),before);
+ access.relief.events.loading();access.relief.events.tileerror();assert.match(elements.get('hillshadeStatus').textContent,/indisponible/);assert.equal(access.state(),before);elements.get('showHillshade').checked=false;elements.get('showHillshade').onchange();assert.equal(fake.map.hasLayer(access.relief),false);assert.equal(elements.get('hillshadeStatus').textContent,'');
+ for(const id of ['baseMapSelect','showHillshade','catalogFilters','planMapControls','legendContent'])assert.ok(html.indexOf('id="'+id+'"')>html.indexOf('id="segmentLegend"'));
+});
+
+test('enregistrement : consultation immédiate avec bornes, passages seulement après Modifier, sans nouvel appel altitude',async()=>{
+ const {ctx,elements,calls}=context(),base=ctx.fetch,p=profilePlan(),fake=interactiveMap(ctx);ctx.fetch=async(path,options={})=>path==='/api/plans/'+p.id?{ok:true,status:200,json:async()=>p}:path==='/api/plans'?{ok:true,status:200,json:async()=>[p]}:base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadPlan('${p.id}');$('editPlan').onclick();return {marks:()=>marks.layers.length,viewing:()=>planViewing};})()`,ctx);assert.ok(access.marks()>0);
+ await elements.get('planForm').onsubmit({preventDefault(){}});assert.equal(access.viewing(),true);assert.equal(access.marks(),0);assert.equal(elements.get('planForm').hidden,true);assert.equal(elements.get('planViewActions').hidden,false);assert.ok(fake.markers.some(m=>!m.removed&&m.options.icon?.className==='kilometre-marker'));assert.equal(calls.filter(c=>c.path==='/api/plan-elevations').length,0);
+ elements.get('editPlan').onclick();assert.equal(access.viewing(),false);assert.ok(access.marks()>0);assert.equal(fake.markers.filter(m=>!m.removed&&m.options.icon?.className==='kilometre-marker').length,0);
 });

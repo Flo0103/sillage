@@ -143,3 +143,14 @@ Mise à jour habituelle (`git pull --ff-only`, puis `sudo docker compose up -d -
 Vérifier après déploiement : ajouter plusieurs points voisins puis déplacer un point, annuler et rétablir ; les portions anciennes doivent rester intactes. Vérifier les sens uniques, les pointillés et la rue du Jeu de Paume avec `sudo docker compose exec app node server/check-routing.js` (version 6.5.0 et environ 823 m dans les deux sens). Les temps affichés peuvent varier avec l’état des services ; le cache doit surtout éviter des téléchargements supplémentaires sur des zones déjà chargées.
 
 Pour le profil : vérifier les graduations régulières, le dégradé léger et l’option « Points haut et bas », puis redimensionner la fenêtre, replier la bibliothèque et passer en plein écran sans perdre le curseur. En mode « Pente », les descentes doivent être bleues, le plat blanc bordé et les montées rouges. Les libellés de légende gardent les signes. Desktop et mobile ont été vérifiés dans Chromium avec API de démonstration ; la connexion au site réel et les données de chaque compte restent à vérifier sur le VPS.
+
+
+## Carte commune, légendes et relief (6.6.0)
+
+Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d --build --wait`. Pas de migration ni de clé supplémentaire. Recharger la page pour les fichiers `v=6.6.0`.
+
+Les sorties et segments partagent l’onglet Carte. « Dessiner un segment » ouvre l’éditeur ; le fermer conserve la sortie chargée comme repère. Les bibliothèques et la carte sont repliables indépendamment. Le panneau « Carte et légendes », également disponible en plein écran, réunit les fonds (y compris WMS), les filtres, les couleurs, les traces et les légendes.
+
+« Fond de carte et relief » permet d’activer l’ombrage Esri World Hillshade au-dessus de n’importe quel fond. La transparence règle uniquement ce calque : 0 % = opaque, 100 % = invisible. Les vecteurs restent au-dessus du relief ; la composition en mode multiply conserve les informations du fond. Source : `https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}` ; attribution et lien aux crédits dans la carte, niveaux natifs utilisés jusqu’à 16 puis surzoom. L’activation est facultative et les tuiles ne sont pas préchargées. Si ce service externe est indisponible, le fond choisi reste utilisable et un message est affiché dans le panneau.
+
+Vérifier sur ordinateur et mobile : sortie et segments dans le même onglet, dessin sur un segment existant, filtres sans perte du dessin, changement de fond avec relief conservé et curseur de transparence. Dans le planificateur, contrôler les palettes distinctes du plaisir et de l’altitude, le profil coloré, puis enregistrer : seules les bornes kilométriques s’affichent ; les points de passage réapparaissent via « Modifier l’itinéraire ». Les altitudes déjà enregistrées restent réutilisées.
