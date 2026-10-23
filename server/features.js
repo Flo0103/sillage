@@ -1,3 +1,4 @@
+import {accountExport} from './account-export.js';
 import {spatialBounds} from './spatial.js';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {hashPassword,verifyPassword,tokenHash,portion} from './model.js';
@@ -29,6 +30,7 @@ export async function features({db,req,res,path,method,user,body,json,origin,ses
   });return reply(200,{ok:true});
  }
  if(!user)return false;
+ if(path==='/api/account/export'&&method==='GET'){const data=await accountExport(db,user.id);res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Disposition':`attachment; filename="sillage-donnees-${data.exportedAt.slice(0,10)}.json"`,'Cache-Control':'no-store, private'});res.end(JSON.stringify(data));return true;}
  if(path==='/api/account/password'&&method==='POST'){
   const b=await body(req);if(typeof b.currentPassword!=='string'||b.currentPassword.length>256||!validPassword(b.newPassword))return reply(400,{error:'Nouveau mot de passe : 12 à 256 caractères.'});
   const limit=await db.query(`INSERT INTO login_limits(key,attempts,expires_at) VALUES($1,1,now()+interval '15 minutes') ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN login_limits.expires_at<now() THEN 1 ELSE login_limits.attempts+1 END,expires_at=CASE WHEN login_limits.expires_at<now() THEN now()+interval '15 minutes' ELSE login_limits.expires_at END RETURNING attempts`,[tokenHash(`password:${user.id}`)]);if(limit.rows[0].attempts>20)return reply(429,{error:'Trop de tentatives. Réessayez dans 15 minutes.'});

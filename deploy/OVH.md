@@ -163,3 +163,12 @@ Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d 
 Le slider de relief de 6.6.0 est supprimé : la case active l’ombrage à 0 % de transparence. Le filtre single track et l’interrupteur général de segments sont supprimés. Les filtres personnel/public et hiver restent disponibles ; les single tracks apparaissent en pointillés. Vérifier le survol des attributs dans les deux onglets, y compris pendant le dessin : cliquer doit ajouter un point. Les fiches de survol échappent les textes des membres.
 
 Vérifier la recherche d’itinéraires, les seuils distance / D+ inclusifs et les filtres d’extrémités lors d’un déplacement de carte. Le dénivelé manquant est exclu seulement lorsqu’un seuil de D+ est demandé. Les filtres restent locaux aux données accessibles du compte et ne déclenchent pas de nouvelle analyse d’altitude. Tester « Replier » dans la bibliothèque et la réouverture depuis la carte, sans perte du brouillon. Le nouveau module `/plan-library.js` est servi derrière l’authentification comme les autres scripts de l’application.
+
+
+## Éditeur et export des données (6.8.0)
+
+Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d --build --wait`. Aucune migration ni nouvelle clé. Recharger la page pour charger `v=6.8.0`.
+
+Vérifier le formulaire en tête d’éditeur, le bouton « Créer un nouvel itinéraire » et Annuler pour retrouver le brouillon précédent. Le repli utilise désormais une seule icône de panneau avec chevron ; aucune commande « Masquer la bibliothèque » ne reste dans la barre. Vérifier sur ordinateur et mobile que la bibliothèque reste dépliable sans perdre le tracé, et que les deux curseurs de distance / D+ fonctionnent à la souris et au clavier.
+
+L’export complet se trouve dans Mon compte, sous Mes données. Le point d’accès GET `/api/account/export` exige la session et renvoie une pièce jointe JSON avec Cache-Control no-store, private. L’export lit les tables du compte dans une transaction PostgreSQL REPEATABLE READ READ ONLY et libère la connexion même en cas d’erreur. Il conserve les GPX disponibles, les géométries, les attributs, les relations et les analyses ; les segments ont une représentation GeoJSON. Les autres utilisateurs et les secrets de connexion sont exclus. Tester le téléchargement puis vérifier que le fichier contient seulement les données du compte connecté. Le volume du JSON dépend des sorties et analyses enregistrées.

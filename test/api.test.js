@@ -163,3 +163,8 @@ test('altitudes groupées protégées par session et origine, sans lecture ou mo
 test('module de règles OSM disponible uniquement après authentification',async()=>{
  const app=createApp(database(),{origin:'https://sillage.test'});assert.equal((await request(app,{url:'/osm-tags.js'})).status,303);const r=await request(app,{url:'/osm-tags.js',user:'alice'});assert.equal(r.status,200);assert.match(r.body,/bicycleDirections/);
 });
+
+
+test('export du compte HTTP : authentification et pièce jointe JSON privée',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'});let connections=0,released=false;db.connect=async()=>{connections++;return {async query(sql,args){if(/^(BEGIN|COMMIT|ROLLBACK)/.test(sql))return {rows:[]};assert.deepEqual(args,['alice']);if(sql.includes('FROM users'))return {rows:[{id:'alice',username:'alice',is_admin:false,active:true}]};return {rows:[]};},release(){released=true;}};};assert.equal((await request(app,{url:'/api/account/export'})).status,401);assert.equal(connections,0);const result=await request(app,{url:'/api/account/export',user:'alice'});assert.equal(result.status,200);assert.match(result.headers['Content-Type'],/application\/json/);assert.match(result.headers['Content-Disposition'],/attachment; filename="sillage-donnees-.*\.json"/);assert.match(result.headers['Cache-Control'],/no-store/);assert.equal(JSON.parse(result.body).account.username,'alice');assert.equal(released,true);
+});
