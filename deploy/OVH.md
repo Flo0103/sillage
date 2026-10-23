@@ -97,3 +97,9 @@ Les tests locaux utilisent des adaptateurs SQL et API simulés. Ils ne remplacen
 ### Itinéraires (version 6)
 
 Après le `git pull`, lancer `sudo docker compose up -d --build --wait`, puis `sudo docker compose exec app node server/check-db.js`. Le démarrage crée automatiquement la table PostGIS `planned_routes` et ses index, sans conversion ni suppression des sorties existantes. La vérification porte désormais sur les trois tables géographiques. Aucun nouveau secret ni réglage Strava n’est requis.
+
+### Éditeur d’itinéraires 6.1
+
+Le déploiement reste identique (`git pull --ff-only`, puis `sudo docker compose up -d --build --wait`). Il n’y a pas de nouvelle migration : les portions route/manuelles et les analyses sont dans le JSONB existant `planned_routes.data`, avec la géométrie PostGIS habituelle synchronisée. Aucun nouveau secret n’est nécessaire. Autoriser les sorties HTTPS du serveur vers `overpass-api.de` (revêtements OSM) et `api.open-meteo.com` (altitudes), en plus du routage existant. Le rendu en pointillés apparaît à mesure que l’analyse des revêtements aboutit. En cas de panne, une couverture partielle est affichée ; le tracé et l’export restent disponibles. L’enregistrement attend l’analyse en cours pour inclure les altitudes disponibles dans le GPX.
+
+Après mise à jour, vérifier : prolonger un itinéraire sans modifier les portions précédentes ; ajouter une correction locale sans routage puis reprendre OSM ; annuler/rétablir ; enregistrer et rouvrir le résultat ; vérifier D+/D− et les couvertures ; exporter un fichier portant le nom de l’itinéraire avec le sport et les altitudes disponibles. Les services tiers et l’affichage dans un navigateur doivent être vérifiés sur le serveur réel.

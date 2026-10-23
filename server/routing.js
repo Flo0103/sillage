@@ -11,7 +11,7 @@ export function createRoutingService({fetcher=(...args)=>fetch(...args),now=Date
  const cache=new Map(),pending=new Map();let lastStart=-Infinity,queue=Promise.resolve(),queued=0,cacheBytes=0;
  const urlBase=new URL(base);if(urlBase.protocol!=='https:')throw Error('Le service de routage doit utiliser HTTPS.');
  async function request(url){
-  let response;try{response=await fetcher(url.toString(),{headers:{'User-Agent':'Sillage/6.0 (+https://sillage.gravelspa.be)','Accept':'application/json'},signal:AbortSignal.timeout(20000)});}catch{throw Object.assign(Error('Le moteur vélo ne répond pas. Réessayez ou utilisez le mode manuel.'),{status:504});}
+  let response;try{response=await fetcher(url.toString(),{headers:{'User-Agent':'Sillage/6.1 (+https://sillage.gravelspa.be)','Accept':'application/json'},signal:AbortSignal.timeout(20000)});}catch{throw Object.assign(Error('Le moteur vélo ne répond pas. Réessayez ou utilisez le mode manuel.'),{status:504});}
   if(!response.ok)throw Object.assign(Error(response.status===429?'Service de routage occupé. Réessayez plus tard.':'Le moteur vélo est indisponible. Le mode manuel reste disponible.'),{status:response.status===429?429:502});
   const text=await boundedText(response);try{return JSON.parse(text);}catch{throw Object.assign(Error('Réponse du moteur vélo invalide. Réessayez plus tard.'),{status:502});}
  }

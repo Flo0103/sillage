@@ -1,12 +1,14 @@
-import {insertionIndex} from './route-edit.js?v=6.0.0';
-import {previewPath,renderPreview,disposePreviews} from './preview.js?v=6.0.0';
-import {distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds} from './geo.js?v=6.0.0';
-import {visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,escapeHTML} from './catalog.js?v=6.0.0';
+import {ItineraryDraft,planSummary} from './planner.js?v=6.1.0';
+import {insertionIndex} from './route-edit.js?v=6.1.0';
+import {previewPath,renderPreview,disposePreviews} from './preview.js?v=6.1.0';
+import {distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds} from './geo.js?v=6.1.0';
+import {visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,escapeHTML} from './catalog.js?v=6.1.0';
 const $=id=>document.getElementById(id);
 const setHidden=(id,value)=>{const element=$(id);if(element)element.hidden=value;};
 let trace=[],selected=[],gpsSelection=[],records=[],rides=[],first=null,last=null,rating=0,mode='route',snapped=false,busy=false,view='saved',currentRide=null,map,routeLayer,selectionLayer,marks,snapController,snapVersion=0,catalog=[],catalogLayer,layerControl,osmSnapshot=null,editingSegment=null,snapWorker=null,workerReject=null,surfaceTouched=false,geometryChanged=false,endpoints=[],modeDrafts=new Map(),ridePreviewVersion=0,rideLoadVersion=0,stravaActivities=[],stravaPage=0,stravaBusy=false,stravaState={configured:false,connected:false},pickedSegmentId=null,viaPoints=[],routeLegFractions=null,routeDrag=null,independentOsm=false,planRecords=[],editingPlan=null,planReadOnly=false,planLoadVersion=0,importedTraces=null,importedLayer=null,overlayVersion=0,planRecalcTimer=null;
+let planDraft=new ItineraryDraft(),planRoutingRunning=false,planMetricsRunning=false,planAnalysisTask=null,planSaving=false,planRouteController=null,planMetricsController=null,planStartController=null,routeClickSuppressed=0;
 const canDraw=()=> (view==='explore'||view==='planner')&&!(view==='planner'&&planReadOnly);
-const pointLimit=()=>view==='planner'?50:12;
+const pointLimit=()=>view==='planner'?200:12;
 const winterLabels={unknown:'Hiver non renseigné',yes:'Roulable en hiver',no:'Non roulable en hiver',conditions:'Hiver selon conditions'};
 async function api(path,options={}){const res=await fetch(path,{...options,headers:{'Content-Type':'application/json',...options.headers}});if(res.status===401){location.replace('/login.html');throw Error('Session expirée.');}const data=await res.json();if(!res.ok)throw Error(data.error||'Le serveur ne répond pas.');return data;}
 const post=(path,data,options={})=>api(path,{method:'POST',body:JSON.stringify(data),...options});
@@ -17,13 +19,14 @@ function update(){
  $('distance').innerHTML=selected.length>1?`${(routeLength(selected)/1000).toFixed(2)} <em>km</em>`:'— <em>km</em>';
  $('snapState').textContent=busy?'OSM en cours…':snapped?(mode==='route'?'Routage OSM':'Suivi GPX sur OSM'):mode==='manual'?'Manuel':mode==='snap'&&selected.length>1?'GPS d’origine':'À tracer';
  $('editorTitle').textContent=view==='planner'?(planReadOnly?'Itinéraire public':editingPlan?'Modifier l’itinéraire':'Tracer un itinéraire'):editingSegment?'Modifier la portion':'Créer une portion';
- $('savePlan').disabled=view!=='planner'||planReadOnly||selected.length<2||busy||(mode==='route'&&!snapped);$('savePlan').textContent=editingPlan?'Enregistrer les modifications':'Enregistrer l’itinéraire';setHidden('planReadOnlyNotice',!planReadOnly);setHidden('autoMode',view==='planner');$('planName').disabled=planReadOnly;$('planNotes').disabled=planReadOnly;$('publicPlan').disabled=planReadOnly;setHidden('modeControls',view==='saved'||view==='planner'&&planReadOnly);$('save').textContent=editingSegment?'Enregistrer les modifications':'Enregistrer la portion ↗';setHidden('editingNotice',!editingSegment);setHidden('cancelSnap',!busy);setHidden('independentOsmNotice',!independentOsm);$('autoMode').disabled=independentOsm;renderWaypoints();
+ $('savePlan').disabled=view!=='planner'||planReadOnly||planSaving||selected.length<2||busy||!planDraft.complete()||!$('planName').value.trim();$('savePlan').textContent=planSaving?'Analyse avant enregistrement…':editingPlan?'Enregistrer les modifications':'Enregistrer l’itinéraire';setHidden('planReadOnlyNotice',!planReadOnly);setHidden('autoMode',view==='planner');$('planName').disabled=planReadOnly;$('planNotes').disabled=planReadOnly;$('publicPlan').disabled=planReadOnly;setHidden('modeControls',view==='saved'||view==='planner');setHidden('plannerTools',view!=='planner');setHidden('plannerStats',view!=='planner');$('manualLeg').disabled=planReadOnly;$('undoPlan').disabled=planReadOnly||!planDraft.past.length;$('redoPlan').disabled=planReadOnly||!planDraft.future.length;updatePlanStats();$('save').textContent=editingSegment?'Enregistrer les modifications':'Enregistrer la portion ↗';setHidden('editingNotice',!editingSegment);setHidden('cancelSnap',!busy||view==='planner');setHidden('modeHint',view==='planner');setHidden('independentOsmNotice',!independentOsm);$('autoMode').disabled=independentOsm;renderWaypoints();
  if($('publicSegment')){$('publicSegment').disabled=((currentRide?.source_type==='strava'&&!independentOsm)||editingSegment?.fromStrava===true);if($('publicSegment').disabled)$('publicSegment').checked=false;}setHidden('stravaPrivateNotice',!((currentRide?.source_type==='strava'&&!independentOsm)||editingSegment?.fromStrava===true));
- $('save').disabled=selected.length<2||!rating||busy||view!=='explore'||(mode==='route'&&!snapped&&(geometryChanged||!editingSegment));$('snap').disabled=!gpsSelection.length||busy;setHidden('snap',mode==='manual'||view==='saved');setHidden('undo',mode!=='manual'||view==='saved');$('undo').disabled=!selected.length;setHidden('toleranceControls',mode==='manual'||view==='saved');
+ $('save').disabled=selected.length<2||!rating||busy||view!=='explore'||(mode==='route'&&!snapped&&(geometryChanged||!editingSegment));$('snap').disabled=!gpsSelection.length||busy;setHidden('snap',mode==='manual'||view==='saved'||view==='planner');setHidden('undo',mode!=='manual'||view==='saved');$('undo').disabled=!selected.length;setHidden('toleranceControls',mode==='manual'||view==='saved'||view==='planner');
+ if(view==='planner'){const manual=planDraft.legs.filter(l=>l.mode==='manual').length;$('snapState').textContent=busy?'OSM en cours…':manual===planDraft.legs.length&&manual?'Manuel':manual?'OSM + manuel':snapped?'Routage OSM':'À tracer';setHidden('retryPlanRoute',planDraft.complete()||planDraft.points.length<2||planRoutingRunning);$('retryPlanRoute').disabled=planReadOnly;}
  $('count').textContent=filtered().length;$('routeMode').classList.toggle('active',mode==='route');$('autoMode').classList.toggle('active',mode==='snap');$('manualMode').classList.toggle('active',mode==='manual');
 }
 function cancelSnap(){clearTimeout(planRecalcTimer);planRecalcTimer=null;cancelRouteDrag();snapVersion++;snapController?.abort();snapWorker?.terminate();snapWorker=null;workerReject?.(Error('Calcul annulé.'));workerReject=null;busy=false;setHidden('snapProgress',true);}
-function reset(){cancelSnap();editingSegment=null;geometryChanged=false;surfaceTouched=false;independentOsm=false;endpoints=[];viaPoints=[];routeLegFractions=null;modeDrafts.clear();$('surfaceSource').textContent='';selected=[];gpsSelection=[];first=last=null;snapped=false;rating=0;$('ratingForm').reset();status(mode==='manual'?'Cliquez sur la carte pour tracer point à point.':mode==='route'?'Choisissez un départ et une arrivée sur la carte.':'Choisissez un départ et une arrivée sur la trace GPX.');drawSelection();stars();update();}
+function reset(){cancelSnap();planRouteController?.abort();planMetricsController?.abort();planStartController?.abort();planDraft=new ItineraryDraft();editingSegment=null;geometryChanged=false;surfaceTouched=false;independentOsm=false;endpoints=[];viaPoints=[];routeLegFractions=null;modeDrafts.clear();$('surfaceSource').textContent='';selected=[];gpsSelection=[];first=last=null;snapped=false;rating=0;$('ratingForm').reset();status(mode==='manual'?'Cliquez sur la carte pour tracer point à point.':mode==='route'?'Choisissez un départ et une arrivée sur la carte.':'Choisissez un départ et une arrivée sur la trace GPX.');drawSelection();stars();update();}
 function routeControls(){return endpoints.length>1?[endpoints[0],...viaPoints,endpoints[1]]:endpoints.map(p=>[...p]);}
 function renderWaypoints(){
  const list=$('waypointList');if(!list)return;list.replaceChildren();setHidden('routeEditControls',mode!=='route'||!canDraw());
@@ -36,14 +39,16 @@ async function recalculateRoute(){
 }
 async function moveRouteControl(index,point){
  if(mode!=='route'||!canDraw()||!validMapPoint(point))return false;
+ if(view==='planner'){try{planDraft.move(index,point);plannerChanged();return true;}catch(e){toast(e.message);syncPlanner();return false;}}
  const controls=routeControls();if(index<0||index>=controls.length)return false;
  if(index===0)endpoints[0]=[...point];else if(index===controls.length-1)endpoints[1]=[...point];else viaPoints[index-1]=[...point];await recalculateRoute();return true;
 }
 async function insertVia(index,point){
  if(mode!=='route'||!canDraw()||endpoints.length<2||!validMapPoint(point))return false;
+ if(view==='planner'){try{planDraft.insert(index,point,$('manualLeg').checked);plannerChanged();return true;}catch(e){toast(e.message);return false;}}
  if(viaPoints.length>=pointLimit()-2){toast(`Maximum ${pointLimit()-2} points de passage.`);return false;}viaPoints.splice(Math.max(0,Math.min(viaPoints.length,index-1)),0,[...point]);await recalculateRoute();return true;
 }
-async function removeVia(index){if(index<0||index>=viaPoints.length)return;viaPoints.splice(index,1);await recalculateRoute();}
+async function removeVia(index){if(view==='planner'){planDraft.remove(index+1);plannerChanged();return;}if(index<0||index>=viaPoints.length)return;viaPoints.splice(index,1);await recalculateRoute();}
 function cancelRouteDrag(){
  if(!routeDrag)return;const drag=routeDrag;routeDrag=null;window.removeEventListener('pointermove',drag.move);window.removeEventListener('pointerup',drag.up);window.removeEventListener('pointercancel',drag.cancel);window.removeEventListener('blur',drag.blur);drag.ghost?.remove();drag.guide?.remove();if(drag.mapWasDraggable)map.dragging?.enable();
 }
@@ -56,14 +61,14 @@ function startRouteDrag(event){
  const guide=L.polyline([controls[index-1],point,controls[index]],{pane:'portionPane',interactive:false,color:'#b5654c',weight:3,dashArray:'5 6'}).addTo(map);
  const drag={pointerId:event.pointerId,index,point,start:[event.clientX,event.clientY],moved:false,mapWasDraggable,ghost,guide};routeDrag=drag;
  drag.move=e=>{if(e.pointerId!==drag.pointerId)return;e.preventDefault();const p=map.mouseEventToLatLng(e);drag.point=[p.lat,p.lng];drag.moved=drag.moved||Math.hypot(e.clientX-drag.start[0],e.clientY-drag.start[1])>5;ghost.setLatLng(p);guide.setLatLngs([controls[index-1],drag.point,controls[index]]);};
- drag.up=e=>{if(e.pointerId!==drag.pointerId)return;e.preventDefault();const p=map.mouseEventToLatLng(e),moved=drag.moved||Math.hypot(e.clientX-drag.start[0],e.clientY-drag.start[1])>5;cancelRouteDrag();if(moved)void insertVia(index,[p.lat,p.lng]);};
+ drag.up=e=>{if(e.pointerId!==drag.pointerId)return;e.preventDefault();const p=map.mouseEventToLatLng(e),moved=drag.moved||Math.hypot(e.clientX-drag.start[0],e.clientY-drag.start[1])>5;cancelRouteDrag();if(moved)routeClickSuppressed=Date.now()+400;if(moved)void insertVia(index,[p.lat,p.lng]);};
  drag.cancel=e=>{if(e.pointerId===drag.pointerId)cancelRouteDrag();};window.addEventListener('pointermove',drag.move,{passive:false});window.addEventListener('pointerup',drag.up);window.addEventListener('pointercancel',drag.cancel);drag.blur=cancelRouteDrag;window.addEventListener('blur',drag.blur);
 }
 function drawSelection(){
  if(!map)return;selectionLayer.clearLayers();marks.clearLayers();
  if(selected.length>1){L.polyline(selected,{pane:'portionPane',color:'#faf8f1',weight:10,opacity:1,interactive:false}).addTo(selectionLayer);
-  L.polyline(selected,{pane:'portionPane',color:'#b5654c',weight:6,opacity:1,interactive:false}).addTo(selectionLayer);
-  if(mode==='route'&&canDraw()){const line=L.polyline(selected,{pane:'portionPane',color:'#b5654c',weight:20,opacity:0,interactive:true,className:'routing-draggable'}).addTo(selectionLayer);line.on('click',e=>L.DomEvent.stopPropagation(e));const path=line.getElement?.();if(path)path.addEventListener('pointerdown',startRouteDrag,{passive:false});}
+  if(view==='planner'){for(const l of planDraft.legs){const runs=l.analysis?.surfaceRuns?.length?l.analysis.surfaceRuns:[{coordinates:l.coordinates||[planDraft.points[planDraft.legs.indexOf(l)],planDraft.points[planDraft.legs.indexOf(l)+1]],unpaved:null}];for(const run of runs)L.polyline(run.coordinates,{pane:'portionPane',color:'#b5654c',weight:6,opacity:1,dashArray:run.unpaved===true?'7 7':l.mode==='manual'?'2 7':null,interactive:false}).addTo(selectionLayer);}}else L.polyline(selected,{pane:'portionPane',color:'#b5654c',weight:6,opacity:1,interactive:false}).addTo(selectionLayer);
+  if(mode==='route'&&canDraw()){const line=L.polyline(selected,{pane:'portionPane',color:'#b5654c',weight:20,opacity:0,interactive:true,className:'routing-draggable'}).addTo(selectionLayer);line.on('click',e=>{L.DomEvent.stopPropagation(e);if(view==='planner'&&Date.now()>routeClickSuppressed){const point=[e.latlng.lat,e.latlng.lng];void insertVia(insertionIndex(selected,routeControls(),point,routeLegFractions),point);}});const path=line.getElement?.();if(path)path.addEventListener('pointerdown',startRouteDrag,{passive:false});}
  }
  const markerPoints=mode==='route'&&endpoints.length?routeControls():mode!=='manual'&&endpoints.length?endpoints:selected;
  for(const[i,p]of markerPoints.entries()){
@@ -108,7 +113,7 @@ function calculateOSM(points,elements,tolerance,version,calculationMode=mode){
  const onProgress=p=>{if(version===snapVersion&&calculationMode!=='surface')showProgress(p);};
  if(typeof Worker==='undefined')return Promise.resolve((calculationMode==='route'?routeOSM:matchOSMDetailed)(points,elements,{tolerance,onProgress}));
  return new Promise((resolve,reject)=>{
-  const worker=new Worker('/osm-worker.js?v=6.0.0',{type:'module'});snapWorker=worker;workerReject=reject;
+  const worker=new Worker('/osm-worker.js?v=6.1.0',{type:'module'});snapWorker=worker;workerReject=reject;
   const finish=()=>{worker.terminate();if(snapWorker===worker){snapWorker=null;workerReject=null;}};
   worker.onmessage=({data})=>{if(version!==snapVersion)return;if(data.progress){onProgress(data.progress);return;}finish();if(data.error)reject(Error(data.error));else resolve(data.result);};
   worker.onerror=()=>{finish();reject(Error('Le calcul OSM a échoué. Réessayez ou utilisez le mode manuel.'));};worker.postMessage({points,elements,tolerance,mode:calculationMode});
@@ -143,7 +148,7 @@ async function snap(){
  finally{if(version===snapVersion){busy=false;setHidden('snapProgress',true);update();}}
 }
 function setMode(next){
- if(next==='auto')next='snap';if(next===mode)return;if(next==='snap'&&(independentOsm||view==='planner')){toast('Le dessin OSM indépendant ne suit pas le GPX. Choisissez le routage ou le mode manuel.');return;}
+ if(next==='auto')next='snap';if(view==='planner'){if(next==='snap')return;next==='manual'?$('manualLeg').checked=true:$('manualLeg').checked=false;$('manualLeg').onchange();return;}if(next===mode)return;if(next==='snap'&&(independentOsm||view==='planner')){toast('Le dessin OSM indépendant ne suit pas le GPX. Choisissez le routage ou le mode manuel.');return;}
  const anchors=endpoints.length?endpoints.map(p=>[...p]):selected.length?[selected[0],...(selected.length>1?[selected.at(-1)]:[])]:[];
  let range=[];try{if(next==='snap'&&anchors.length>1)range=gpxBetween(anchors);}catch(e){toast(e.message);return;}
  modeDrafts.set(mode,{coordinates:selected.map(p=>[...p]),snapped,viaPoints:viaPoints.map(p=>[...p]),legFractions:routeLegFractions});cancelSnap();mode=next;geometryChanged=true;endpoints=anchors;first=anchors[0]||null;last=anchors[1]||null;
@@ -241,7 +246,7 @@ function showSegment(r){
 $('redraw').onclick=()=>{cancelSnap();geometryChanged=true;selected=[];endpoints=[];viaPoints=[];routeLegFractions=null;modeDrafts.clear();gpsSelection=[];first=last=null;snapped=false;mode='route';status('Choisissez deux points pour remplacer le tracé. Les attributs sont conservés.');drawSelection();update();};
 function drawCatalog({recenter=false}={}){
  if(catalogLayer)catalogLayer.clearLayers();const items=view==='planner'&&!$('plannerShowSegments').checked?[]:filtered(),colorMode=$('colorMode')?.value||'rating';
- for(const r of items){if(catalogLayer)L.polyline(r.coordinates,{pane:'portionPane',color:segmentColor(r,colorMode),weight:6,opacity:.9}).bindTooltip(`${escapeHTML(r.name)} · ${r.rating}/5 · ${escapeHTML(r.owner)} · ${escapeHTML(winterLabels[r.winter]||winterLabels.unknown)} · ${escapeHTML(singleTrackLabels[r.singleTrack||'unknown'])}`).on('click',e=>{L.DomEvent.stopPropagation(e);if(view==='planner')toast(`${r.name} · ${r.rating}/5 · ${r.surface}`);else showSegment(r);}).addTo(catalogLayer);}
+ for(const r of items){if(catalogLayer)L.polyline(r.coordinates,{pane:'portionPane',color:segmentColor(r,colorMode),weight:6,opacity:.9,interactive:view!=='planner'}).bindTooltip(`${escapeHTML(r.name)} · ${r.rating}/5 · ${escapeHTML(r.owner)} · ${escapeHTML(winterLabels[r.winter]||winterLabels.unknown)} · ${escapeHTML(singleTrackLabels[r.singleTrack||'unknown'])}`).on('click',e=>{L.DomEvent.stopPropagation(e);if(view==='planner')toast(`${r.name} · ${r.rating}/5 · ${r.surface}`);else showSegment(r);}).addTo(catalogLayer);}
  if($('segmentCount'))$('segmentCount').textContent=`${items.length} segment(s) affiché(s)`;
  const legend=$('legendContent')||$('segmentLegend');if(legend){legend.replaceChildren();const title=document.createElement('strong');title.textContent=colorMode==='rating'?'Plaisir de rouler':colorMode==='singleTrack'?'Single track':'Revêtement';legend.append(title);const entries=colorMode==='rating'?ratingColors.map((color,i)=>[`${i+1}/5`,color]):colorMode==='singleTrack'?Object.entries(singleTrackColors).map(([key,color])=>[singleTrackLabels[key],color]):Object.entries(surfaceColors);for(const[label,color]of entries){const item=document.createElement('span'),swatch=document.createElement('i');swatch.style.background=color;item.append(swatch,document.createTextNode(label));legend.append(item);}
  if(canDraw()){const title=document.createElement('strong');title.textContent='Traces';legend.append(title);for(const[label,color]of [...(trace.length?[['GPX','#607d88']]:[]),[view==='planner'?'Itinéraire en cours':'Portion en cours','#b5654c']]){const item=document.createElement('span'),swatch=document.createElement('i');swatch.style.background=color;item.append(swatch,document.createTextNode(label));legend.append(item);}}}
@@ -263,7 +268,7 @@ $('segmentSelect').onchange=()=>{pickedSegmentId=$('segmentSelect').value;render
 function setView(v){
  view=v;const saved=v==='saved',planning=v==='planner',exploring=v==='explore';$('explore').classList.toggle('active',exploring);$('savedTab').classList.toggle('active',saved);$('plannerTab').classList.toggle('active',planning);
  setHidden('rideList',!exploring);setHidden('rideChooser',!exploring);setHidden('stravaSidebar',!exploring||$('rideSource').value!=='strava');setHidden('planLibrary',!planning);setHidden('catalogFilters',false);setHidden('editorPanel',saved);setHidden('gpxLegend',true);setHidden('segmentLegend',false);
- $('listTitle').textContent=planning?'Vos itinéraires':saved?'Les segments':'Vos sorties';setHidden('source',!exploring);setHidden('ratingForm',!exploring);setHidden('planForm',!planning);setHidden('modeControls',saved||planning&&planReadOnly);
+ $('listTitle').textContent=planning?'Vos itinéraires':saved?'Les segments':'Vos sorties';setHidden('source',!exploring);setHidden('ratingForm',!exploring);setHidden('planForm',!planning);setHidden('modeControls',saved||planning);
  if(saved){routeLayer?.clearLayers();$('mapSubtitle').textContent='Segments personnels et publics';drawCatalog({recenter:true});}else{drawCatalog();$('mapSubtitle').textContent=planning?'Préparez votre prochaine sortie':currentRide?.name||'Deux points sur la carte, ou une sortie GPX';}
  drawImportedTraces();renderList();update();
 }
@@ -275,7 +280,7 @@ $('export').onclick=()=>{if(!records.length)return toast('Aucune portion à expo
 $('logout').onclick=async()=>{try{await post('/api/logout',{});location.replace('/login.html');}catch(e){toast(e.message);}};
 function drawImportedTraces(){
  importedLayer?.clearLayers();if(!$('showImportedTraces').checked||!importedTraces||!importedLayer)return;
- for(const ride of importedTraces)L.polyline(ride.coordinates,{pane:'importsPane',color:'#71848b',weight:3,opacity:.55,interactive:true}).bindTooltip(escapeHTML(ride.name)).on('click',e=>{L.DomEvent.stopPropagation(e);toast(ride.name);}).addTo(importedLayer);
+ for(const ride of importedTraces)L.polyline(ride.coordinates,{pane:'importsPane',color:'#71848b',weight:3,opacity:.55,interactive:view!=='planner'}).bindTooltip(escapeHTML(ride.name)).on('click',e=>{L.DomEvent.stopPropagation(e);toast(ride.name);}).addTo(importedLayer);
 }
 async function loadImportedTraces(){
  const version=++overlayVersion;drawImportedTraces();if(!$('showImportedTraces').checked){$('importedTracesStatus').textContent='';return;}
@@ -284,15 +289,44 @@ async function loadImportedTraces(){
  catch(e){if(version===overlayVersion)$('importedTracesStatus').textContent=e.message;}
 }
 $('showImportedTraces').onchange=loadImportedTraces;
-function choosePlanPoint(point){
- if(!canDraw()||!validMapPoint(point))return;cancelSnap();geometryChanged=true;snapped=false;modeDrafts.clear();routeLegFractions=null;
- if(mode==='manual'){selected.push([...point]);endpoints=selected.length>1?[selected[0],selected.at(-1)]:selected.map(p=>[...p]);viaPoints=[];drawSelection();update();return;}
- const controls=routeControls();if(controls.length>=50){toast('Maximum 50 points pour un itinéraire.');return;}
- controls.push([...point]);if(controls.length===1){endpoints=controls;selected=controls.map(p=>[...p]);viaPoints=[];drawSelection();void snapFirstPoint();}
- else{endpoints=[controls[0],controls.at(-1)];viaPoints=controls.slice(1,-1);gpsSelection=routeControls();selected=gpsSelection.map(p=>[...p]);drawSelection();status('Points ajoutés. Calcul de l’itinéraire…');planRecalcTimer=setTimeout(()=>{planRecalcTimer=null;void recalculateRoute();},350);}update();
+function syncPlanner(){
+ selected=planDraft.coordinates();const points=planDraft.points;endpoints=points.length>1?[points[0],points.at(-1)]:points.map(p=>[...p]);viaPoints=points.slice(1,-1);routeLegFractions=planDraft.fractions();first=endpoints[0]||null;last=endpoints[1]||null;gpsSelection=points.map(p=>[...p]);snapped=planDraft.complete();busy=planDraft.legs.some(l=>!l.coordinates);mode='route';drawSelection();update();
 }
+function plannerChanged(){geometryChanged=true;modeDrafts.clear();syncPlanner();status('Itinéraire modifié. Seules les portions concernées sont recalculées.');clearTimeout(planRecalcTimer);planRecalcTimer=setTimeout(()=>{planRecalcTimer=null;void calculatePlanLegs();},250);}
+async function calculatePlanLegs(){
+ if(planRoutingRunning||view!=='planner'||planReadOnly)return;planRoutingRunning=true;let failed=false;
+ try{for(;;){if(view!=='planner'||planReadOnly)break;const draft=planDraft,i=draft.legs.findIndex(l=>!l.coordinates);if(i<0)break;const edge=draft.legs[i];planRouteController=new AbortController();busy=true;update();status(`Routage de la portion ${i+1} / ${draft.legs.length}…`);
+  try{const result=await post('/api/route',{points:[draft.points[i],draft.points[i+1]],purpose:'itinerary',tolerance:150},{signal:planRouteController.signal});if(draft!==planDraft||view!=='planner')continue;if(draft.resolve(edge.id,result))syncPlanner();}
+  catch(e){if(draft!==planDraft||e.name==='AbortError')continue;if(!draft.legs.some(l=>l.id===edge.id))continue;status(`Cette portion ne peut pas être routée : ${e.message} Annulez-la puis activez « Sans routage » pour la dessiner localement, ou réessayez.`);failed=true;break;}
+ }}finally{planRoutingRunning=false;if(view==='planner'){busy=false;syncPlanner();if(!failed&&planDraft.complete())status('Itinéraire calculé. Glissez les points ou la ligne pour ajuster localement le parcours.');void analysePlanLegs();}}
+}
+function analysePlanLegs(retry=false){if(planAnalysisTask)return planAnalysisTask;planAnalysisTask=runPlanAnalysis(retry).finally(()=>{planAnalysisTask=null;});return planAnalysisTask;}
+async function runPlanAnalysis(retry=false){
+ if(planMetricsRunning||view!=='planner'||planReadOnly)return;planMetricsRunning=true;updatePlanStats();
+ try{for(;;){if(view!=='planner'||planReadOnly)break;const draft=planDraft,edge=draft.legs.find(l=>l.coordinates&&!l.analysis);if(!edge)break;planMetricsController=new AbortController();
+  try{const data=await post('/api/plan-metrics',{coordinates:edge.coordinates,retry},{signal:planMetricsController.signal});if(draft!==planDraft)continue;if(draft.legs.find(l=>l.id===edge.id)?.coordinates===edge.coordinates)draft.analyse(edge.id,data);}
+  catch(e){if(draft!==planDraft||e.name==='AbortError')continue;draft.analyse(edge.id,{surfaces:[],surfaceRuns:[],elevation:null,errors:[e.message]});}
+  if(view==='planner'&&draft===planDraft){drawSelection();updatePlanStats();}
+ }}finally{planMetricsRunning=false;updatePlanStats();}
+}
+function updatePlanStats(){
+ if(!$('planElevation'))return;const summary=planSummary(planDraft.legs);$('planElevation').textContent=summary.elevationCoverage?`D+ ${summary.ascent} m · D− ${summary.descent} m${summary.elevationCoverage<100?' (partiel)':''}`:'Dénivelé indisponible';
+ const pending=planDraft.legs.some(l=>l.coordinates&&!l.analysis);$('planAnalysisStatus').textContent=(pending||planMetricsRunning?'Analyse des altitudes et des revêtements… ':summary.failures?'Analyse incomplète. ':'')+`Altitudes : ${summary.elevationCoverage} % du tracé · revêtement OSM renseigné : ${summary.surfaceCoverage} %. Estimations à confirmer sur le terrain.`;
+ const list=$('planSurfaces');list.replaceChildren();let unknown=summary.surfaces.Inconnu||0;const analysed=Object.values(summary.surfaces).reduce((a,b)=>a+b,0);unknown+=Math.max(0,summary.total-analysed);for(const [type,meters]of Object.entries({...summary.surfaces,Inconnu:unknown})){if(meters<.1)continue;const row=document.createElement('li');row.textContent=`${type} · ${(meters/1000).toFixed(1)} km · ${summary.total?Math.round(100*meters/summary.total):0} %`;list.append(row);}setHidden('retryAnalysis',!summary.failures||planReadOnly||planMetricsRunning);
+}
+function choosePlanPoint(point){
+ if(!canDraw()||!validMapPoint(point))return;try{planDraft.append(point,$('manualLeg').checked?'manual':'route');plannerChanged();if(planDraft.points.length===1&&!$('manualLeg').checked)void snapPlanStart(planDraft,point);}catch(e){toast(e.message);}
+}
+async function snapPlanStart(draft,point){
+ planStartController=new AbortController();try{const result=await post('/api/route/nearest',{point,tolerance:150},{signal:planStartController.signal});if(view==='planner'&&draft===planDraft&&draft.points.length===1&&JSON.stringify(draft.points[0])===JSON.stringify(point)){draft.points[0]=[...result.point];syncPlanner();status('Départ accroché à OSM. Ajoutez la suite du parcours.');}}catch(e){if(view==='planner'&&draft===planDraft&&draft.points.length===1&&e.name!=='AbortError')status('Aucun chemin OSM à proximité. Déplacez le départ ou activez la correction sans routage.');}
+}
+function planHistory(redo=false){if(view!=='planner'||planReadOnly)return;cancelRouteDrag();if(redo?planDraft.redo():planDraft.undo()){syncPlanner();status(redo?'Opération rétablie.':'Dernière opération annulée.');void calculatePlanLegs();}}
+$('undoPlan').onclick=()=>planHistory();$('redoPlan').onclick=()=>planHistory(true);$('planName').oninput=update;
+$('manualLeg').onchange=()=>status($('manualLeg').checked?'Correction locale sans routage : les prochains points seront reliés directement. Décochez pour reprendre le routage OSM.':'Routage OSM activé pour les prochains points. Les corrections manuelles sont conservées.');
+$('retryPlanRoute').onclick=()=>calculatePlanLegs();$('retryAnalysis').onclick=()=>{planDraft.legs=planDraft.legs.map(l=>l.analysis?.errors?.length?{...l,analysis:null}:l);void analysePlanLegs(true);};
+document.addEventListener('keydown',e=>{if(view!=='planner'||planReadOnly||!e.ctrlKey&&!e.metaKey||e.altKey||e.target?.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName||''))return;const key=e.key.toLowerCase();if(key==='z'||key==='y'){e.preventDefault();planHistory(key==='y'||e.shiftKey);}});
 function newPlan(){
- planLoadVersion++;planReadOnly=false;editingPlan=null;currentRide=null;trace=[];routeLayer?.clearLayers();reset();mode='route';$('planSelect').value='';previewPlan();$('planForm').reset();$('planName').value='';$('planNotes').value='';$('publicPlan').checked=false;setView('planner');status('Cliquez pour poser le départ, puis les étapes de votre itinéraire. Chaque clic prolonge le parcours.');
+ planLoadVersion++;planReadOnly=false;editingPlan=null;currentRide=null;trace=[];routeLayer?.clearLayers();reset();mode='route';$('planSelect').value='';previewPlan();$('planForm').reset();$('planName').value='';$('planNotes').value='';$('publicPlan').checked=false;$('manualLeg').checked=false;$('waypointDetails').open=false;setView('planner');status('Cliquez pour poser le départ, puis les étapes de votre itinéraire. Chaque clic prolonge le parcours.');
 }
 async function refreshPlans(){planRecords=await api('/api/plans');renderPlanLibrary();}
 function renderPlanLibrary(){
@@ -305,16 +339,16 @@ function previewPlan(){
  $('openPlan').disabled=!p;$('deletePlan').disabled=!p?.isMine;$('exportPlan').hidden=!p;$('copyPlan').disabled=!p;if(p)$('exportPlan').href=`/api/plans/${p.id}/gpx`;
 }
 async function loadPlan(id,{copy=false}={}){
- const version=++planLoadVersion,p=await api(`/api/plans/${id}`);if(version!==planLoadVersion)return;rideLoadVersion++;currentRide=null;trace=[];routeLayer?.clearLayers();planReadOnly=false;reset();editingPlan=copy?null:p;planReadOnly=!copy&&!p.isMine;mode=p.mode==='manual'?'manual':'route';selected=p.coordinates.map(q=>[...q]);const controls=p.routePoints||[selected[0],selected.at(-1)];endpoints=[controls[0],controls.at(-1)].map(q=>[...q]);viaPoints=mode==='route'?controls.slice(1,-1).map(q=>[...q]):[];snapped=p.snapped;first=endpoints[0];last=endpoints[1];$('planName').value=copy?'Copie de '+p.name:p.name;$('planNotes').value=p.notes||'';$('publicPlan').checked=copy?false:p.isPublic;setView('planner');drawSelection();fit(selected);status(planReadOnly?`Itinéraire public de ${p.owner}. Exportez-le ou créez votre copie pour le modifier.`:'Cliquez pour prolonger le parcours ou glissez les marqueurs pour le modifier.');jumpToMap();
+ const version=++planLoadVersion,p=await api(`/api/plans/${id}`);if(version!==planLoadVersion)return;rideLoadVersion++;currentRide=null;trace=[];routeLayer?.clearLayers();planReadOnly=false;reset();editingPlan=copy?null:p;planReadOnly=!copy&&!p.isMine;mode='route';planDraft.load(p);selected=planDraft.coordinates();const controls=planDraft.points;endpoints=[controls[0],controls.at(-1)].map(q=>[...q]);viaPoints=controls.slice(1,-1);routeLegFractions=planDraft.fractions();snapped=planDraft.complete();first=endpoints[0];last=endpoints[1];$('manualLeg').checked=false;$('waypointDetails').open=false;$('planName').value=copy?'Copie de '+p.name:p.name;$('planNotes').value=p.notes||'';$('publicPlan').checked=copy?false:p.isPublic;setView('planner');drawSelection();fit(selected);status(planReadOnly?`Itinéraire public de ${p.owner}. Exportez-le ou créez votre copie pour le modifier.`:'Cliquez pour prolonger le parcours ou glissez les marqueurs pour le modifier.');jumpToMap();if(!planReadOnly)void analysePlanLegs();
 }
 $('plannerTab').onclick=async()=>{newPlan();try{await refreshPlans();}catch(e){toast(e.message);}};
 $('newPlan').onclick=newPlan;$('planSelect').onchange=previewPlan;$('planScope').onchange=renderPlanLibrary;$('plannerShowSegments').onchange=()=>drawCatalog();
 $('openPlan').onclick=()=>{const id=$('planSelect').value;if(id)loadPlan(id).catch(e=>toast(e.message));};$('copyPlan').onclick=()=>{const id=$('planSelect').value;if(id)loadPlan(id,{copy:true}).catch(e=>toast(e.message));};
 $('deletePlan').onclick=async()=>{const id=$('planSelect').value;if(!id||!confirm('Supprimer cet itinéraire ?'))return;try{await api(`/api/plans/${id}`,{method:'DELETE'});if(editingPlan?.id===id)newPlan();await refreshPlans();toast('Itinéraire supprimé.');}catch(e){toast(e.message);}};
 $('planForm').onsubmit=async e=>{
- e.preventDefault();if(view!=='planner'||planReadOnly||selected.length<2||busy||mode==='route'&&!snapped)return;$('savePlan').disabled=true;
- try{const data={name:$('planName').value,notes:$('planNotes').value,isPublic:$('publicPlan').checked,coordinates:selected,routePoints:mode==='route'?routeControls():undefined,mode,snapped};const p=editingPlan?await api(`/api/plans/${editingPlan.id}`,{method:'PATCH',body:JSON.stringify(data)}):await post('/api/plans',data);editingPlan=p;await refreshPlans();$('planSelect').value=p.id;previewPlan();toast('Itinéraire enregistré. Le GPX est disponible dans la bibliothèque.');}
- catch(e){toast(e.message);}finally{update();}
+ e.preventDefault();if(view!=='planner'||planReadOnly||planSaving||selected.length<2||busy||!planDraft.complete())return;if(!$('planName').value.trim()){toast('Donnez un nom à votre itinéraire.');$('planName').focus?.();return;}planSaving=true;update();const draft=planDraft,signature=JSON.stringify(selected);
+ try{await analysePlanLegs();if(view!=='planner'||draft!==planDraft||JSON.stringify(selected)!==signature)throw Error('Le tracé a changé pendant l’analyse. Enregistrez à nouveau.');const data={name:$('planName').value,notes:$('planNotes').value,isPublic:$('publicPlan').checked,coordinates:selected,routePoints:planDraft.points,legs:planDraft.serialise(),mode:'route',snapped:true};const p=editingPlan?await api(`/api/plans/${editingPlan.id}`,{method:'PATCH',body:JSON.stringify(data)}):await post('/api/plans',data);editingPlan=p;await refreshPlans();$('planSelect').value=p.id;previewPlan();toast('Itinéraire enregistré. Le GPX est disponible dans la bibliothèque.');}
+ catch(e){toast(e.message);}finally{planSaving=false;update();}
 };
 
 try{const me=await api('/api/me');$('username').textContent=me.username;setHidden('adminLink',!me.isAdmin);[records,rides,catalog]=await Promise.all([api('/api/portions'),api('/api/rides'),api('/api/catalog')]);renderRides();void loadStravaStatus();

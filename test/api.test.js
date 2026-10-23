@@ -127,14 +127,14 @@ test('itinéraires privés par défaut, partage, édition réservée au proprié
  assert.equal((await request(app,{url:'/api/plans/'+plan.id,method:'PATCH',user:'bob',body:{isPublic:true}})).status,404);
  const published=await request(app,{url:'/api/plans/'+plan.id,method:'PATCH',user:'alice',body:{isPublic:true}});assert.equal(published.status,200);
  const list=JSON.parse((await request(app,{url:'/api/plans',user:'bob'})).body);assert.equal(list.length,1);assert.equal(list[0].isMine,false);assert.equal(list[0].owner,'alice');
- const gpx=await request(app,{url:'/api/plans/'+plan.id+'/gpx',user:'bob'});assert.equal(gpx.status,200);assert.match(gpx.headers['Content-Type'],/gpx/);assert.match(gpx.body,/Bois &amp; rivière &lt;gravel&gt;/);assert.match(gpx.body,/<trkpt lat="50.02" lon="5.01"\/>/);assert.match(gpx.body,/Pause &lt;café&gt; &amp; eau/);
+ const gpx=await request(app,{url:'/api/plans/'+plan.id+'/gpx',user:'bob'});assert.equal(gpx.status,200);assert.match(gpx.headers['Content-Type'],/gpx/);assert.match(gpx.body,/Bois &amp; rivière &lt;gravel&gt;/);assert.match(gpx.body,/<trkpt lat="50.02" lon="5.01">/);assert.match(gpx.body,/Pause &lt;café&gt; &amp; eau/);
  assert.equal((await request(app,{url:'/api/plans/'+plan.id,method:'DELETE',user:'bob'})).status,404);
  const fresh=createApp(db,{origin:'https://sillage.test'});assert.deepEqual(JSON.parse((await request(fresh,{url:'/api/plans/'+plan.id,user:'alice'})).body).coordinates,body.coordinates);
  assert.equal((await request(app,{url:'/api/plans/'+plan.id,method:'PATCH',user:'alice',body:{isPublic:false}})).status,200);assert.deepEqual(JSON.parse((await request(app,{url:'/api/plans',user:'bob'})).body),[]);
  assert.equal((await request(app,{url:'/api/plans/'+plan.id,method:'DELETE',user:'alice'})).status,200);assert.equal(db.planned.length,0);
 });
 test('itinéraires : validation du tracé, du partage et de la géométrie avant écriture',async()=>{
- const db=database(),app=createApp(db,{origin:'https://sillage.test'}),body={coordinates:[[50,5],[50.01,5]],mode:'route',snapped:true};
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'}),body={name:'Tour test',coordinates:[[50,5],[50.01,5]],mode:'route',snapped:true};
  for(const edits of [{snapped:false},{isPublic:'oui'},{coordinates:[[500,5],[50,5]]},{routePoints:Array.from({length:51},(_,i)=>[50+i*.001,5])}])assert.equal((await request(app,{url:'/api/plans',method:'POST',user:'alice',body:{...body,...edits}})).status,400);
  assert.equal(db.planned.length,0);assert.equal((await request(app,{url:'/api/plans',method:'POST',user:'alice',body:{...body,mode:'manual',snapped:false}})).status,201);
 });
@@ -145,4 +145,13 @@ test('superposition des sorties : toutes ses traces y compris Strava, aucune tra
 test('accrochage ponctuel exige une session et ne transmet que le point choisi',async()=>{
  const db=database();let calls=0;const routingService=async()=>{};routingService.nearest=async b=>{calls++;assert.deepEqual(b.point,[50,5]);return {point:[50.0001,5],offset:11};};const app=createApp(db,{origin:'https://sillage.test',routingService});
  assert.equal((await request(app,{url:'/api/route/nearest',method:'POST',body:{point:[50,5]}})).status,401);assert.equal(calls,0);const r=await request(app,{url:'/api/route/nearest',method:'POST',body:{point:[50,5]},user:'alice'});assert.equal(r.status,200);assert.deepEqual(JSON.parse(r.body).point,[50.0001,5]);assert.equal(calls,1);
+});
+
+test('analyse d’itinéraire authentifiée et module du planificateur protégé',async()=>{
+ let calls=0;const app=createApp(database(),{origin:'https://sillage.test',planMetrics:async body=>{calls++;assert.deepEqual(body.coordinates,[[50,5],[50.01,5]]);return {elevation:null,surfaces:[],surfaceRuns:[],errors:['Indisponible']};}}),body={coordinates:[[50,5],[50.01,5]]};
+ assert.equal((await request(app,{url:'/api/plan-metrics',method:'POST',body})).status,401);assert.equal(calls,0);assert.equal((await request(app,{url:'/api/plan-metrics',method:'POST',body,user:'alice',origin:'https://other.test'})).status,403);assert.equal(calls,0);assert.equal((await request(app,{url:'/api/plan-metrics',method:'POST',body,user:'alice'})).status,200);assert.equal(calls,1);assert.equal((await request(app,{url:'/planner.js'})).status,303);assert.equal((await request(app,{url:'/planner.js',user:'alice'})).status,200);
+});
+test('enregistrement des portions mixtes, altitudes et nom GPX avec caractères accentués, nom vide refusé',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'}),points=[[50,5],[50.01,5],[50.02,5]],body={name:'Boucle de la rivière',mode:'route',snapped:true,coordinates:points,legs:[{mode:'route',coordinates:points.slice(0,2),analysis:{surfaces:[],surfaceRuns:[],errors:[],elevation:{ascent:20,descent:0,profile:[{at:0,altitude:100},{at:1112,altitude:120}],spacing:60}}},{mode:'manual',coordinates:points.slice(1)}]};
+ assert.equal((await request(app,{url:'/api/plans',method:'POST',body:{...body,name:' '},user:'alice'})).status,400);const response=await request(app,{url:'/api/plans',method:'POST',body,user:'alice'});assert.equal(response.status,201);const p=JSON.parse(response.body);assert.equal(p.legs[1].mode,'manual');const gpx=await request(app,{url:'/api/plans/'+p.id+'/gpx',user:'alice'});assert.match(gpx.headers['Content-Disposition'],/filename\*=UTF-8''Boucle%20de%20la%20rivi%C3%A8re.gpx/);assert.match(gpx.body,/<type>cycling<\/type>/);assert.match(gpx.body,/<ele>100.0<\/ele>/);assert.equal((await request(app,{url:'/api/plans/'+p.id,method:'PATCH',body:{name:''},user:'alice'})).status,400);
 });

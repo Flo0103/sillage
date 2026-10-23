@@ -17,7 +17,7 @@ test('routage conserve ses points de passage et refuse des points non valides ou
  assert.throws(()=>portion({...input,mode:'route',routePoints:[[500,5],[50,5]]}));assert.throws(()=>portion({...input,mode:'route',routePoints:Array.from({length:13},(_,i)=>[50+i*.001,5])}));
 });
 
-test('modèle d’itinéraire : limites, nom automatique et GPX échappé',()=>{
+test('modèle d’itinéraire : limites, nom obligatoire et GPX échappé',()=>{
  const p=planData({mode:'manual',coordinates:[[50,5],[50.02,5]],name:'  Tour & bois  ',notes:'<pause> & eau'});assert.equal(p.name,'Tour & bois');assert.ok(p.distance>2000);assert.equal(p.mode,'manual');assert.match(planGPX(p),/<name>Tour &amp; bois<\/name>/);assert.match(planGPX(p),/<desc>&lt;pause&gt; &amp; eau<\/desc>/);assert.match(planGPX(p),/lat="50.02" lon="5"/);
- assert.match(planData({mode:'manual',coordinates:[[50,5],[50.01,5]]}).name,/Itinéraire de/);assert.throws(()=>planData({coordinates:[[0,0],[10,10]],mode:'manual'}),/500 km/);assert.throws(()=>planData({coordinates:[[50,5],[50,5]],mode:'manual'}),/distincts/);
+ assert.throws(()=>planData({mode:'manual',coordinates:[[50,5],[50.01,5]]}),/nom/);assert.throws(()=>planData({coordinates:[[0,0],[10,10]],mode:'manual'}),/500 km/);assert.throws(()=>planData({coordinates:[[50,5],[50,5]],mode:'manual'}),/distincts/);
 });

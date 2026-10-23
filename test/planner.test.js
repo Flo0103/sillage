@@ -1,0 +1,45 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {ItineraryDraft,planSummary} from '../dist/planner.js';
+import {planData,planFilename,planGPX} from '../server/plans.js';
+import {createPlanMetrics,elevationProfile,samplePath,surfaceProfile} from '../server/plan-metrics.js';
+const a=[50,5],b=[50.01,5],c=[50.02,5],d=[50.03,5];
+const solve=(draft,i,path=[draft.points[i],draft.points[i+1]])=>draft.resolve(draft.legs[i].id,{coordinates:path});
+test('prolonger conserve les géométries et analyses des portions précédentes, insertion et déplacement localisés',()=>{
+ const draft=new ItineraryDraft();draft.append(a);draft.append(b);solve(draft,0,[a,[50.004,5.001],b]);draft.analyse(draft.legs[0].id,{surfaces:[]});const original=draft.legs[0];draft.append(c);assert.equal(draft.legs[0],original);assert.equal(draft.legs[1].coordinates,null);solve(draft,1);draft.append(d);solve(draft,2);const last=draft.legs[2];draft.move(1,[50.011,5]);assert.equal(draft.legs[0].coordinates,null);assert.equal(draft.legs[1].coordinates,null);assert.equal(draft.legs[2],last);
+ solve(draft,0);solve(draft,1);const first=draft.legs[0];draft.insert(2,[50.015,5.001]);assert.equal(draft.legs[0],first);assert.equal(draft.legs.at(-1),last);assert.equal(draft.legs.filter(l=>!l.coordinates).length,2);
+});
+test('corrections manuelles locales survivent au routage, annuler/rétablir et rechargement',()=>{
+ const draft=new ItineraryDraft();draft.append(a);draft.append(b);solve(draft,0);const routed=draft.legs[0];draft.append(c,'manual');draft.analyse(draft.legs[1].id,{surfaces:[]});const manual=draft.legs[1];draft.append(d);solve(draft,2);assert.equal(draft.legs[1],manual);assert.equal(draft.legs[0],routed);assert.deepEqual(draft.legs.map(l=>l.mode),['route','manual','route']);assert.equal(draft.complete(),true);assert.equal(draft.undo(),true);assert.equal(draft.points.length,3);assert.equal(draft.redo(),true);assert.equal(draft.complete(),true);
+ const loaded=new ItineraryDraft();loaded.load({legs:draft.serialise()});assert.deepEqual(loaded.coordinates(),draft.coordinates());assert.equal(loaded.legs[1].mode,'manual');loaded.insert(2,[50.015,5.001],true);assert.equal(loaded.legs[1].mode,'manual');assert.equal(loaded.legs[2].mode,'manual');assert.deepEqual(loaded.legs[0].coordinates,routed.coordinates);
+});
+test('une réponse de calcul devenue périmée ne modifie pas un déplacement, annulation ou autre itinéraire',()=>{
+ const draft=new ItineraryDraft();draft.append(a);draft.append(b);const id=draft.legs[0].id;draft.move(1,c);assert.equal(draft.resolve(id,{coordinates:[a,b]}),false);assert.deepEqual(draft.points,[a,c]);const next=draft.legs[0].id;draft.undo();assert.equal(draft.resolve(next,{coordinates:[a,c]}),false);draft.append(d,'manual');assert.equal(draft.future.length,0);
+});
+test('raccord au routage et accrochage du nouveau point sans réécrire une portion existante',()=>{
+ const draft=new ItineraryDraft();draft.append(a);draft.append(b);solve(draft,0);const original=draft.legs[0];draft.append(c);solve(draft,1,[[50.0101,5],[50.0201,5]]);assert.equal(draft.legs[0],original);assert.deepEqual(draft.legs[1].coordinates[0],b);assert.deepEqual(draft.points.at(-1),[50.0201,5]);assert.deepEqual(draft.coordinates(),[a,b,[50.0101,5],[50.0201,5]]);
+});
+test('anciens itinéraires sont découpés sans changer leur géométrie ni recalculer tout le parcours',()=>{
+ const draft=new ItineraryDraft(),path=[a,[50.005,5.001],b,[50.015,5.001],c];draft.load({mode:'route',coordinates:path,routePoints:[a,b,c]});assert.deepEqual(draft.coordinates(),path);assert.equal(draft.complete(),true);draft.append(d);assert.equal(draft.legs.filter(l=>!l.coordinates).length,1);
+});
+test('surfaces explicites OSM, tronçons mixtes, inconnus et pointillés pour le non-bitume/non-béton',()=>{
+ const path=[a,b,c,d],ways=[{tags:{highway:'track',surface:'asphalt'},geometry:[{lat:50,lon:5},{lat:50.01,lon:5}]},{tags:{highway:'track',surface:'gravel'},geometry:[{lat:50.01,lon:5},{lat:50.02,lon:5}]},{tags:{highway:'path'},geometry:[{lat:50.02,lon:5},{lat:50.03,lon:5}]}];
+ const profile=surfaceProfile(path,ways);assert.equal(profile.surfaceRuns[0].unpaved,false);assert.equal(profile.surfaceRuns[1].unpaved,true);assert.equal(profile.surfaceRuns[2].unpaved,null);assert.deepEqual(profile.surfaces.map(s=>s.type),['Asphalte / bitume','Gravier','Inconnu']);assert.ok(profile.surfaces.every(s=>Math.abs(s.distance-1112)<2));
+ const parallel=surfaceProfile([a,b],[{tags:{highway:'track',surface:'gravel'},geometry:[{lat:50,lon:5.01},{lat:50.01,lon:5.01}]}]);assert.equal(parallel.surfaces[0].type,'Inconnu');
+ const concrete=surfaceProfile([a,b],[{tags:{highway:'track',surface:'concrete:plates'},geometry:[{lat:50,lon:5},{lat:50.01,lon:5}]}]);assert.equal(concrete.surfaceRuns[0].unpaved,false);
+});
+test('altitudes : échantillonnage aux deux bouts, gain/perte, bruit filtré et données manquantes distinctes de zéro',()=>{
+ const samples=samplePath([a,b],100,10);assert.deepEqual(samples[0].point,a);assert.deepEqual(samples.at(-1).point,b);assert.equal(samples.length,10);assert.equal(elevationProfile(samples,Array(10).fill(200)).ascent,0);const uphill=elevationProfile(samples,samples.map((_,i)=>100+i*10));assert.equal(uphill.ascent,90);assert.equal(uphill.descent,0);const down=elevationProfile(samples,samples.map((_,i)=>200-i*10));assert.equal(down.descent,90);assert.throws(()=>elevationProfile(samples,[200]),/incomplètes/);assert.throws(()=>elevationProfile(samples,samples.map(()=>null)),/incomplètes/);assert.equal(planSummary([{coordinates:[a,b],analysis:null}]).elevationCoverage,0);
+});
+test('analyse de corridor OSM et altitudes en lots, cache, authentification amont, panne partielle conservée',async()=>{
+ let calls=0,time=0;const seen=[];const service=createPlanMetrics({now:()=>time,wait:async ms=>{time+=ms;},fetcher:async(url,options)=>{calls++;seen.push({url:String(url),options});if(String(url).includes('overpass'))return Response.json({elements:[]});const u=new URL(url);return Response.json({elevation:u.searchParams.get('latitude').split(',').map((_,i)=>100+i)});}});
+ const data=await service({coordinates:[a,c]});assert.equal(data.errors.length,0);assert.ok(data.elevation.ascent>0);assert.equal(data.surfaces[0].type,'Inconnu');assert.match(seen[0].options.body.get('data'),/way\(around:35,/);assert.match(seen[0].options.headers['User-Agent'],/Sillage/);await service({coordinates:[a,c]});assert.equal(calls,2);
+ const failed=createPlanMetrics({wait:async()=>{},fetcher:async url=>String(url).includes('overpass')?Response.json({elements:[]}):Response.json({elevation:[null]})});const partial=await failed({coordinates:[a,b]});assert.equal(partial.elevation,null);assert.equal(partial.errors.length,1);assert.ok(partial.surfaces.length);
+});
+test('panne amont évite une requête répétée pour chaque portion pendant une minute',async()=>{
+ let calls=0,time=0;const service=createPlanMetrics({now:()=>time,wait:async()=>{},fetcher:async()=>{calls++;throw Error('offline');}});await service({coordinates:[a,b]});assert.equal(calls,2);await service({coordinates:[b,c]});assert.equal(calls,2);time=60001;await service({coordinates:[c,d]});assert.equal(calls,4);
+});
+test('enregistrement mixte et GPX : nom obligatoire, fichier UTF-8 sans préfixe, sport et altitudes interpolées',()=>{
+ const draft=new ItineraryDraft();draft.append(a);draft.append(b);solve(draft,0);draft.append(c,'manual');draft.analyse(draft.legs[0].id,{surfaces:[{type:'Gravier',distance:1112}],surfaceRuns:[],errors:[],elevation:{ascent:100,descent:0,profile:[{at:0,altitude:100},{at:1112,altitude:200}],spacing:60}});
+ const input={name:'Bois & rivière',coordinates:draft.coordinates(),legs:draft.serialise(),mode:'route',snapped:true},data=planData(input);assert.equal(data.legs[1].mode,'manual');assert.equal(data.sport,'GravelRide');const xml=planGPX(data);assert.match(xml,/<type>cycling<\/type>/);assert.match(xml,/<sillage:sport>GravelRide<\/sillage:sport>/);assert.match(xml,/<ele>100.0<\/ele>/);assert.match(xml,/<ele>200.0<\/ele>/);assert.equal((xml.match(/<trkpt /g)||[]).length,3);assert.match(planFilename(data.name),/filename\*=UTF-8''Bois%20%26%20rivi%C3%A8re.gpx/);assert.doesNotMatch(planFilename(data.name),/sillage-|itineraire-/);assert.doesNotMatch(planFilename('Test\r\n"/\\<>'),/[\r\n]/);assert.throws(()=>planData({...input,name:'  '}),/nom/);assert.throws(()=>planData({...input,coordinates:[a,d]}),/correspondent/);
+});
