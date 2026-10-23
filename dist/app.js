@@ -1,10 +1,10 @@
-import {filterPlans,planLibraryStats} from './plan-library.js?v=6.8.0';
-import {buildElevationModel,pointAtDistance,elevationAt,slopeAt,routeRenderRuns,kilometreMarkers,renderElevationChart,resizeElevationChart,setChartCursor,elevationColors,slopeBins,routeSurfaceColors} from './elevation.js?v=6.8.0';
-import {ItineraryDraft,planSummary} from './planner.js?v=6.8.0';
-import {insertionIndex} from './route-edit.js?v=6.8.0';
-import {previewPath,renderPreview,disposePreviews} from './preview.js?v=6.8.0';
-import {distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds} from './geo.js?v=6.8.0';
-import {visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML} from './catalog.js?v=6.8.0';
+import {filterPlans,planLibraryStats} from './plan-library.js?v=6.9.0';
+import {buildElevationModel,pointAtDistance,elevationAt,slopeAt,routeRenderRuns,kilometreMarkers,renderElevationChart,resizeElevationChart,setChartCursor,elevationColors,slopeBins,routeSurfaceColors} from './elevation.js?v=6.9.0';
+import {ItineraryDraft,planSummary} from './planner.js?v=6.9.0';
+import {insertionIndex} from './route-edit.js?v=6.9.0';
+import {previewPath,renderPreview,disposePreviews} from './preview.js?v=6.9.0';
+import {distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds} from './geo.js?v=6.9.0';
+import {visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML} from './catalog.js?v=6.9.0';
 const $=id=>document.getElementById(id);
 if(innerWidth<=850){$('rideChooser').open=false;$('segmentBrowser').open=false;}
 const setHidden=(id,value)=>{const element=$(id);if(element)element.hidden=value;};
@@ -126,7 +126,7 @@ function calculateOSM(points,elements,tolerance,version,calculationMode=mode){
  const onProgress=p=>{if(version===snapVersion&&calculationMode!=='surface')showProgress(p);};
  if(typeof Worker==='undefined')return Promise.resolve((calculationMode==='route'?routeOSM:matchOSMDetailed)(points,elements,{tolerance,onProgress}));
  return new Promise((resolve,reject)=>{
-  const worker=new Worker('/osm-worker.js?v=6.8.0',{type:'module'});snapWorker=worker;workerReject=reject;
+  const worker=new Worker('/osm-worker.js?v=6.9.0',{type:'module'});snapWorker=worker;workerReject=reject;
   const finish=()=>{worker.terminate();if(snapWorker===worker){snapWorker=null;workerReject=null;}};
   worker.onmessage=({data})=>{if(version!==snapVersion)return;if(data.progress){onProgress(data.progress);return;}finish();if(data.error)reject(Error(data.error));else resolve(data.result);};
   worker.onerror=()=>{finish();reject(Error('Le calcul OSM a échoué. Réessayez ou utilisez le mode manuel.'));};worker.postMessage({points,elements,tolerance,mode:calculationMode});
@@ -179,8 +179,9 @@ if(typeof L!=='undefined'){
  activeBaseLayer=osm;layerControl={addBaseLayer(layer,name){const id='base-'+baseLayers.size;baseLayers.set(id,layer);const option=document.createElement('option');option.value=id;option.textContent=name;$('baseMapSelect').append(option);}};for(const [name,layer]of Object.entries({'OpenStreetMap':osm,'Satellite · Esri':satellite,'IGN Belgique · Topo':ign,'CyclOSM · Vélo':cyclosm}))layerControl.addBaseLayer(layer,name);$('baseMapSelect').value='base-0';
  map.createPane('reliefPane');Object.assign(map.getPane('reliefPane').style,{zIndex:350,pointerEvents:'none',mixBlendMode:'multiply'});
  hillshadeLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}',{pane:'reliefPane',opacity:1,maxNativeZoom:16,maxZoom:20,updateWhenIdle:true,keepBuffer:2,attribution:'<a href="https://goto.arcgisonline.com/maps/Elevation/World_Hillshade" title="Esri, Vantor, Airbus DS, USGS, NGA, NASA, CGIAR, N Robinson, NCEAS, NLS, OS, NMA, Geodatastyrelsen, Rijkswaterstaat, GSA, Geoland, FEMA, Intermap et la communauté SIG">Relief © Esri et contributeurs</a>'});
+ if($('showHillshade').checked)hillshadeLayer.addTo(map);
  let reliefFailed=false;hillshadeLayer.on('loading',()=>{reliefFailed=false;});hillshadeLayer.on('tileerror',()=>{reliefFailed=true;if($('showHillshade').checked)$('hillshadeStatus').textContent='Relief indisponible : le fond choisi reste affiché.';});hillshadeLayer.on('load',()=>{if(!reliefFailed&&$('showHillshade').checked)$('hillshadeStatus').textContent='';});
-L.control.zoom({position:'topleft'}).addTo(map);
+const zoomControl=L.control.zoom({position:'topleft'}).addTo(map),toolbar=zoomControl?.getContainer?.();if(toolbar){for(const id of ['sidebarToggle','fit','fullscreenMap','drawSegment','finishDrawing'])toolbar.append($(id));toolbar.classList.add('sillage-map-toolbar');L.DomEvent.disableClickPropagation(toolbar);L.DomEvent.disableScrollPropagation(toolbar);$('mapTools').remove();}
  if(map.attributionControl)map.attributionControl.addAttribution('Routage © OSM · <a href="https://routing.openstreetmap.de/about.html">FOSSGIS / OSRM vélo</a> · <a href="https://www.openstreetmap.org/fixthemap">Corriger la carte</a>');
  const notice=$('mapNotice');let failures=0;
  const showNotice=message=>{if(notice){notice.textContent=message;notice.hidden=false;}};
@@ -463,9 +464,9 @@ try{const me=await api('/api/me');$('username').textContent=me.username;setHidde
  const requested=new URLSearchParams(location.search||'').get('ride');if(requested&&/^[a-f0-9-]{36}$/.test(requested))await loadRide(requested);else if(new URLSearchParams(location.search||'').get('source')==='strava'){setView('explore');$('rideSource').value='strava';await loadStravaStatus();await changeRideSource();}else setView('saved');}catch(e){toast(e.message);}stars();update();
 
 function resizeMap(){if(map)map.invalidateSize({pan:false});}
-function updateFullscreen(){const expanded=!!document.fullscreenElement||document.body.classList.contains('map-expanded');setHidden('sidebarToggle',expanded);$('fullscreenMap').textContent=expanded?'⛶ Quitter plein écran':'⛶ Plein écran';$('fullscreenMap').setAttribute('aria-pressed',String(expanded));resizeMap();}
+function updateFullscreen(){const expanded=!!document.fullscreenElement||document.body.classList.contains('map-expanded');setHidden('sidebarToggle',expanded);const label=expanded?'Quitter le plein écran':'Afficher la carte en plein écran';$('fullscreenMap').setAttribute('aria-label',label);$('fullscreenMap').setAttribute('title',label);$('fullscreenMap').classList.toggle('is-expanded',expanded);$('fullscreenMap').setAttribute('aria-pressed',String(expanded));resizeMap();}
 $('fullscreenMap').onclick=async()=>{const workspace=$('workspace');try{if(document.fullscreenElement)await document.exitFullscreen();else if(document.body.classList.contains('map-expanded'))document.body.classList.remove('map-expanded');else if(workspace.requestFullscreen)await workspace.requestFullscreen();else document.body.classList.add('map-expanded');}catch{document.body.classList.toggle('map-expanded');}updateFullscreen();};
 document.addEventListener('fullscreenchange',updateFullscreen);document.addEventListener('keydown',e=>{if(e.key==='Escape')cancelRouteDrag();if(e.key==='Escape'&&document.body.classList.contains('map-expanded')){document.body.classList.remove('map-expanded');updateFullscreen();}});
 const header=document.querySelector('body.app-page>header');if(header&&typeof ResizeObserver!=='undefined'){new ResizeObserver(()=>{document.body.style.setProperty('--header-height',header.getBoundingClientRect().height+'px');resizeMap();}).observe(header);}
 
-const mapHead=document.querySelector('.maphead');if(mapHead&&typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{$('workspace').style.setProperty('--maphead-height',mapHead.getBoundingClientRect().height+'px');resizeMap();}).observe(mapHead);
+

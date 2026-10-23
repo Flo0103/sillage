@@ -61,3 +61,15 @@ test('pentes : descente bleue, zéro blanc, montée rouge et libellés sans ambi
 test('cache du rendu cartographique conserve le tracé lors d’une analyse d’altitude en mode simple et invalide les surfaces modifiées',()=>{
  const legs=[withProfile(a,b)],first=routeRenderRuns(legs,'simple',buildElevationModel(legs));assert.equal(routeRenderRuns(legs,'simple',buildElevationModel(legs)),first);legs[0]={...legs[0],analysis:{...legs[0].analysis,elevation:{profile:[{at:0,altitude:200},{at:1111.9,altitude:300}]}}};assert.equal(routeRenderRuns(legs,'simple',buildElevationModel(legs)),first);legs[0]={...legs[0],analysis:{...legs[0].analysis,surfaceRuns:[{coordinates:[a,b],type:'Gravier',unpaved:true}]}};const next=routeRenderRuns(legs,'simple',buildElevationModel(legs));assert.notEqual(next,first);assert.equal(next[0].dashArray,'7 7');
 });
+
+test('dénivelé : les petites inversions ne s’accumulent plus, les vraies montées et descentes restent complètes',async()=>{
+ const {elevationGain}=await import('../dist/elevation-data.js'),profile=values=>values.map((altitude,i)=>({at:i*50,altitude})),ripple=profile([100,104,101,105,102,106,103,107,104,108,105,109,106,110]);assert.deepEqual(elevationGain(ripple),{ascent:10,descent:0});assert.deepEqual(elevationGain(profile([100,102,98,101,100])),{ascent:0,descent:0});assert.deepEqual(elevationGain(profile([100,103])),{ascent:3,descent:0});
+ const hills=[100,104,102,120,118,150,148,140,143,130,134,160,158,150];assert.deepEqual(elevationGain(profile(hills)),{ascent:80,descent:30});assert.deepEqual(elevationGain(profile([...hills].reverse())),{ascent:30,descent:80});
+});
+test('pentes lissées sur 300 m : rampe bruitée stable, sans franchir une lacune ni raccourcir la fenêtre aux extrémités',async()=>{
+ const {slopeWindow}=await import('../dist/elevation.js');assert.equal(slopeWindow,300);const profile=Array.from({length:81},(_,i)=>({at:i*50,altitude:200+i*2+3*Math.sin(2*Math.PI*i/6)})),model=buildElevationModel([{coordinates:[[50,5],[50.04,5]],analysis:{elevation:{profile}}}]);
+ for(let at=500;at<=3500;at+=25)assert.ok(Math.abs(slopeAt(model,at)-4)<.08,`${at}: ${slopeAt(model,at)}`);assert.equal(slopeAt(model,4200),null);assert.ok(Math.abs(slopeAt(model,0)-slopeAt(model,100))<1e-8);assert.ok(Math.abs(slopeAt(model,3900)-slopeAt(model,4000))<1e-8);
+});
+test('ancien profil enregistré : nouveau dénivelé calculé localement et partagé avec la bibliothèque, sans toucher aux échantillons',async()=>{
+ const {planSummary}=await import('../dist/planner.js'),{planLibraryStats}=await import('../dist/plan-library.js'),profile=[100,104,101,105,102,106,103,107,104,108,105,109,106,110].map((altitude,i)=>({at:i*200,altitude})),legs=[{coordinates:[[50,5],[50.03,5]],analysis:{elevation:{ascent:850,descent:840,profile}}}],before=JSON.stringify(legs),plan={coordinates:[[50,5],[50.03,5]],legs};const model=buildElevationModel(legs);assert.equal(model.ascent,10);assert.equal(planSummary(legs).ascent,10);assert.equal(planLibraryStats(plan).ascent,10);assert.equal(JSON.stringify(legs),before);
+});

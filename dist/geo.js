@@ -1,4 +1,4 @@
-import {bicycleDirections} from './osm-tags.js?v=6.8.0';
+import {bicycleDirections} from './osm-tags.js?v=6.9.0';
 export const distance=(a,b)=>{const r=Math.PI/180,x=(b[0]-a[0])*r,y=(b[1]-a[1])*r,h=Math.sin(x/2)**2+Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(y/2)**2;return 12742000*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));};
 export const routeLength=p=>p.slice(1).reduce((s,x,i)=>s+distance(p[i],x),0);
 export function shortest(graph,start,end,nodes,{respectDirection=false}={}){

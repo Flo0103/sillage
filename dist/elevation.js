@@ -1,5 +1,5 @@
-import {smoothElevation,elevationGain} from './elevation-data.js?v=6.8.0';
-import {distance,routeLength} from './geo.js?v=6.8.0';
+import {smoothElevation,elevationGain} from './elevation-data.js?v=6.9.0';
+import {distance,routeLength} from './geo.js?v=6.9.0';
 export const elevationColors=['#28634e','#529255','#91a748','#cfb041','#d58b3d','#c56046','#884657'];
 export const slopeBins=[[-Infinity,-10,'Descente < −10 %','#124b8d'],[-10,-5,'Descente −10 à −5 %','#4c8dc4'],[-5,-2,'Descente −5 à −2 %','#a8c9e4'],[-2,-.5,'Descente −2 à −0,5 %','#e1edf5'],[-.5,.5,'Plat · −0,5 à +0,5 %','#fffdf9'],[.5,2,'Montée +0,5 à +2 %','#fae3df'],[2,5,'Montée +2 à +5 %','#f3b1a5'],[5,10,'Montée +5 à +10 %','#e46a58'],[10,Infinity,'Montée ≥ +10 %','#d82721']];
 export const routeSurfaceColors={'Asphalte / bitume':'#3c5447','Béton':'#788187','Gravier fin':'#d6b36d','Gravier':'#bf9845','Gravier compacté':'#aca263','Terre':'#986b48','Boue':'#6f4d3b','Herbe':'#78884d','Dalles engazonnées':'#99a26a','Sable':'#d5ba65','Roches':'#7a658b','Pierres':'#9a8280','Pavés':'#827e8e','Bois':'#9f7855','Non revêtu':'#b6845a','Revêtu (non précisé)':'#677c79','Non revêtu (tracktype)':'#b6845a','Mixte non revêtu':'#ac8055','Mixte':'#90886b','Copeaux de bois':'#ab8156','Métal':'#75838a','Inconnu':'#9b9b91'};
@@ -19,7 +19,8 @@ export function pointAtDistance(model,value){if(!model.points.length)return null
 function spanAt(model,at){if(!model.spans.length)return null;const i=locate(model.spans,at,s=>s.start),span=model.spans[i];return at>=span.start-.01&&at<=span.end+.01?span:null;}
 function height(span,at){const p=span.profile,i=Math.min(p.length-2,locate(p,at,s=>s.at)),a=p[i],b=p[i+1],t=b.at>a.at?Math.max(0,Math.min(1,(at-a.at)/(b.at-a.at))):0;return a.altitude+(b.altitude-a.altitude)*t;}
 export function elevationAt(model,at){const span=spanAt(model,at);return span?height(span,at):null;}
-export function slopeAt(model,at){const span=spanAt(model,at);if(!span)return null;const a=Math.max(span.start,at-75),b=Math.min(span.end,at+75);return b-a>=5?100*(height(span,b)-height(span,a))/(b-a):null;}
+export const slopeWindow=300;
+export function slopeAt(model,at){const span=spanAt(model,at);if(!span)return null;const length=Math.min(slopeWindow,span.end-span.start),a=Math.max(span.start,Math.min(at-length/2,span.end-length)),b=a+length;return length>=5?100*(height(span,b)-height(span,a))/length:null;}
 export function elevationColor(value,model){if(value===null||model.min===null)return '#9b9b91';const fraction=(value-model.min)/Math.max(1,model.max-model.min);return elevationColors[Math.max(0,Math.min(elevationColors.length-1,Math.floor(fraction*elevationColors.length)))];}
 export function slopeColor(value){return value===null?'#9b9b91':(slopeBins.find(([a,b])=>value>=a&&value<b)||slopeBins.at(-1))[3];}
 const routeRunCache=new WeakMap();

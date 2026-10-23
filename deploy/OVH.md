@@ -172,3 +172,12 @@ Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d 
 Vérifier le formulaire en tête d’éditeur, le bouton « Créer un nouvel itinéraire » et Annuler pour retrouver le brouillon précédent. Le repli utilise désormais une seule icône de panneau avec chevron ; aucune commande « Masquer la bibliothèque » ne reste dans la barre. Vérifier sur ordinateur et mobile que la bibliothèque reste dépliable sans perdre le tracé, et que les deux curseurs de distance / D+ fonctionnent à la souris et au clavier.
 
 L’export complet se trouve dans Mon compte, sous Mes données. Le point d’accès GET `/api/account/export` exige la session et renvoie une pièce jointe JSON avec Cache-Control no-store, private. L’export lit les tables du compte dans une transaction PostgreSQL REPEATABLE READ READ ONLY et libère la connexion même en cas d’erreur. Il conserve les GPX disponibles, les géométries, les attributs, les relations et les analyses ; les segments ont une représentation GeoJSON. Les autres utilisateurs et les secrets de connexion sont exclus. Tester le téléchargement puis vérifier que le fichier contient seulement les données du compte connecté. Le volume du JSON dépend des sorties et analyses enregistrées.
+
+
+## Carte directe et filtrage du dénivelé (6.9.0)
+
+Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d --build --wait`. Recharger complètement pour les scripts `v=6.9.0`. Pas de migration ni de nouvelle clé.
+
+Vérifier au chargement : relief et extrema cochés, absence de bandeau entre navigation et carte, pictogrammes de centrage et plein écran à côté du zoom, repli de bibliothèque et dessin toujours accessibles. En plein écran, le bouton de sortie reste disponible ; les contrôles ne déclenchent pas de point de tracé.
+
+Le dénivelé est recalculé localement sur les profils enregistrés avec un seuil de retournement de 5 m. Les pentes sont estimées sur 300 m. Vérifier un ancien itinéraire sans requête d’altitude et comparer son D+ dans l’éditeur et la bibliothèque. Les valeurs D+/D− stockées par portion restent historiques jusqu’au prochain enregistrement ; l’affichage utilise le modèle recalculé. La source Copernicus reste la même : une concordance exacte avec Strava/Garmin n’est pas promise sans comparaison du profil effectif. Relever le nouveau total après déploiement pour comparer les mêmes tracés et profils source.
