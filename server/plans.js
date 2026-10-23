@@ -1,3 +1,4 @@
+import {buildElevationModel,elevationAt} from '../dist/elevation.js';
 import {randomUUID} from 'node:crypto';
 import {coordinates,routeLength,distance} from './model.js';
 function analysisData(a,path){
@@ -20,8 +21,8 @@ export function planData(body){
 const escapeXML=s=>String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
 export function planFilename(name){const clean=String(name).replace(/[\x00-\x1f\x7f/\\:*?"<>|]/g,'_').trim()||'Itinéraire';const ascii=clean.normalize('NFKD').replace(/[^\x20-\x7e]/g,'').replace(/["\\]/g,'_')||'Itineraire';return `attachment; filename="${ascii}.gpx"; filename*=UTF-8''${encodeURIComponent(clean+'.gpx').replace(/['()*]/g,c=>'%'+c.charCodeAt(0).toString(16).toUpperCase())}`;}
 export function planGPX(data){
- const nodes=[];const parts=data.legs?.length?data.legs:[{coordinates:data.coordinates}];
- for(let n=0;n<parts.length;n++){const l=parts[n],profile=l.analysis?.elevation?.profile;let at=0,index=0;for(let i=0;i<l.coordinates.length;i++){const p=l.coordinates[i];if(i)at+=distance(l.coordinates[i-1],p);if(n&&i===0)continue;let altitude='';if(profile?.length){while(index<profile.length-2&&profile[index+1].at<at)index++;const a=profile[index],b=profile[index+1],t=Math.max(0,Math.min(1,(at-a.at)/(b.at-a.at)));altitude=`<ele>${(a.altitude+(b.altitude-a.altitude)*t).toFixed(1)}</ele>`;}nodes.push(`<trkpt lat="${p[0]}" lon="${p[1]}">${altitude}</trkpt>`);}}
+ const nodes=[];const model=buildElevationModel(data.legs?.length?data.legs:[{coordinates:data.coordinates}]);let globalAt=0;const parts=data.legs?.length?data.legs:[{coordinates:data.coordinates}];
+ for(let n=0;n<parts.length;n++){const l=parts[n];for(let i=0;i<l.coordinates.length;i++){const p=l.coordinates[i];if(i){const meters=distance(l.coordinates[i-1],p);globalAt+=meters;}if(n&&i===0)continue;let altitude='';const height=elevationAt(model,globalAt);if(height!==null)altitude=`<ele>${height.toFixed(1)}</ele>`;nodes.push(`<trkpt lat="${p[0]}" lon="${p[1]}">${altitude}</trkpt>`);}}
  return `<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Sillage" xmlns="http://www.topografix.com/GPX/1/1" xmlns:sillage="https://sillage.gravelspa.be/xmlns/1"><trk><name>${escapeXML(data.name)}</name>${data.notes?`<desc>${escapeXML(data.notes)}</desc>`:''}<type>cycling</type><extensions><sillage:sport>GravelRide</sillage:sport></extensions><trkseg>${nodes.join('')}</trkseg></trk></gpx>`;
 }
 export async function plans({db,path,method,user,req,res,body,json}){

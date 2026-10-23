@@ -1,15 +1,19 @@
+import {smoothElevation,elevationGain} from './elevation-data.js?v=6.3.0';
 import {distance,routeLength} from './geo.js';
 export const elevationColors=['#31584a','#598661','#8b9c55','#b5a052','#bd8150','#a95c4b','#77434e'];
 export const slopeBins=[[-Infinity,-10,'< −10 %','#446f99'],[-10,-5,'−10 à −5 %','#6598b3'],[-5,-2,'−5 à −2 %','#83aaa6'],[-2,2,'−2 à +2 %','#81945a'],[2,5,'+2 à +5 %','#c3a04f'],[5,10,'+5 à +10 %','#bc7950'],[10,Infinity,'> +10 %','#9f4850']];
 export const routeSurfaceColors={'Asphalte / bitume':'#3c5447','Béton':'#788187','Gravier fin':'#d6b36d','Gravier':'#bf9845','Gravier compacté':'#aca263','Terre':'#986b48','Boue':'#6f4d3b','Herbe':'#78884d','Dalles engazonnées':'#99a26a','Sable':'#d5ba65','Roches':'#7a658b','Pierres':'#9a8280','Pavés':'#827e8e','Bois':'#9f7855','Non revêtu':'#b6845a','Revêtu (non précisé)':'#677c79','Inconnu':'#9b9b91'};
 function locate(values,target,key=v=>v){let lo=0,hi=values.length-1;while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(key(values[mid])<=target)lo=mid;else hi=mid-1;}return lo;}
+const modelCache=new WeakMap();
 export function buildElevationModel(legs){
- const points=[],distances=[],spans=[];let total=0;
+ const signature=legs.map(l=>[l.coordinates,l.analysis?.elevation?.profile]),cached=modelCache.get(legs);if(cached&&cached.signature.length===signature.length&&signature.every((v,i)=>v[0]===cached.signature[i][0]&&v[1]===cached.signature[i][1]))return cached.model;
+ const points=[],distances=[],rawSpans=[];let total=0;
  for(const l of legs){const path=l.coordinates||[];if(path.length<2)continue;const start=total;for(let i=0;i<path.length;i++){if(i)total+=distance(path[i-1],path[i]);if(!points.length||i){points.push(path[i]);distances.push(total);}}
-  const p=l.analysis?.elevation?.profile;if(p?.length>=2){const profile=p.filter(v=>Number.isFinite(v.at)&&Number.isFinite(v.altitude)&&v.at>=0&&v.at<=total-start+1).map(v=>({at:start+Math.min(total-start,v.at),altitude:v.altitude}));if(profile.length>=2)spans.push({start:profile[0].at,end:profile.at(-1).at,profile});}
+  const p=l.analysis?.elevation?.profile;if(p?.length>=2){const profile=p.filter(v=>Number.isFinite(v.at)&&Number.isFinite(v.altitude)&&v.at>=0&&v.at<=total-start+1).map(v=>({at:start+Math.min(total-start,v.at),altitude:v.altitude}));if(profile.length>=2)rawSpans.push({start:profile[0].at,end:profile.at(-1).at,profile});}
  }
- const heights=spans.flatMap(s=>s.profile.map(p=>p.altitude)),min=heights.length?Math.min(...heights):null,max=heights.length?Math.max(...heights):null;
- return {points,distances,spans,total,min,max};
+ const spans=[];for(const next of rawSpans){const previous=spans.at(-1);if(previous&&Math.abs(previous.end-next.start)<=.2){const shared=previous.profile.at(-1);shared.altitude=(shared.altitude+next.profile[0].altitude)/2;previous.profile.push(...next.profile.slice(1));previous.end=next.end;}else spans.push({...next,profile:next.profile.map(p=>({...p}))});}
+ let ascent=0,descent=0,min=null,max=null,elevationLength=0;for(const span of spans){span.profile=smoothElevation(span.profile);const gain=elevationGain(span.profile);ascent+=gain.ascent;descent+=gain.descent;elevationLength+=span.end-span.start;for(const p of span.profile){min=min===null?p.altitude:Math.min(min,p.altitude);max=max===null?p.altitude:Math.max(max,p.altitude);}}
+ const model={points,distances,spans,total,min,max,ascent,descent,elevationLength};modelCache.set(legs,{signature,model});return model;
 }
 export function pointAtDistance(model,value){if(!model.points.length)return null;const at=Math.max(0,Math.min(model.total,value)),i=Math.min(model.points.length-2,locate(model.distances,at));if(i<0)return model.points[0];const a=model.points[i],b=model.points[i+1],length=model.distances[i+1]-model.distances[i],t=length?(at-model.distances[i])/length:0;return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];}
 function spanAt(model,at){if(!model.spans.length)return null;const i=locate(model.spans,at,s=>s.start),span=model.spans[i];return at>=span.start-.01&&at<=span.end+.01?span:null;}
@@ -30,9 +34,10 @@ export function routeRenderRuns(legs,mode,model){
 }
 export function kilometreMarkers(model,zoom){const interval=zoom>=14?1000:zoom>=12?5000:zoom>=10?10000:0;if(!interval)return [];const markers=[];for(let at=interval;at<model.total;at+=interval)markers.push({at,km:at/1000,point:pointAtDistance(model,at)});return markers;}
 const chartStates=new WeakMap();
+export function chartSamples(profile,limit){if(profile.length<=limit)return profile;const buckets=Math.max(1,Math.floor((limit-2)/2)),out=[profile[0]],step=(profile.length-2)/buckets;for(let i=0;i<buckets;i++){const start=1+Math.floor(i*step),end=1+Math.floor((i+1)*step);let low=start,high=start;for(let j=start+1;j<end;j++){if(profile[j].altitude<profile[low].altitude)low=j;if(profile[j].altitude>profile[high].altitude)high=j;}if(low===high)out.push(profile[low]);else for(const j of [low,high].sort((a,b)=>a-b))out.push(profile[j]);}out.push(profile.at(-1));return out;}
 export function chartGeometry(model,compact=false){
  const width=800,height=compact?100:170,left=compact?8:54,right=compact?8:18,top=12,bottom=compact?8:30,base=height-bottom,range=Math.max(20,(model.max??0)-(model.min??0)),low=(model.min??0)-range*.08,high=(model.max??0)+range*.08,y=h=>base-(h-low)/(high-low)*(base-top),x=at=>left+at/Math.max(1,model.total)*(width-left-right);
- const lines=model.spans.map(s=>s.profile.map((p,i)=>`${i?'L':'M'}${x(p.at).toFixed(2)},${y(p.altitude).toFixed(2)}`).join(' ')),areas=model.spans.map((s,i)=>`${lines[i]} L${x(s.end).toFixed(2)},${base} L${x(s.start).toFixed(2)},${base} Z`);
+ const budget=compact?320:1200,lines=model.spans.map(s=>chartSamples(s.profile,Math.max(4,Math.floor(budget*s.profile.length/Math.max(1,model.spans.reduce((n,s)=>n+s.profile.length,0))))).map((p,i)=>`${i?'L':'M'}${x(p.at).toFixed(2)},${y(p.altitude).toFixed(2)}`).join(' ')),areas=model.spans.map((s,i)=>`${lines[i]} L${x(s.end).toFixed(2)},${base} L${x(s.start).toFixed(2)},${base} Z`);
  return {width,height,left,right,base,x,y,low,high,lines,areas};
 }
 export function renderElevationChart(container,model,{compact=false,onSeek}={}){

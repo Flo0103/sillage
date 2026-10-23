@@ -1,3 +1,4 @@
+import {buildElevationModel} from './elevation.js?v=6.3.0';
 import {distance,routeLength} from './geo.js';
 import {routePosition} from './route-edit.js';
 let serial=0;
@@ -37,7 +38,7 @@ export class ItineraryDraft{
  serialise(){return this.legs.map(({mode,coordinates,analysis})=>({mode,coordinates,analysis}));}
 }
 export function planSummary(legs){
- let ascent=0,descent=0,elevationKnown=0,total=0,known=0;const surfaces={};let failures=0;
- for(const l of legs){const length=routeLength(l.coordinates||[]);total+=length;const a=l.analysis;if(!a)continue;if(a.elevation){ascent+=a.elevation.ascent;descent+=a.elevation.descent;elevationKnown+=length;}for(const s of a.surfaces||[]){surfaces[s.type]=(surfaces[s.type]||0)+s.distance;if(s.type!=='Inconnu')known+=s.distance;}if(a.errors?.length)failures++;}
- return {ascent:Math.round(ascent),descent:Math.round(descent),elevationCoverage:total?Math.round(100*elevationKnown/total):0,surfaceCoverage:total?Math.min(100,Math.round(100*known/total)):0,surfaces,total,failures};
+ const model=buildElevationModel(legs);let total=model.total,known=0;const surfaces={};let failures=0;
+ for(const l of legs){const a=l.analysis;if(!a)continue;for(const s of a.surfaces||[]){surfaces[s.type]=(surfaces[s.type]||0)+s.distance;if(s.type!=='Inconnu')known+=s.distance;}if(a.errors?.length)failures++;}
+ return {ascent:model.ascent,descent:model.descent,elevationCoverage:total?Math.min(100,Math.round(100*model.elevationLength/total)):0,surfaceCoverage:total?Math.min(100,Math.round(100*known/total)):0,surfaces,total,failures};
 }

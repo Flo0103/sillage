@@ -33,3 +33,18 @@ test('palette de technicité pour les quatre difficultés et segments anciens no
 });
 
 test('insérer un point sans routage ne force pas la portion sortante à devenir manuelle',()=>{const draft=new ItineraryDraft();draft.load({legs:[withProfile(a,c)]});draft.insert(1,b,true);assert.equal(draft.legs[0].mode,'manual');assert.equal(draft.legs[1].mode,'route');assert.equal(draft.legs[1].coordinates,null);});
+
+test('lissage métrique léger réduit les petites oscillations sans changer les données enregistrées ni les extrémités',async()=>{
+ const {smoothElevation,elevationGain}=await import('../dist/elevation-data.js'),profile=Array.from({length:51},(_,i)=>({at:i*40,altitude:i===0||i===50?200:200+(i%2?3:-3)})),before=JSON.stringify(profile),smooth=smoothElevation(profile);assert.equal(JSON.stringify(profile),before);assert.equal(smooth[0].altitude,200);assert.equal(smooth.at(-1).altitude,200);assert.ok(Math.max(...smooth.slice(2,-2).map(p=>Math.abs(p.altitude-200)))<1);assert.ok(elevationGain(smooth).ascent<elevationGain(profile).ascent/4);
+ const ramp=Array.from({length:51},(_,i)=>({at:i*40,altitude:100+i*2}));assert.equal(elevationGain(smoothElevation(ramp)).ascent,100);
+});
+test('modèle en cache : une mise à jour des surfaces ne reconstruit pas le graphe et un changement d’altitude le reconstruit',()=>{
+ const legs=[withProfile(a,b)],first=buildElevationModel(legs);assert.equal(buildElevationModel(legs),first);legs[0]={...legs[0],analysis:{...legs[0].analysis,surfaces:[{type:'Terre',distance:1100}]}};assert.equal(buildElevationModel(legs),first);legs[0]={...legs[0],analysis:{...legs[0].analysis,elevation:{profile:[{at:0,altitude:200},{at:1111.9,altitude:300}]}}};assert.notEqual(buildElevationModel(legs),first);
+});
+test('SVG allégé garde les extrémités et extrema, sans réduire les données du curseur',async()=>{
+ const {chartSamples}=await import('../dist/elevation.js'),profile=Array.from({length:6000},(_,i)=>({at:i*10,altitude:i===3001?900:100+Math.sin(i/100)*10})),small=chartSamples(profile,320);assert.ok(small.length<=320);assert.equal(small[0],profile[0]);assert.equal(small.at(-1),profile.at(-1));assert.ok(small.some(p=>p.altitude===900));assert.equal(profile.length,6000);
+});
+
+test('le GPX exporte les mêmes altitudes lissées que le graphe pour un ancien profil bruité',async()=>{
+ const {distance}=await import('../dist/geo.js'),{planGPX}=await import('../server/plans.js'),coordinates=Array.from({length:21},(_,i)=>[50+i*.0004,5]),profile=coordinates.map((_,i)=>({at:i*distance(coordinates[0],coordinates[1]),altitude:i%2?103:97})),legs=[{mode:'route',coordinates,analysis:{elevation:{profile}}}],model=buildElevationModel(legs),xml=planGPX({name:'Ancien profil',legs,coordinates}),elevations=[...xml.matchAll(/<ele>([\d.-]+)<\/ele>/g)].map(m=>Number(m[1]));assert.equal(elevations.length,coordinates.length);assert.ok(Math.abs(elevations[10]-100)<1);assert.ok(Math.abs(elevations[10]-elevationAt(model,model.distances[10]))<.06);assert.equal(profile[10].altitude,97);
+});
