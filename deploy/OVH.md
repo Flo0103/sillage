@@ -154,3 +154,12 @@ Les sorties et segments partagent l’onglet Carte. « Dessiner un segment » ou
 « Fond de carte et relief » permet d’activer l’ombrage Esri World Hillshade au-dessus de n’importe quel fond. La transparence règle uniquement ce calque : 0 % = opaque, 100 % = invisible. Les vecteurs restent au-dessus du relief ; la composition en mode multiply conserve les informations du fond. Source : `https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}` ; attribution et lien aux crédits dans la carte, niveaux natifs utilisés jusqu’à 16 puis surzoom. L’activation est facultative et les tuiles ne sont pas préchargées. Si ce service externe est indisponible, le fond choisi reste utilisable et un message est affiché dans le panneau.
 
 Vérifier sur ordinateur et mobile : sortie et segments dans le même onglet, dessin sur un segment existant, filtres sans perte du dessin, changement de fond avec relief conservé et curseur de transparence. Dans le planificateur, contrôler les palettes distinctes du plaisir et de l’altitude, le profil coloré, puis enregistrer : seules les bornes kilométriques s’affichent ; les points de passage réapparaissent via « Modifier l’itinéraire ». Les altitudes déjà enregistrées restent réutilisées.
+
+
+## Simplification et recherche d’itinéraires (6.7.0)
+
+Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d --build --wait`. Sans migration ni nouvelle clé. Recharger la page pour les fichiers `v=6.7.0`.
+
+Le slider de relief de 6.6.0 est supprimé : la case active l’ombrage à 0 % de transparence. Le filtre single track et l’interrupteur général de segments sont supprimés. Les filtres personnel/public et hiver restent disponibles ; les single tracks apparaissent en pointillés. Vérifier le survol des attributs dans les deux onglets, y compris pendant le dessin : cliquer doit ajouter un point. Les fiches de survol échappent les textes des membres.
+
+Vérifier la recherche d’itinéraires, les seuils distance / D+ inclusifs et les filtres d’extrémités lors d’un déplacement de carte. Le dénivelé manquant est exclu seulement lorsqu’un seuil de D+ est demandé. Les filtres restent locaux aux données accessibles du compte et ne déclenchent pas de nouvelle analyse d’altitude. Tester « Replier » dans la bibliothèque et la réouverture depuis la carte, sans perte du brouillon. Le nouveau module `/plan-library.js` est servi derrière l’authentification comme les autres scripts de l’application.

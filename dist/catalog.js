@@ -1,4 +1,4 @@
-export const ratingColors=['#b6b9e5','#9394d2','#7169bd','#51419f','#342176'];
+export const ratingColors=['#c63f3a','#df7b3b','#d0ad3c','#8aa34a','#278049'];
 export const surfaceColors={'Gravier fin':'#d29b35','Chemin de terre':'#825c40','Cailloux / pierres':'#777e91','Grosses pierres / blocs':'#643b91','Sable':'#d5ba65','Asphalte':'#283e4d','Mixte':'#228b9b'};
 export const winterLabels={unknown:'Hiver non renseigné',yes:'Roulable en hiver',no:'Non roulable en hiver',conditions:'Hiver selon conditions'};
 export function visibleSegments(segments,{mine=true,others=true,winter='all',singleTrack='all'}={}){return segments.filter(s=>(s.isMine?mine:others&&s.isPublic)&&(winter==='all'||(s.winter||'unknown')===winter)&&(singleTrack==='all'||(s.singleTrack||'unknown')===singleTrack));}

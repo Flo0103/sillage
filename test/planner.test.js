@@ -55,3 +55,14 @@ test('une requête de revêtement bloquée ne retarde pas la réponse des altitu
 test('budget des profils longs : 4096 échantillons au maximum et lots API de 100 coordonnées',async()=>{
  const sizes=[],service=createPlanMetrics({wait:async()=>{},fetcher:async url=>{const n=new URL(url).searchParams.get('latitude').split(',').length;sizes.push(n);return Response.json({elevation:Array(n).fill(200)});}}),paths=Array.from({length:199},(_,i)=>[[i*.02,5],[(i+1)*.02,5]]),result=await service.elevations({paths});assert.ok(result.every(r=>r.elevation));assert.ok(result.reduce((n,r)=>n+r.elevation.profile.length,0)<=4096);assert.ok(sizes.every(n=>n<=100));assert.ok(sizes.length<=41);
 });
+
+
+test('bibliothèque : recherche sans accents, seuils inclusifs et dénivelé estimé en cache sans calcul externe',async()=>{
+ const {filterPlans,planLibraryStats}=await import('../dist/plan-library.js');const make=(id,name,distance,ascent,isMine=true)=>({id,name,owner:isMine?'Alice':'Bob',notes:'Départ à Spa',isMine,distance,coordinates:[[50,5],[50.01,5]],legs:ascent===null?[]:[{coordinates:[[50,5],[50.01,5]],analysis:{elevation:{profile:[{at:0,altitude:100},{at:1111.9,altitude:100+ascent}]}}}]});
+ const plans=[make('a','Crêtes des Fagnes',20000,500),make('b','Tour des bois',40000,900,false),make('c','Sans altitude',20000,null)];const ids=opts=>filterPlans(plans,opts).map(p=>p.id);
+ assert.deepEqual(ids({search:'cretes ALICE spa'}),['a']);assert.deepEqual(ids({distanceMin:20,distanceMax:20,ascentMin:500,ascentMax:500}),['a']);assert.deepEqual(ids({scope:'others',ascentMin:500}),['b']);assert.deepEqual(ids({distanceMin:40,distanceMax:20}),[]);assert.deepEqual(ids({ascentMax:0}),[]);assert.equal(planLibraryStats(plans[2]).ascent,null);assert.equal(planLibraryStats(plans[0]),planLibraryStats(plans[0]));assert.deepEqual(ids({search:'',distanceMin:'',distanceMax:'',ascentMin:'',ascentMax:''}),['a','b','c']);
+});
+test('bibliothèque : filtre sur les extrémités réelles, départ et/ou arrivée, sans confondre traversée et extrémité',async()=>{
+ const {filterPlans}=await import('../dist/plan-library.js');const plans=[{id:'start',coordinates:[[50,5],[51,5]]},{id:'end',coordinates:[[49,5],[50,5]]},{id:'both',coordinates:[[50,5],[50.1,5]]},{id:'cross',coordinates:[[49,5],[50,5],[51,5]]}].map(p=>({...p,legs:[],distance:1000})),bounds={contains:p=>p[0]>=50&&p[0]<=50.1},ids=mapFilter=>filterPlans(plans,{mapFilter,bounds}).map(p=>p.id);
+ assert.deepEqual(ids('start'),['start','both']);assert.deepEqual(ids('end'),['end','both']);assert.deepEqual(ids('either'),['start','end','both']);assert.deepEqual(ids('both'),['both']);assert.deepEqual(ids('all'),['start','end','both','cross']);assert.deepEqual(filterPlans(plans,{mapFilter:'start',bounds:null}),[]);
+});
