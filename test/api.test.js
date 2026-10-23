@@ -159,3 +159,7 @@ test('enregistrement des portions mixtes, altitudes et nom GPX avec caractères 
 test('altitudes groupées protégées par session et origine, sans lecture ou modification des itinéraires',async()=>{
  let calls=0;const metrics=async()=>({});metrics.elevations=async input=>{calls++;assert.equal(input.paths.length,2);return [{elevation:null,error:'Indisponible'},{elevation:null,error:'Indisponible'}];};const db=database(),app=createApp(db,{origin:'https://sillage.test',planMetrics:metrics}),body={paths:[[[50,5],[50.01,5]],[[50.01,5],[50.02,5]]]};assert.equal((await request(app,{url:'/api/plan-elevations',method:'POST',body})).status,401);assert.equal((await request(app,{url:'/api/plan-elevations',method:'POST',body,user:'alice',origin:'https://other.test'})).status,403);assert.equal(calls,0);const response=await request(app,{url:'/api/plan-elevations',method:'POST',body,user:'alice'});assert.equal(response.status,200);assert.equal(JSON.parse(response.body).length,2);assert.equal(calls,1);assert.ok(!db.queries.some(q=>/planned_routes/.test(q.sql)));assert.equal((await request(app,{url:'/elevation-data.js'})).status,303);assert.equal((await request(app,{url:'/elevation-data.js',user:'alice'})).status,200);
 });
+
+test('module de règles OSM disponible uniquement après authentification',async()=>{
+ const app=createApp(database(),{origin:'https://sillage.test'});assert.equal((await request(app,{url:'/osm-tags.js'})).status,303);const r=await request(app,{url:'/osm-tags.js',user:'alice'});assert.equal(r.status,200);assert.match(r.body,/bicycleDirections/);
+});

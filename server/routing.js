@@ -1,17 +1,18 @@
+import {createLocalRouting} from './local-routing.js';
 import {coordinates,distance,routeLength} from './model.js';
 const endpoint='https://routing.openstreetmap.de/routed-bike/route/v1/driving/';
 export function routeRequest(body){
  const points=coordinates(body.points),planning=body.purpose==='itinerary',maxPoints=planning?50:12,maxDistance=planning?500000:15000;
  if(points.length>maxPoints)throw Error(`Routage limité à ${maxPoints} points, départ et arrivée compris.`);
  if(![75,150,250].includes(body.tolerance??150))throw Error('Tolérance invalide.');
- if(points.slice(1).some((p,i)=>distance(points[i],p)<2)||routeLength(points)<5||routeLength(points)>maxDistance)throw Error(`Choisissez des points distincts pour ${planning?'un itinéraire de moins de 500 km':'une portion de moins de 15 km'}.`);
+ if(points.slice(1).some((p,i)=>distance(points[i],p)<(body.allowRestricted===true ? .5 : 2))||routeLength(points)<(body.allowRestricted===true ? .5 : 5)||routeLength(points)>maxDistance)throw Error(`Choisissez des points distincts pour ${planning?'un itinéraire de moins de 500 km':'une portion de moins de 15 km'}.`);
  return {points,tolerance:body.tolerance??150,maxDistance,planning};
 }
-export function createRoutingService({fetcher=(...args)=>fetch(...args),now=Date.now,wait=ms=>new Promise(r=>setTimeout(r,ms)),base=process.env.BIKE_ROUTING_URL||endpoint}={}){
+export function createRoutingService({fetcher=(...args)=>fetch(...args),now=Date.now,wait=ms=>new Promise(r=>setTimeout(r,ms)),base=process.env.BIKE_ROUTING_URL||endpoint,localRouting=createLocalRouting()}={}){
  const cache=new Map(),pending=new Map();let lastStart=-Infinity,queue=Promise.resolve(),queued=0,cacheBytes=0;
  const urlBase=new URL(base);if(urlBase.protocol!=='https:')throw Error('Le service de routage doit utiliser HTTPS.');
  async function request(url){
-  let response;try{response=await fetcher(url.toString(),{headers:{'User-Agent':'Sillage/6.1 (+https://sillage.gravelspa.be)','Accept':'application/json'},signal:AbortSignal.timeout(20000)});}catch{throw Object.assign(Error('Le moteur vélo ne répond pas. Réessayez ou utilisez le mode manuel.'),{status:504});}
+  let response;try{response=await fetcher(url.toString(),{headers:{'User-Agent':'Sillage/6.4 (+https://sillage.gravelspa.be)','Accept':'application/json'},signal:AbortSignal.timeout(20000)});}catch{throw Object.assign(Error('Le moteur vélo ne répond pas. Réessayez ou utilisez le mode manuel.'),{status:504});}
   if(!response.ok)throw Object.assign(Error(response.status===429?'Service de routage occupé. Réessayez plus tard.':'Le moteur vélo est indisponible. Le mode manuel reste disponible.'),{status:response.status===429?429:502});
   const text=await boundedText(response);try{return JSON.parse(text);}catch{throw Object.assign(Error('Réponse du moteur vélo invalide. Réessayez plus tard.'),{status:502});}
  }
@@ -24,21 +25,22 @@ export function createRoutingService({fetcher=(...args)=>fetch(...args),now=Date
   });queue=job.catch(()=>{});pending.set(key,job);try{return await job;}finally{queued--;pending.delete(key);}
  }
  const route=async input=>{
-  const {points,tolerance,maxDistance,planning}=routeRequest(input);
-  return enqueue(JSON.stringify({points,tolerance,planning}),async()=>{
+  const {points,tolerance,maxDistance,planning}=routeRequest(input);let fallbackWarning=null;if(input.allowRestricted===true){try{return await localRouting({points,tolerance,maxDistance});}catch(e){if(e.localNoPath)throw e;fallbackWarning='Moteur vélo de secours : les accès restreints peuvent être évités. Ajoutez des passages rapprochés pour le calcul OSM local.';}}
+  return enqueue(JSON.stringify({points,tolerance,planning,fallbackWarning}),async()=>{
    const pair=points.map(p=>`${p[1]},${p[0]}`).join(';'),url=new URL(pair,urlBase.href.endsWith('/')?urlBase.href:urlBase.href+'/');
-   url.search=new URLSearchParams({overview:'full',geometries:'geojson',steps:'false',alternatives:'false',radiuses:points.map(()=>tolerance).join(';'),continue_straight:'false'});
+   url.search=new URLSearchParams({overview:'full',geometries:'geojson',steps:'true',alternatives:'false',radiuses:points.map(()=>tolerance).join(';'),continue_straight:'false'});
    const data=await request(url),chosen=data.routes?.[0];if(data.code!=='Ok'||chosen?.geometry?.type!=='LineString')throw Error('Aucun itinéraire vélo trouvé entre ces points. Essayez le mode manuel.');
+   if(chosen.legs?.some(l=>l.steps?.some(s=>['pushing bike','walking','steps up','steps down'].includes(s.mode))))throw Error('Le moteur vélo propose une portion à pied, parfois à contre-sens. Ajoutez des points rapprochés pour le calcul OSM local.');
    const path=coordinates(chosen.geometry.coordinates.map(p=>[p[1],p[0]])),length=routeLength(path);
    if(length<5)throw Error('Les points rejoignent le même endroit sur le réseau. Éloignez-les.');if(length>maxDistance)throw Error(`Le chemin calculé dépasse ${maxDistance/1000} km. Rapprochez les points.`);
    const snappedPoints=data.waypoints?.length===points.length?coordinates(data.waypoints.map(w=>[w.location?.[1],w.location?.[0]])):points.map((p,i)=>i===0?path[0]:i===points.length-1?path.at(-1):path.reduce((best,q)=>distance(p,q)<distance(p,best)?q:best,path[0]));
    const offsets=points.map((p,i)=>distance(p,snappedPoints[i]));if(offsets.some(m=>m>tolerance+5))throw Error('Le chemin est trop éloigné des points choisis. Augmentez la tolérance ou utilisez le mode manuel.');
    const legs=chosen.legs;let legFractions=null;if(Array.isArray(legs)&&legs.length===points.length-1&&legs.every(l=>Number.isFinite(l.distance)&&l.distance>=0)){const sum=legs.reduce((n,l)=>n+l.distance,0);if(sum>0){let acc=0;legFractions=[0,...legs.map(l=>{acc+=l.distance;return acc/sum;})];}}
-   return {coordinates:path,snappedPoints,legFractions,surface:null,stats:{ignoredAnchors:0,maxOffset:Math.round(Math.max(...offsets)),tolerance},engine:base===endpoint?'OSRM vélo / FOSSGIS':'OSRM vélo',cached:false};
+   return {coordinates:path,snappedPoints,legFractions,surface:null,...(fallbackWarning?{warning:fallbackWarning,accessPolicy:'provider'}:{}),stats:{ignoredAnchors:0,maxOffset:Math.round(Math.max(...offsets)),tolerance},engine:base===endpoint?'OSRM vélo / FOSSGIS':'OSRM vélo',cached:false};
   });
  };
- route.nearest=async input=>{
-  const point=coordinates([input.point,input.point])[0],tolerance=input.tolerance??150;if(![75,150,250].includes(tolerance))throw Error('Tolérance invalide.');
+ route.nearest=async input=>{const point=coordinates([input.point,input.point])[0],tolerance=input.tolerance??150;if(![75,150,250].includes(tolerance))throw Error('Tolérance invalide.');
+  if(input.allowRestricted===true){try{return await localRouting.nearest({point,tolerance});}catch(e){if(e.localNoPath)throw e;}}
   return enqueue(JSON.stringify({nearest:point,tolerance}),async()=>{
    if(!urlBase.pathname.includes('/route/v1/'))throw Error('Le fournisseur de routage ne propose pas l’accrochage des points.');
    const url=new URL(urlBase.href.replace('/route/v1/','/nearest/v1/'));url.pathname=url.pathname.replace(/\/?$/,`/${point[1]},${point[0]}`);url.search=new URLSearchParams({number:'1',radiuses:String(tolerance)});

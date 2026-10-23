@@ -1,5 +1,5 @@
-import {buildElevationModel} from './elevation.js?v=6.3.0';
-import {distance,routeLength} from './geo.js';
+import {buildElevationModel} from './elevation.js?v=6.4.0';
+import {distance,routeLength} from './geo.js?v=6.4.0';
 import {routePosition} from './route-edit.js';
 let serial=0;
 const point=p=>[...p];
@@ -24,7 +24,7 @@ export class ItineraryDraft{
   if(!this.legs[i+1]?.coordinates)this.points[i+1]=point(path.at(-1));
   if(this.points[i].some((v,k)=>v!==path[0][k]))path.unshift(point(this.points[i]));
   if(this.points[i+1].some((v,k)=>v!==path.at(-1)[k]))path.push(point(this.points[i+1]));
-  this.legs[i]={...old,coordinates:path};return true;
+  this.legs[i]={...old,coordinates:path,analysis:result.analysis||old.analysis,routingWarning:result.warning||null};return true;
  }
  analyse(id,analysis){const i=this.legs.findIndex(l=>l.id===id);if(i<0)return false;this.legs[i]={...this.legs[i],analysis};return true;}
  coordinates(){const out=[];for(let i=0;i<this.legs.length;i++){const p=this.legs[i].coordinates||[this.points[i],this.points[i+1]];for(let k=out.length?1:0;k<p.length;k++)out.push(p[k]);}return out.length?out:this.points.map(point);}

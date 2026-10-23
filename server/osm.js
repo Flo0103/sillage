@@ -17,8 +17,8 @@ export function createOSMService({fetcher=(...args)=>fetch(...args),now=Date.now
   if(active>=2)throw Object.assign(Error('Le service OSM est occupé. Réessayez dans quelques secondes.'),{status:429});
   const operation=(async()=>{
    active++;try{
-    const query=`[out:json][timeout:20];way[highway][highway!~"motorway|trunk|motorway_link|trunk_link|steps|construction|proposed"][access!~"private|no"][bicycle!="no"](${box.join(',')});out geom;`;
-    const response=await fetcher('https://overpass-api.de/api/interpreter',{method:'POST',headers:{'User-Agent':'Sillage/3.1 (+https://sillage.gravelspa.be)'},body:new URLSearchParams({data:query}),signal:AbortSignal.timeout(25000)});
+    const query=`[out:json][timeout:20];way[highway][highway!~"motorway|trunk|motorway_link|trunk_link|steps|construction|proposed"](${box.join(',')});out body geom;`;
+    const response=await fetcher('https://overpass-api.de/api/interpreter',{method:'POST',headers:{'User-Agent':'Sillage/6.4 (+https://sillage.gravelspa.be)'},body:new URLSearchParams({data:query}),signal:AbortSignal.timeout(25000)});
     if(!response.ok)throw Object.assign(Error('OSM est temporairement indisponible. Réessayez ou utilisez le mode manuel.'),{status:502});
     let raw='';const limit=20*1024*1024;
     if(response.body?.getReader){const reader=response.body.getReader(),decoder=new TextDecoder();let size=0;try{for(;;){const{done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>limit){await reader.cancel();throw Error('Trop de données OSM. Réduisez la portion.');}raw+=decoder.decode(value,{stream:true});}raw+=decoder.decode();}finally{reader.releaseLock();}}

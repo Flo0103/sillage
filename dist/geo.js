@@ -1,3 +1,4 @@
+import {bicycleDirections} from './osm-tags.js?v=6.4.0';
 export const distance=(a,b)=>{const r=Math.PI/180,x=(b[0]-a[0])*r,y=(b[1]-a[1])*r,h=Math.sin(x/2)**2+Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(y/2)**2;return 12742000*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));};
 export const routeLength=p=>p.slice(1).reduce((s,x,i)=>s+distance(p[i],x),0);
 export function shortest(graph,start,end,nodes,{respectDirection=false}={}){
@@ -13,7 +14,7 @@ function prepare(elements,onProgress=()=>{}){
  if(prepared.has(elements))return prepared.get(elements);
  const nodes=new Map(),graph=new Map();
  const add=(id,p)=>{nodes.set(id,p);if(!graph.has(id))graph.set(id,[]);};
- const link=(a,b,tags)=>{const d=distance(nodes.get(a),nodes.get(b));if(a!==b){const one=tags?.['oneway:bicycle']??tags?.oneway??(tags?.junction==='roundabout'?'yes':'no'),forward=one!=='-1'&&tags?.['bicycle:forward']!=='no',backward=!['yes','1','true'].includes(one)&&tags?.['bicycle:backward']!=='no';graph.get(a).push([b,d,tags,forward||tags?.['bicycle:forward']==='yes']);graph.get(b).push([a,d,tags,backward||tags?.['bicycle:backward']==='yes']);}};
+ const link=(a,b,tags)=>{const d=distance(nodes.get(a),nodes.get(b));if(a!==b){const {forward,backward}=bicycleDirections(tags);graph.get(a).push([b,d,tags,forward]);graph.get(b).push([a,d,tags,backward]);}};
  let processed=0;for(const way of elements){if((processed++%100)===0)onProgress({stage:'prepare',completed:processed-1,total:elements.length});if(!way.nodes||!way.geometry)continue;for(let i=0;i<way.nodes.length;i++){const p=way.geometry[i];if(!p)continue;add(way.nodes[i],[p.lat,p.lon]);if(i&&nodes.has(way.nodes[i-1])){const a=nodes.get(way.nodes[i-1]),b=nodes.get(way.nodes[i]),steps=Math.max(1,Math.ceil(distance(a,b)/35));if(steps>10000)throw Error('Géométrie OSM trop étendue. Réduisez la portion.');let last=way.nodes[i-1];for(let k=1;k<steps;k++){const id=`${way.id}:${i}:${k}`;add(id,[a[0]+(b[0]-a[0])*k/steps,a[1]+(b[1]-a[1])*k/steps]);link(last,id,way.tags);last=id;}link(last,way.nodes[i],way.tags);}if(nodes.size>150000)throw Error('Trop de chemins dans cette zone. Réduisez la portion.');}}
  onProgress({stage:'prepare',completed:elements.length,total:elements.length});onProgress({stage:'index'});
  if(!nodes.size)throw Error('Aucun chemin OSM. Passez en mode manuel.');

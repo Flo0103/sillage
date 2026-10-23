@@ -1,8 +1,8 @@
-import {smoothElevation,elevationGain} from './elevation-data.js?v=6.3.0';
-import {distance,routeLength} from './geo.js';
+import {smoothElevation,elevationGain} from './elevation-data.js?v=6.4.0';
+import {distance,routeLength} from './geo.js?v=6.4.0';
 export const elevationColors=['#31584a','#598661','#8b9c55','#b5a052','#bd8150','#a95c4b','#77434e'];
 export const slopeBins=[[-Infinity,-10,'< −10 %','#446f99'],[-10,-5,'−10 à −5 %','#6598b3'],[-5,-2,'−5 à −2 %','#83aaa6'],[-2,2,'−2 à +2 %','#81945a'],[2,5,'+2 à +5 %','#c3a04f'],[5,10,'+5 à +10 %','#bc7950'],[10,Infinity,'> +10 %','#9f4850']];
-export const routeSurfaceColors={'Asphalte / bitume':'#3c5447','Béton':'#788187','Gravier fin':'#d6b36d','Gravier':'#bf9845','Gravier compacté':'#aca263','Terre':'#986b48','Boue':'#6f4d3b','Herbe':'#78884d','Dalles engazonnées':'#99a26a','Sable':'#d5ba65','Roches':'#7a658b','Pierres':'#9a8280','Pavés':'#827e8e','Bois':'#9f7855','Non revêtu':'#b6845a','Revêtu (non précisé)':'#677c79','Inconnu':'#9b9b91'};
+export const routeSurfaceColors={'Asphalte / bitume':'#3c5447','Béton':'#788187','Gravier fin':'#d6b36d','Gravier':'#bf9845','Gravier compacté':'#aca263','Terre':'#986b48','Boue':'#6f4d3b','Herbe':'#78884d','Dalles engazonnées':'#99a26a','Sable':'#d5ba65','Roches':'#7a658b','Pierres':'#9a8280','Pavés':'#827e8e','Bois':'#9f7855','Non revêtu':'#b6845a','Revêtu (non précisé)':'#677c79','Non revêtu (tracktype)':'#b6845a','Mixte non revêtu':'#ac8055','Mixte':'#90886b','Copeaux de bois':'#ab8156','Métal':'#75838a','Inconnu':'#9b9b91'};
 function locate(values,target,key=v=>v){let lo=0,hi=values.length-1;while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(key(values[mid])<=target)lo=mid;else hi=mid-1;}return lo;}
 const modelCache=new WeakMap();
 export function buildElevationModel(legs){
