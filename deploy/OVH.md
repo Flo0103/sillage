@@ -190,3 +190,7 @@ Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d 
 Vérifier : nouveau tracé d’itinéraire avec bibliothèque repliée ; pourcentage non asphalté visible avec détail des surfaces fermé ; clic sur le départ / passage / arrivée pour sélectionner, rendre manuelle la liaison entrante ou supprimer. Le départ ne propose pas de liaison entrante. Fermer et Supprimer ne doivent jamais ajouter de point sur la carte. Tester Annuler / rétablir depuis les outils, y compris en plein écran.
 
 Pour un segment, placer quatre points successifs : le dernier doit rester l’arrivée, les anciens calculs doivent rester intacts et seuls les nouveaux raccords être calculés. Enregistrer un segment contenant une correction locale, le rouvrir et vérifier le mode de ses portions. Les attributs seuls ne doivent pas effacer ces portions ; les anciens clients qui changent réellement la géométrie sans fournir de portions restent compatibles. Les aides générales sont derrière ?. Les droits de modification et la confidentialité des imports Strava restent appliqués.
+
+## Identité visuelle gravel (6.11.0)
+
+`git pull --ff-only`, puis `sudo docker compose up -d --build --wait`. Recharger complètement la page pour les ressources `v=6.11.0`. La refonte concerne uniquement la présentation ; aucune migration, clé ou variable supplémentaire. Les polices Barlow et Barlow Condensed sont chargées via Google Fonts avec une solution de secours système. Vérifier la connexion, les deux onglets, le défilement des panneaux et la gestion du compte sur ordinateur et téléphone.
