@@ -1,5 +1,5 @@
-import {buildElevationModel} from './elevation.js?v=6.9.0';
-import {distance,routeLength} from './geo.js?v=6.9.0';
+import {buildElevationModel} from './elevation.js?v=6.10.0';
+import {distance,routeLength} from './geo.js?v=6.10.0';
 import {routePosition} from './route-edit.js';
 let serial=0;
 const point=p=>[...p];
@@ -35,10 +35,11 @@ export class ItineraryDraft{
   const path=data.coordinates,controls=data.routePoints?.length?data.routePoints:data.mode==='manual'&&path.length<=200?path:[path[0],path.at(-1)];this.points=controls.map(point);const total=routeLength(path),cumulative=[0];for(let i=1;i<path.length;i++)cumulative.push(cumulative.at(-1)+distance(path[i-1],path[i]));let previous=0;
   this.legs=[];for(let i=1;i<controls.length;i++){let end=path.length-1;if(i<controls.length-1){const target=routePosition(path,controls[i],total?cumulative[previous]/total:0)*total;end=previous;while(end<path.length-1&&cumulative[end]<target)end++;}const section=[point(controls[i-1]),...path.slice(previous+1,end).map(point),point(controls[i])];this.legs.push(leg(data.mode==='manual'?'manual':'route',section));previous=end;}
  }
+ invalidateRoutes(){if(!this.legs.some(l=>l.mode==='route'))return;this.remember();this.legs=this.legs.map(l=>l.mode==='route'?leg('route'):l);}
  serialise(){return this.legs.map(({mode,coordinates,analysis})=>({mode,coordinates,analysis}));}
 }
 export function planSummary(legs){
- const model=buildElevationModel(legs);let total=model.total,known=0;const surfaces={};let failures=0;
- for(const l of legs){const a=l.analysis;if(!a)continue;for(const s of a.surfaces||[]){surfaces[s.type]=(surfaces[s.type]||0)+s.distance;if(s.type!=='Inconnu')known+=s.distance;}if(a.errors?.length)failures++;}
- return {ascent:model.ascent,descent:model.descent,elevationCoverage:total?Math.min(100,Math.round(100*model.elevationLength/total)):0,surfaceCoverage:total?Math.min(100,Math.round(100*known/total)):0,surfaces,total,failures};
+ const model=buildElevationModel(legs);let total=model.total,known=0,unpaved=0,unpavedKnown=0;const surfaces={};let failures=0;
+ for(const l of legs){const a=l.analysis;if(!a)continue;for(const run of a.surfaceRuns||[]){const meters=routeLength(run.coordinates||[]);if(run.unpaved===true)unpaved+=meters;if(run.unpaved===true||run.unpaved===false)unpavedKnown+=meters;}if(!a.surfaceRuns?.length)for(const part of a.surfaces||[]){if(['Inconnu','Mixte'].includes(part.type))continue;unpavedKnown+=part.distance;if(!['Asphalte / bitume','Asphalte','Béton','Revêtu (non précisé)'].includes(part.type))unpaved+=part.distance;}for(const s of a.surfaces||[]){surfaces[s.type]=(surfaces[s.type]||0)+s.distance;if(s.type!=='Inconnu')known+=s.distance;}if(a.errors?.length)failures++;}
+ return {unpaved:Math.min(total,unpaved),unpavedKnown:Math.min(total,unpavedKnown),ascent:model.ascent,descent:model.descent,elevationCoverage:total?Math.min(100,Math.round(100*model.elevationLength/total)):0,surfaceCoverage:total?Math.min(100,Math.round(100*known/total)):0,surfaces,total,failures};
 }

@@ -14,10 +14,14 @@ test('ne raccorde pas artificiellement deux chemins déconnectés',()=>{assert.t
 test('routage conserve ses points de passage et refuse des points non valides ou trop nombreux',()=>{
  const routePoints=[[50,5],[50.0005,5.0005],[50.001,5]],p=portion({...input,mode:'route',routePoints});assert.deepEqual(p.routePoints,routePoints);
  assert.deepEqual(portion({...input,mode:'route'}).routePoints,[input.coordinates[0],input.coordinates[1]]);
- assert.throws(()=>portion({...input,mode:'route',routePoints:[[500,5],[50,5]]}));assert.throws(()=>portion({...input,mode:'route',routePoints:Array.from({length:13},(_,i)=>[50+i*.001,5])}));
+ assert.throws(()=>portion({...input,mode:'route',routePoints:[[500,5],[50,5]]}));assert.throws(()=>portion({...input,mode:'route',routePoints:Array.from({length:201},(_,i)=>[50+i*.001,5])}));
 });
 
 test('modèle d’itinéraire : limites, nom obligatoire et GPX échappé',()=>{
  const p=planData({mode:'manual',coordinates:[[50,5],[50.02,5]],name:'  Tour & bois  ',notes:'<pause> & eau'});assert.equal(p.name,'Tour & bois');assert.ok(p.distance>2000);assert.equal(p.mode,'manual');assert.match(planGPX(p),/<name>Tour &amp; bois<\/name>/);assert.match(planGPX(p),/<desc>&lt;pause&gt; &amp; eau<\/desc>/);assert.match(planGPX(p),/lat="50.02" lon="5"/);
  assert.throws(()=>planData({mode:'manual',coordinates:[[50,5],[50.01,5]]}),/nom/);assert.throws(()=>planData({coordinates:[[0,0],[10,10]],mode:'manual'}),/500 km/);assert.throws(()=>planData({coordinates:[[50,5],[50,5]],mode:'manual'}),/distincts/);
+});
+
+test('segment avec corrections locales : validation et conservation des portions, incohérences rejetées',()=>{
+ const a=[50,5],b=[50.01,5],c=[50.02,5],body={coordinates:[a,b,c],mode:'route',snapped:true,rating:4,surface:'Gravier fin',difficulty:'Facile',legs:[{mode:'route',coordinates:[a,b]},{mode:'manual',coordinates:[b,c]}]},p=portion(body);assert.deepEqual(p.routePoints,[a,b,c]);assert.deepEqual(p.legs.map(l=>l.mode),['route','manual']);assert.throws(()=>portion({...body,legs:[{mode:'unknown',coordinates:[a,b,c]}]}),/Mode/);assert.throws(()=>portion({...body,legs:[{mode:'route',coordinates:[a,b]}]}),/correspondent/);assert.throws(()=>portion({...body,legs:[{mode:'route',coordinates:[a,b]},{mode:'manual',coordinates:[a,c]}]}),/rejoindre/);assert.equal(portion({...body,legs:null}).legs,undefined);
 });

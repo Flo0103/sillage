@@ -1,5 +1,5 @@
-import {smoothElevation,elevationGain} from './elevation-data.js?v=6.9.0';
-import {distance,routeLength} from './geo.js?v=6.9.0';
+import {smoothElevation,elevationGain} from './elevation-data.js?v=6.10.0';
+import {distance,routeLength} from './geo.js?v=6.10.0';
 export const elevationColors=['#28634e','#529255','#91a748','#cfb041','#d58b3d','#c56046','#884657'];
 export const slopeBins=[[-Infinity,-10,'Descente < −10 %','#124b8d'],[-10,-5,'Descente −10 à −5 %','#4c8dc4'],[-5,-2,'Descente −5 à −2 %','#a8c9e4'],[-2,-.5,'Descente −2 à −0,5 %','#e1edf5'],[-.5,.5,'Plat · −0,5 à +0,5 %','#fffdf9'],[.5,2,'Montée +0,5 à +2 %','#fae3df'],[2,5,'Montée +2 à +5 %','#f3b1a5'],[5,10,'Montée +5 à +10 %','#e46a58'],[10,Infinity,'Montée ≥ +10 %','#d82721']];
 export const routeSurfaceColors={'Asphalte / bitume':'#3c5447','Béton':'#788187','Gravier fin':'#d6b36d','Gravier':'#bf9845','Gravier compacté':'#aca263','Terre':'#986b48','Boue':'#6f4d3b','Herbe':'#78884d','Dalles engazonnées':'#99a26a','Sable':'#d5ba65','Roches':'#7a658b','Pierres':'#9a8280','Pavés':'#827e8e','Bois':'#9f7855','Non revêtu':'#b6845a','Revêtu (non précisé)':'#677c79','Non revêtu (tracktype)':'#b6845a','Mixte non revêtu':'#ac8055','Mixte':'#90886b','Copeaux de bois':'#ab8156','Métal':'#75838a','Inconnu':'#9b9b91'};

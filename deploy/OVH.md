@@ -181,3 +181,12 @@ Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d 
 Vérifier au chargement : relief et extrema cochés, absence de bandeau entre navigation et carte, pictogrammes de centrage et plein écran à côté du zoom, repli de bibliothèque et dessin toujours accessibles. En plein écran, le bouton de sortie reste disponible ; les contrôles ne déclenchent pas de point de tracé.
 
 Le dénivelé est recalculé localement sur les profils enregistrés avec un seuil de retournement de 5 m. Les pentes sont estimées sur 300 m. Vérifier un ancien itinéraire sans requête d’altitude et comparer son D+ dans l’éditeur et la bibliothèque. Les valeurs D+/D− stockées par portion restent historiques jusqu’au prochain enregistrement ; l’affichage utilise le modèle recalculé. La source Copernicus reste la même : une concordance exacte avec Strava/Garmin n’est pas promise sans comparaison du profil effectif. Relever le nouveau total après déploiement pour comparer les mêmes tracés et profils source.
+
+
+## Points, surfaces et historique dans la carte (6.10.0)
+
+Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d --build --wait`. Aucune migration ni nouvelle clé : les portions des segments sont conservées dans `portions.data` (JSONB), avec la géométrie PostGIS existante. Recharger complètement pour les fichiers `v=6.10.0`.
+
+Vérifier : nouveau tracé d’itinéraire avec bibliothèque repliée ; pourcentage non asphalté visible avec détail des surfaces fermé ; clic sur le départ / passage / arrivée pour sélectionner, rendre manuelle la liaison entrante ou supprimer. Le départ ne propose pas de liaison entrante. Fermer et Supprimer ne doivent jamais ajouter de point sur la carte. Tester Annuler / rétablir depuis les outils, y compris en plein écran.
+
+Pour un segment, placer quatre points successifs : le dernier doit rester l’arrivée, les anciens calculs doivent rester intacts et seuls les nouveaux raccords être calculés. Enregistrer un segment contenant une correction locale, le rouvrir et vérifier le mode de ses portions. Les attributs seuls ne doivent pas effacer ces portions ; les anciens clients qui changent réellement la géométrie sans fournir de portions restent compatibles. Les aides générales sont derrière ?. Les droits de modification et la confidentialité des imports Strava restent appliqués.

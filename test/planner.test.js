@@ -66,3 +66,7 @@ test('bibliothèque : filtre sur les extrémités réelles, départ et/ou arriv�
  const {filterPlans}=await import('../dist/plan-library.js');const plans=[{id:'start',coordinates:[[50,5],[51,5]]},{id:'end',coordinates:[[49,5],[50,5]]},{id:'both',coordinates:[[50,5],[50.1,5]]},{id:'cross',coordinates:[[49,5],[50,5],[51,5]]}].map(p=>({...p,legs:[],distance:1000})),bounds={contains:p=>p[0]>=50&&p[0]<=50.1},ids=mapFilter=>filterPlans(plans,{mapFilter,bounds}).map(p=>p.id);
  assert.deepEqual(ids('start'),['start','both']);assert.deepEqual(ids('end'),['end','both']);assert.deepEqual(ids('either'),['start','end','both']);assert.deepEqual(ids('both'),['both']);assert.deepEqual(ids('all'),['start','end','both','cross']);assert.deepEqual(filterPlans(plans,{mapFilter:'start',bounds:null}),[]);
 });
+
+test('part non asphaltée calculée sur les géométries et distinguée des surfaces inconnues',()=>{
+ const a=[50,5],b=[50.01,5],c=[50.02,5],d=[50.03,5],summary=planSummary([{coordinates:[a,b,c,d],analysis:{surfaceRuns:[{coordinates:[a,b],unpaved:true},{coordinates:[b,c],unpaved:false},{coordinates:[c,d],unpaved:null}]}}]);assert.ok(Math.abs(summary.unpaved/summary.total-1/3)<.001);assert.ok(Math.abs(summary.unpavedKnown/summary.total-2/3)<.001);assert.equal(planSummary([{coordinates:[a,b]}]).unpavedKnown,0);
+});
