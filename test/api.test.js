@@ -172,3 +172,11 @@ test('export du compte HTTP : authentification et pièce jointe JSON privée',as
 test('segment mixte route/manuel : enregistrement, lecture et édition des attributs conservent les portions',async()=>{
  const db=database(),app=createApp(db,{origin:'https://sillage.test'}),a=[50,5],b=[50.01,5],c=[50.02,5],body={name:'Dessin mixte',coordinates:[a,b,c],routePoints:[a,b,c],mode:'route',snapped:true,rating:4,surface:'Gravier fin',difficulty:'Facile',legs:[{mode:'route',coordinates:[a,b]},{mode:'manual',coordinates:[b,c]}]};const created=await request(app,{url:'/api/portions',method:'POST',user:'alice',body});assert.equal(created.status,201);const id=JSON.parse(created.body).id;const list=JSON.parse((await request(app,{url:'/api/portions',user:'alice'})).body);assert.deepEqual(list[0].legs,body.legs);const edited=await request(app,{url:'/api/portions/'+id,method:'PATCH',user:'alice',body:{notes:'Correction locale'}});assert.equal(edited.status,200);assert.deepEqual(JSON.parse(edited.body).legs,body.legs);assert.equal((await request(app,{url:'/api/portions/'+id,method:'PATCH',user:'bob',body:{notes:'Non autorisé'}})).status,404);
 });
+
+test('identité et polices accessibles à la connexion avec une liste publique limitée',async()=>{
+ const app=createApp(database(),{origin:'https://sillage.test'});
+ for(const [url,type]of [['/fonts/hanken-v1-latin.woff2','font/woff2'],['/fonts/bricolage-v1-latin.woff2','font/woff2'],['/fonts/plex-mono-v1-latin.woff2','font/woff2'],['/sillage-mark-v1.svg','image/svg+xml'],['/sillage-terrain-v1.svg','image/svg+xml'],['/sillage-wordmark-v1.svg','image/svg+xml'],['/sillage-mark-v1.png','image/png']]){
+  const r=await request(app,{url});assert.equal(r.status,200,url);assert.equal(r.headers['Content-Type'],type);assert.match(r.headers['Cache-Control'],/public.*immutable/);
+ }
+ for(const url of ['/fonts/unlisted.woff2','/server/db.js','/fonts/hanken-v1-OFL.txt'])assert.equal((await request(app,{url})).status,303,url);
+});

@@ -194,3 +194,7 @@ Pour un segment, placer quatre points successifs : le dernier doit rester l’ar
 ## Identité visuelle gravel (6.11.0)
 
 `git pull --ff-only`, puis `sudo docker compose up -d --build --wait`. Recharger complètement la page pour les ressources `v=6.11.0`. La refonte concerne uniquement la présentation ; aucune migration, clé ou variable supplémentaire. Les polices Barlow et Barlow Condensed sont chargées via Google Fonts avec une solution de secours système. Vérifier la connexion, les deux onglets, le défilement des panneaux et la gestion du compte sur ordinateur et téléphone.
+
+## Atlas de terrain et polices locales (6.12.0)
+
+Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d --build --wait`, puis recharger complètement la page. Les actifs graphiques et les polices WOFF2 sont inclus dans l’image Docker. Ils sont servis avant connexion par une liste explicite, avec types MIME et cache immuable ; les fichiers portent un suffixe de version. Aucune clé, variable, migration ou installation de police sur le VPS n’est nécessaire. Les écrans ne dépendent plus de Google Fonts. Vérifier connexion, navigation, aperçus et profil, ainsi que le défilement des panneaux et les champs sur mobile.

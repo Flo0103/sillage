@@ -37,6 +37,16 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),r
       }
       const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(sessionCookie+'='))?.slice(sessionCookie.length+1);
       let user;if(token&&/^[a-f0-9]{64}$/.test(token)){const q=await db.query('SELECT u.id,u.username,u.is_admin FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active=true',[tokenHash(token)]);user=q.rows[0];}
+      const identityAssets={
+        '/fonts/hanken-v1-latin.woff2':'font/woff2',
+        '/fonts/bricolage-v1-latin.woff2':'font/woff2',
+        '/fonts/plex-mono-v1-latin.woff2':'font/woff2',
+        '/sillage-mark-v1.svg':'image/svg+xml',
+        '/sillage-wordmark-v1.svg':'image/svg+xml',
+        '/sillage-terrain-v1.svg':'image/svg+xml',
+        '/sillage-mark-v1.png':'image/png'
+      };
+      if(method==='GET'&&Object.hasOwn(identityAssets,path)){res.writeHead(200,{'Content-Type':identityAssets[path],'Cache-Control':'public, max-age=31536000, immutable'});return res.end(await readFile(root+path.slice(1)));}
       if(path==='/app-icon.png'&&method==='GET'){res.writeHead(200,{'Content-Type':'image/png','Cache-Control':'public, max-age=86400'});return res.end(await readFile(root+'app-icon.png'));}
       if(['/login.html','/login.js','/style.css','/invite.html','/invite.js'].includes(path)){const file=path.slice(1);res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8');res.setHeader('Cache-Control','no-store');return res.end(await readFile(root+file));}
       if(await stravaService({db,req,res,path,query,method,user,body,json,origin,secure,sessionToken:token?tokenHash(token):null}))return;
