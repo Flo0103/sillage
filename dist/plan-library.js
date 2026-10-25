@@ -1,5 +1,5 @@
-import {buildElevationModel} from './elevation.js?v=6.12.0';
-import {routeLength} from './geo.js?v=6.12.0';
+import {buildElevationModel} from './elevation.js?v=6.12.1';
+import {routeLength} from './geo.js?v=6.12.1';
 const metrics=new WeakMap();
 const normalise=value=>String(value??'').normalize('NFD').replace(/\p{Diacritic}/gu,'').toLocaleLowerCase('fr');
 export function planLibraryStats(plan){

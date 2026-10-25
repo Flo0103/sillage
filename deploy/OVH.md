@@ -198,3 +198,7 @@ Pour un segment, placer quatre points successifs : le dernier doit rester l’ar
 ## Atlas de terrain et polices locales (6.12.0)
 
 Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d --build --wait`, puis recharger complètement la page. Les actifs graphiques et les polices WOFF2 sont inclus dans l’image Docker. Ils sont servis avant connexion par une liste explicite, avec types MIME et cache immuable ; les fichiers portent un suffixe de version. Aucune clé, variable, migration ou installation de police sur le VPS n’est nécessaire. Les écrans ne dépendent plus de Google Fonts. Vérifier connexion, navigation, aperçus et profil, ainsi que le défilement des panneaux et les champs sur mobile.
+
+## Commandes de carte sur mobile (6.12.1)
+
+Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d --build --wait`, puis rechargement complet pour les ressources `v=6.12.1`. Aucune migration ni configuration supplémentaire. Sur téléphone, vérifier « Carte et légendes » en haut à droite, son ouverture avec OSM, IGN et WMS, puis le nouveau bouton de création près d’Annuler/Rétablir. La création d’un nouvel itinéraire reste annulable.

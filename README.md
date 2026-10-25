@@ -205,3 +205,9 @@ Les panneaux conservent leur défilement indépendant sur ordinateur et les form
 ## Atlas de terrain — identité Sillage (6.12.0)
 
 La signature et le signe à double trace, la planche de relief originale, les repères des aperçus et le profil annoté forment une identité commune à la carte, aux éditeurs et aux pages de compte. Hanken Grotesk, Bricolage Grotesque et IBM Plex Mono sont désormais hébergées avec l’application, sous SIL Open Font License ; les pages ne contactent plus Google Fonts. La feuille de styles a été réorganisée par composants et états. Voir [la charte Sillage](design/IDENTITY.md) pour les règles, couleurs et sources des actifs. Aucun changement de calcul, de visibilité ou de base de données.
+
+## Légendes mobiles et création dans la carte (6.12.1)
+
+Sur téléphone, le panneau « Carte et légendes » est ancré en haut à droite, face aux outils. Sa hauteur tient compte des crédits cartographiques réels pour garder les commandes visibles avec les différents fonds et WMS. Sur ordinateur, la légende reste en bas à gauche, au-dessus des crédits. Les dimensions sont mises à jour au redimensionnement et lors des changements de texte et d’outils.
+
+La commande de nouveau segment ou nouvel itinéraire quitte l’éditeur et rejoint les outils de carte, juste après Annuler/Rétablir. Son nom accessible et son infobulle suivent l’onglet. La création d’un nouvel itinéraire conserve l’historique existant et reste annulable ; elle ne supprime aucun itinéraire enregistré.
