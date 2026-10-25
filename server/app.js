@@ -48,6 +48,10 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),r
         '/sillage-mark-v2.svg':'image/svg+xml',
         '/sillage-mark-v2.png':'image/png',
         '/sillage-logo-v2.svg':'image/svg+xml',
+        '/sillage-logo-v3.svg':'image/svg+xml',
+        '/sillage-logo-mono-v3.svg':'image/svg+xml',
+        '/sillage-mark-v3.svg':'image/svg+xml',
+        '/sillage-mark-v3.png':'image/png',
         '/sillage-logo-mono-v2.svg':'image/svg+xml',
         '/sillage-sector-v1.svg':'image/svg+xml',
         '/sillage-itinerary-v1.svg':'image/svg+xml'

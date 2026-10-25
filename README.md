@@ -232,3 +232,8 @@ Le routage OSM commence par une emprise plus serrée et ne l’élargit qu’en 
 Les accès restreints restent routables avec un repère « ! », désormais aussi pendant le dessin d’un secteur et dans sa légende. Les sens uniques vélo restent appliqués, y compris si le réseau est déconnecté. Les grandes étapes dépassant les limites locales ou les pannes des deux sources peuvent encore utiliser le moteur vélo de secours, avec un message persistant dans l’éditeur : ce fournisseur peut éviter les accès restreints. Ajouter un point de passage rapproche alors les calculs locaux. La limite locale de 15 km et le budget de neuf zones restent bornés ; il ne s’agit pas d’un téléchargement régional.
 
 Les tests couvrent une longue liaison synthétique comprenant un chemin privé, la conservation d’un résultat local en cas de panne, les sens uniques, le nombre de zones, le cache et les repères dans les deux éditeurs. Cette régression reproduit le motif « petite étape réussie / grande étape en détour » ; elle ne remplace pas la vérification terrain du tracé exact de la Fagne wallonne après déploiement. Mise à jour habituelle, sans migration ni nouveau secret.
+
+
+## Logo gravel (6.14.1)
+
+Roues agrandies de 14 % et deux bornes ouvertes aux changements de direction du cadre. Les versions couleur, monochrome, le bandeau et les icônes utilisent la même géométrie. Les centres des bornes sont transparents, pour les fonds clairs et sombres. Les actifs `v3` remplacent les références `v2` ; les anciens fichiers restent servis pour le cache. Mise à jour habituelle sans migration ni modification du routage.
