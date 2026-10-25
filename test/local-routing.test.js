@@ -48,7 +48,7 @@ test('analyse de surface récupère géométrie et tags ; réponse sans géomét
 });
 test('service local élargit la zone si aucun passage et accroche précisément un départ',async()=>{
  let calls=0;const elements=[way([1,2],[a,b])],service=createLocalRouting({osmService:async()=>{calls++;return {elements,cached:true};}});assert.equal((await service({points:[a,b],tolerance:150})).engine,'OSM local · sens vélo');assert.equal((await service.nearest({point:[50.0005,5.0001],tolerance:150})).point[1],5);assert.equal(calls,2);
- const missing=createLocalRouting({osmService:async()=>{calls++;return {elements:[way([1,2],[a,b],{oneway:'yes'})]};}});await assert.rejects(missing({points:[b,a],tolerance:150}),e=>e.localNoPath);assert.equal(calls,4);
+ const missing=createLocalRouting({osmService:async()=>{calls++;return {elements:[way([1,2],[a,b],{oneway:'yes'})]};}});await assert.rejects(missing({points:[b,a],tolerance:150}),e=>e.localNoPath);assert.equal(calls,5);
 });
 test('calcul local prioritaire : aucun secours qui contourne un sens unique ; panne locale annoncée en secours',async()=>{
  let external=0;const result=routeOnOSM([a,b],[way([1,2],[a,b])]),local=async()=>result;local.nearest=async()=>({point:a});
@@ -86,4 +86,11 @@ test('réutilisation de nombreuses paires : mêmes distances qu’un Dijkstra in
  for(let row=0;row<size;row++)for(let col=0;col<size;col++){const id=row*size+col;for(const next of [col+1<size?id+1:null,row+1<size?id+size:null]){if(next===null)continue;ways.push(way([id,next],[nodes[id],nodes[next]],{oneway:'yes'}));graph[id].push([next,distance(nodes[id],nodes[next])]);}}
  function expected(start,end){const ds=nodes.map(()=>Infinity),visited=new Set();ds[start]=0;for(;;){let at=-1;for(let i=0;i<ds.length;i++)if(!visited.has(i)&&Number.isFinite(ds[i])&&(at<0||ds[i]<ds[at]))at=i;if(at<0)return Infinity;if(at===end)return ds[at];visited.add(at);for(const [next,meters]of graph[at])ds[next]=Math.min(ds[next],ds[at]+meters);}}
  for(let start=0;start<nodes.length;start++)for(let end=0;end<nodes.length;end++){if(start===end)continue;const meters=expected(start,end);if(!Number.isFinite(meters))assert.throws(()=>routeOnOSM([nodes[start],nodes[end]],ways),e=>e.localNoPath);else{const result=routeOnOSM([nodes[start],nodes[end]],ways),actual=result.analysis.surfaces.reduce((n,s)=>n+s.distance,0);assert.ok(Math.abs(actual-meters)<.01);}}
+});
+
+test('une zone élargie indisponible ne remplace pas un routage local valide sur accès limité',async()=>{
+ const end=[50,5.001],elements=[way([1,2,3,4],[a,[50.005,5],[50.005,5.001],end],{access:'private'})];let requests=0,external=0;const osm=async()=>{requests++;throw Error('zone élargie indisponible');};osm.peek=()=>({elements,cached:true,source:'OSM API'});const service=createRoutingService({localRouting:createLocalRouting({osmService:osm}),fetcher:async()=>{external++;throw Error('Pas de détour de secours');}}),result=await service({points:[a,end],allowRestricted:true});assert.equal(result.accessPolicy,'warn');assert.ok(result.analysis.accessRuns.length);assert.equal(external,0);assert.ok(requests>0);
+});
+test('échec de connexion dirigée conservé même si la recherche plus large devient indisponible',async()=>{
+ const elements=[way([1,2],[a,b],{oneway:'yes',access:'private'})];let calls=0,external=0;const osm=async()=>{if(++calls===1)return {elements};throw Error('indisponible');};const service=createRoutingService({localRouting:createLocalRouting({osmService:osm}),fetcher:async()=>{external++;}});await assert.rejects(service({points:[b,a],allowRestricted:true}),e=>e.localNoPath);assert.equal(external,0);
 });

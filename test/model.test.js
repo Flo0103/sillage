@@ -4,7 +4,7 @@ import {planData,planGPX} from '../server/plans.js';
 import {portion,hashPassword,verifyPassword,coordinates} from '../server/model.js';
 import {matchOSM,shortest,routeLength} from '../dist/geo.js';
 const input={coordinates:[[50,5],[50.001,5]],rating:4,surface:'Grosses pierres / blocs',difficulty:'Technique',winter:'conditions',name:'   '};
-test('nom facultatif, grosses pierres et hiver conservés',()=>{const p=portion(input);assert.match(p.name,/^Portion de 0,11 km$/);assert.equal(p.winter,'conditions');assert.equal(p.surface,input.surface);assert.equal(portion({...input,name:'  Chemin des pins  '}).name,'Chemin des pins');});
+test('nom facultatif, grosses pierres et hiver conservés',()=>{const p=portion(input);assert.match(p.name,/^Secteur de 0,11 km$/);assert.equal(p.winter,'conditions');assert.equal(p.surface,input.surface);assert.equal(portion({...input,name:'  Chemin des pins  '}).name,'Chemin des pins');});
 test('validation des données du serveur',()=>{for(const rating of [0,6,2.5,'5'])assert.throws(()=>portion({...input,rating}));assert.throws(()=>coordinates([[91,5],[50,5]]));assert.throws(()=>portion({...input,winter:'maybe'}));assert.throws(()=>portion({...input,surface:'inconnue'}));});
 test('mots de passe salés et vérification',async()=>{const p='Une phrase assez longue !';const a=await hashPassword(p),b=await hashPassword(p);assert.notEqual(a,b);assert.equal(await verifyPassword(p,a),true);assert.equal(await verifyPassword('autre',a),false);});
 test('plus court chemin et composante déconnectée',()=>{const graph=new Map([[1,[[2,5],[3,1]]],[3,[[2,1]]],[2,[]],[4,[]]]);assert.deepEqual(shortest(graph,1,2),[1,3,2]);assert.throws(()=>shortest(graph,1,4));});

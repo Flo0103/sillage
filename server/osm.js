@@ -6,7 +6,7 @@ export function validateBox(value){
 }
 const contains=(a,b)=>a[0]<=b[0]&&a[1]<=b[1]&&a[2]>=b[2]&&a[3]>=b[3];
 export function createOSMService({fetcher=(...args)=>fetch(...args),now=Date.now,ttl=600000,maxBytes=32*1024*1024,mapFallback=false,wait=ms=>new Promise(r=>setTimeout(r,ms))}={}){
- const cache=new Map(),pending=new Map(),mapAreaBackoff=new Map();let bytes=0,active=0,overpassBackoff=0,overpassFailures=0,mapBackoff=0,mapLast=-Infinity,mapQueue=Promise.resolve();
+ const cache=new Map(),pending=new Map(),mapAreaBackoff=new Map();let bytes=0,active=0,overpassBackoff=0,overpassFailures=0,mapBackoff=0,mapLast=-Infinity,mapQueue=Promise.resolve();const routingPending=new Map();
  function prune(){for(const[k,t]of mapAreaBackoff)if(now()>=t)mapAreaBackoff.delete(k);for(const[key,item]of cache)if(now()-item.time>(item.ttl??ttl)){cache.delete(key);bytes-=item.bytes;}}
  const getOSM=async function(input){
   const bbox=validateBox(input);prune();
@@ -31,7 +31,7 @@ export function createOSMService({fetcher=(...args)=>fetch(...args),now=Date.now
       if(now()<mapBackoff)throw error;await wait(Math.max(0,1000-(now()-mapLast)));mapLast=now();
       try{const [south,west,north,east]=box,url=new URL('https://api.openstreetmap.org/api/0.6/map.json');url.searchParams.set('bbox',[west,south,east,north].join(','));
        const response=await fetcher(url.toString(),{headers:{'User-Agent':'Sillage/6.4.1 (+https://sillage.gravelspa.be)','Accept':'application/json'},signal:AbortSignal.timeout(10000)});
-       if(!response.ok)throw Object.assign(Error(`Source OSM directe indisponible (${response.status}).`),{mapArea:response.status===400,status:response.status});try{return {elements:osmMapWays(await osmJSON(response))};}catch(e){throw Object.assign(e,{mapArea:true});}
+       if(!response.ok)throw Object.assign(Error(`Source OSM directe indisponible (${response.status}).`),{mapArea:response.status===400,status:response.status});try{return {elements:osmMapWays(await osmJSON(response),{allowEmpty:true})};}catch(e){throw Object.assign(e,{mapArea:true});}
       }catch(e){if(e.mapArea){if(mapAreaBackoff.size>=64)mapAreaBackoff.delete(mapAreaBackoff.keys().next().value);mapAreaBackoff.set(key,now()+60000);}else mapBackoff=now()+60000;throw e;}
      });mapQueue=job.catch(()=>{});parsed=await job;source='OSM API';
     }
@@ -40,6 +40,28 @@ export function createOSMService({fetcher=(...args)=>fetch(...args),now=Date.now
     return {...data,cached:false};
    }finally{active--;}
   })();pending.set(key,operation);try{return await operation;}finally{pending.delete(key);}
+ };
+ // A user's routing frame can be joined from at most nine small cached areas.
+ // Each request retains the existing throttling, error backoff and memory limits.
+ getOSM.forRouting=async input=>{
+  const box=validateBox(input),key=box.join(',');if(routingPending.has(key))return routingPending.get(key);
+  const job=(async()=>{let original;try{return await getOSM(box);}catch(e){original=e;}
+   if(!mapFallback||(box[2]-box[0])*(box[3]-box[1])<=.001)throw original;
+   const step=.025,start=[Math.floor((box[0]+1e-9)/step),Math.floor((box[1]+1e-9)/step)],end=[Math.ceil((box[2]-1e-9)/step),Math.ceil((box[3]-1e-9)/step)];
+   let rows=end[0]-start[0],cols=end[1]-start[1],origin=[start[0]*step,start[1]*step];
+   // At grid boundaries an otherwise small frame can span too many cells.
+   // Pack from its own origin in that case, retaining the same request budget.
+   if(rows*cols>9){rows=Math.ceil((box[2]-box[0])/step);cols=Math.ceil((box[3]-box[1])/step);origin=box.slice(0,2);}
+   if(rows*cols>9)throw original;
+   const ways=new Map(),sources=new Set();let joinedBytes=0;
+   for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
+    const tile=[origin[0]+row*step,origin[1]+col*step,origin[0]+(row+1)*step,origin[1]+(col+1)*step].map(v=>Number(v.toFixed(6))),data=await getOSM(tile);sources.add(data.source);
+    for(const way of data.elements){const id=way.id??JSON.stringify(way.nodes);if(!ways.has(id)){joinedBytes+=Buffer.byteLength(JSON.stringify(way));if(joinedBytes>maxBytes||ways.size>=100000)throw Error('Zone OSM trop détaillée. Ajoutez un point de passage.');ways.set(id,way);}}
+   }
+   const data={elements:[...ways.values()],bbox:box,source:sources.size===1?[...sources][0]:'OSM · zones jointes'},size=Buffer.byteLength(JSON.stringify(data));
+   if(size<=maxBytes){while(cache.size&&(bytes+size>maxBytes||cache.size>=16)){const first=cache.keys().next().value;bytes-=cache.get(first).bytes;cache.delete(first);}cache.set(key,{data,bbox:box,bytes:size,time:now(),ttl:sources.has('OSM API')?Math.max(ttl,3600000):ttl});bytes+=size;}
+   return {...data,cached:false};
+  })();routingPending.set(key,job);try{return await job;}finally{routingPending.delete(key);}
  };
  getOSM.peek=(input,{inFlight=false}={})=>{const bbox=validateBox(input);prune();let best=null,key;for(const[k,item]of cache)if(contains(item.bbox,bbox)&&(!best||(item.bbox[2]-item.bbox[0])*(item.bbox[3]-item.bbox[1])>(best.bbox[2]-best.bbox[0])*(best.bbox[3]-best.bbox[1]))){best=item;key=k;}if(!best){if(inFlight)for(const[k,job]of pending)if(contains(k.split(',').map(Number),bbox))return job.then(data=>({...data,cached:true}));return null;}cache.delete(key);cache.set(key,best);return {...best.data,cached:true};};
  return getOSM;
@@ -50,11 +72,11 @@ async function osmJSON(response){
  if(response.body?.getReader){const reader=response.body.getReader(),decoder=new TextDecoder();let size=0;try{for(;;){const{done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>limit){await reader.cancel();throw Error('Trop de données OSM. Réduisez la portion.');}raw+=decoder.decode(value,{stream:true});}raw+=decoder.decode();}finally{reader.releaseLock();}}
  else{raw=await response.text();if(Buffer.byteLength(raw)>limit)throw Error('Trop de données OSM. Réduisez la portion.');}return JSON.parse(raw);
 }
-export function osmMapWays(data){
+export function osmMapWays(data,{allowEmpty=false}={}){
  if(!Array.isArray(data.elements)||data.remark)throw Error('Réponse OSM incomplète.');
  const nodes=new Map(data.elements.filter(e=>e.type==='node'&&Number.isFinite(e.lat)&&Number.isFinite(e.lon)).map(e=>[e.id,{lat:e.lat,lon:e.lon}]));
  const ways=data.elements.filter(e=>e.type==='way'&&e.tags?.highway&&!/^(motorway|trunk|motorway_link|trunk_link|steps|construction|proposed)$/.test(e.tags.highway)).map(w=>{
   if(!Array.isArray(w.nodes)||w.nodes.length<2||w.nodes.some(id=>!nodes.has(id)))throw Error('Géométrie OSM incomplète.');
   return {type:'way',id:w.id,nodes:w.nodes,geometry:w.nodes.map(id=>nodes.get(id)),tags:w.tags};
- });if(!ways.length)throw Error('Aucun chemin OSM disponible.');return ways;
+ });if(!ways.length&&!allowEmpty)throw Error('Aucun chemin OSM disponible.');return ways;
 }

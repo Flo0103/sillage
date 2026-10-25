@@ -5,7 +5,7 @@ export function routeRequest(body){
  const points=coordinates(body.points),planning=body.purpose==='itinerary',maxPoints=planning?50:12,maxDistance=planning?500000:15000;
  if(points.length>maxPoints)throw Error(`Routage limité à ${maxPoints} points, départ et arrivée compris.`);
  if(![75,150,250].includes(body.tolerance??150))throw Error('Tolérance invalide.');
- if(points.slice(1).some((p,i)=>distance(points[i],p)<(body.allowRestricted===true ? .5 : 2))||routeLength(points)<(body.allowRestricted===true ? .5 : 5)||routeLength(points)>maxDistance)throw Error(`Choisissez des points distincts pour ${planning?'un itinéraire de moins de 500 km':'une portion de moins de 15 km'}.`);
+ if(points.slice(1).some((p,i)=>distance(points[i],p)<(body.allowRestricted===true ? .5 : 2))||routeLength(points)<(body.allowRestricted===true ? .5 : 5)||routeLength(points)>maxDistance)throw Error(`Choisissez des points distincts pour ${planning?'un itinéraire de moins de 500 km':'un secteur de moins de 15 km'}.`);
  return {points,tolerance:body.tolerance??150,maxDistance,planning};
 }
 export function createRoutingService({fetcher=(...args)=>fetch(...args),now=Date.now,wait=ms=>new Promise(r=>setTimeout(r,ms)),base=process.env.BIKE_ROUTING_URL||endpoint,localRouting=createLocalRouting()}={}){
@@ -30,7 +30,7 @@ export function createRoutingService({fetcher=(...args)=>fetch(...args),now=Date
    const pair=points.map(p=>`${p[1]},${p[0]}`).join(';'),url=new URL(pair,urlBase.href.endsWith('/')?urlBase.href:urlBase.href+'/');
    url.search=new URLSearchParams({overview:'full',geometries:'geojson',steps:'true',alternatives:'false',radiuses:points.map(()=>tolerance).join(';'),continue_straight:'false'});
    const data=await request(url),chosen=data.routes?.[0];if(data.code!=='Ok'||chosen?.geometry?.type!=='LineString')throw Error('Aucun itinéraire vélo trouvé entre ces points. Essayez le mode manuel.');
-   if(chosen.legs?.some(l=>l.steps?.some(s=>['pushing bike','walking','steps up','steps down'].includes(s.mode))))throw Error('Le moteur vélo propose une portion à pied, parfois à contre-sens. Ajoutez des points rapprochés pour le calcul OSM local.');
+   if(chosen.legs?.some(l=>l.steps?.some(s=>['pushing bike','walking','steps up','steps down'].includes(s.mode))))throw Error('Le moteur vélo propose un passage à pied, parfois à contre-sens. Ajoutez des points rapprochés pour le calcul OSM local.');
    const path=coordinates(chosen.geometry.coordinates.map(p=>[p[1],p[0]])),length=routeLength(path);
    if(length<5)throw Error('Les points rejoignent le même endroit sur le réseau. Éloignez-les.');if(length>maxDistance)throw Error(`Le chemin calculé dépasse ${maxDistance/1000} km. Rapprochez les points.`);
    const snappedPoints=data.waypoints?.length===points.length?coordinates(data.waypoints.map(w=>[w.location?.[1],w.location?.[0]])):points.map((p,i)=>i===0?path[0]:i===points.length-1?path.at(-1):path.reduce((best,q)=>distance(p,q)<distance(p,best)?q:best,path[0]));

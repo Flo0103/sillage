@@ -206,3 +206,12 @@ Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d 
 ## Tracé unifié et surfaces (6.13.0)
 
 Mettre à jour avec `git pull --ff-only`, puis `sudo docker compose up -d --build --wait`, et recharger complètement le navigateur pour les scripts `v=6.13.0`. Aucune migration ni nouvelle clé. Vérifier un nouveau segment avec plusieurs points, une portion manuelle et annuler/rétablir. Sur téléphone, vérifier le défilement depuis le profil déplié jusqu’au bouton Enregistrer. Les nouveaux calculs de surface inconnus sont revérifiés sans déplacer les points, avec une relance automatique au maximum après 65 secondes. Les anciens itinéraires peuvent être vérifiés avec « Actualiser les revêtements OSM » ; les altitudes ne sont pas recalculées par cette commande.
+
+
+## Accès restreints et identité gravel (6.14.0)
+
+Mettre à jour avec `git pull --ff-only`, puis `sudo docker compose up -d --build --wait` et recharger le navigateur. Aucune migration ni nouvelle variable. Les actifs de marque `v2` et les modules `v=6.14.0` invalident les anciens caches ; les anciens actifs restent disponibles. Les nouvelles dénominations de secteurs ne changent ni les tables ni les chemins API.
+
+Vérifier le long de la Fagne wallonne : placer deux points de part et d’autre d’une portion d’accès limité, puis allonger l’étape. Le calcul OSM doit conserver le chemin et ses repères « ! » ; vérifier les deux onglets et les sens uniques vélo. En cas de panne Overpass, le service direct OSM peut charger jusqu’à neuf petites zones en série (une requête par seconde), sans nouvelle configuration. Les cadres déjà chargés sont réutilisés. Les limites locales et les pannes peuvent toujours imposer un secours : son message reste visible dans l’éditeur, plutôt que seulement dans une notification passagère. Le résultat local valide est gardé si seule la recherche plus large échoue.
+
+Vérifier aussi le logo sur fond clair/sombre, la connexion et les icônes de l’onglet Itinéraires et de création de secteur. Les versions vectorielles couleur et monochrome sont dans `dist/sillage-logo-v2.svg` et `dist/sillage-logo-mono-v2.svg`.

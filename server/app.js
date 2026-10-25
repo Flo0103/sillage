@@ -44,7 +44,13 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),r
         '/sillage-mark-v1.svg':'image/svg+xml',
         '/sillage-wordmark-v1.svg':'image/svg+xml',
         '/sillage-terrain-v1.svg':'image/svg+xml',
-        '/sillage-mark-v1.png':'image/png'
+        '/sillage-mark-v1.png':'image/png',
+        '/sillage-mark-v2.svg':'image/svg+xml',
+        '/sillage-mark-v2.png':'image/png',
+        '/sillage-logo-v2.svg':'image/svg+xml',
+        '/sillage-logo-mono-v2.svg':'image/svg+xml',
+        '/sillage-sector-v1.svg':'image/svg+xml',
+        '/sillage-itinerary-v1.svg':'image/svg+xml'
       };
       if(method==='GET'&&Object.hasOwn(identityAssets,path)){res.writeHead(200,{'Content-Type':identityAssets[path],'Cache-Control':'public, max-age=31536000, immutable'});return res.end(await readFile(root+path.slice(1)));}
       if(path==='/app-icon.png'&&method==='GET'){res.writeHead(200,{'Content-Type':'image/png','Cache-Control':'public, max-age=86400'});return res.end(await readFile(root+'app-icon.png'));}

@@ -1,4 +1,4 @@
-import {bicycleDirections} from './osm-tags.js?v=6.13.0';
+import {bicycleDirections} from './osm-tags.js?v=6.14.0';
 export const distance=(a,b)=>{const r=Math.PI/180,x=(b[0]-a[0])*r,y=(b[1]-a[1])*r,h=Math.sin(x/2)**2+Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(y/2)**2;return 12742000*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));};
 export const routeLength=p=>p.slice(1).reduce((s,x,i)=>s+distance(p[i],x),0);
 export function shortest(graph,start,end,nodes,{respectDirection=false}={}){
@@ -15,7 +15,7 @@ function prepare(elements,onProgress=()=>{}){
  const nodes=new Map(),graph=new Map();
  const add=(id,p)=>{nodes.set(id,p);if(!graph.has(id))graph.set(id,[]);};
  const link=(a,b,tags)=>{const d=distance(nodes.get(a),nodes.get(b));if(a!==b){const {forward,backward}=bicycleDirections(tags);graph.get(a).push([b,d,tags,forward]);graph.get(b).push([a,d,tags,backward]);}};
- let processed=0;for(const way of elements){if((processed++%100)===0)onProgress({stage:'prepare',completed:processed-1,total:elements.length});if(!way.nodes||!way.geometry)continue;for(let i=0;i<way.nodes.length;i++){const p=way.geometry[i];if(!p)continue;add(way.nodes[i],[p.lat,p.lon]);if(i&&nodes.has(way.nodes[i-1])){const a=nodes.get(way.nodes[i-1]),b=nodes.get(way.nodes[i]),steps=Math.max(1,Math.ceil(distance(a,b)/35));if(steps>10000)throw Error('Géométrie OSM trop étendue. Réduisez la portion.');let last=way.nodes[i-1];for(let k=1;k<steps;k++){const id=`${way.id}:${i}:${k}`;add(id,[a[0]+(b[0]-a[0])*k/steps,a[1]+(b[1]-a[1])*k/steps]);link(last,id,way.tags);last=id;}link(last,way.nodes[i],way.tags);}if(nodes.size>150000)throw Error('Trop de chemins dans cette zone. Réduisez la portion.');}}
+ let processed=0;for(const way of elements){if((processed++%100)===0)onProgress({stage:'prepare',completed:processed-1,total:elements.length});if(!way.nodes||!way.geometry)continue;for(let i=0;i<way.nodes.length;i++){const p=way.geometry[i];if(!p)continue;add(way.nodes[i],[p.lat,p.lon]);if(i&&nodes.has(way.nodes[i-1])){const a=nodes.get(way.nodes[i-1]),b=nodes.get(way.nodes[i]),steps=Math.max(1,Math.ceil(distance(a,b)/35));if(steps>10000)throw Error('Géométrie OSM trop étendue. Rapprochez les points.');let last=way.nodes[i-1];for(let k=1;k<steps;k++){const id=`${way.id}:${i}:${k}`;add(id,[a[0]+(b[0]-a[0])*k/steps,a[1]+(b[1]-a[1])*k/steps]);link(last,id,way.tags);last=id;}link(last,way.nodes[i],way.tags);}if(nodes.size>150000)throw Error('Trop de chemins dans cette zone. Rapprochez les points.');}}
  onProgress({stage:'prepare',completed:elements.length,total:elements.length});onProgress({stage:'index'});
  if(!nodes.size)throw Error('Aucun chemin OSM. Passez en mode manuel.');
  const components=new Map();let component=0;
@@ -28,7 +28,7 @@ function prepare(elements,onProgress=()=>{}){
 function sample(points,spacing){const anchors=[points[0]];let carry=0;for(let i=1;i<points.length;i++){let a=points[i-1];const b=points[i];let d=distance(a,b);while(d>0&&carry+d>=spacing){const t=(spacing-carry)/d,p=[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];anchors.push(p);a=p;d=distance(a,b);carry=0;}carry+=d;}if(distance(anchors.at(-1),points.at(-1))>.1)anchors.push(points.at(-1));return anchors;}
 export function matchOSMDetailed(original,elements,{tolerance=150,onProgress=()=>{}}={}){
  if(![75,150,250].includes(tolerance))throw Error('Tolérance invalide.');
- if(original.length<2)throw Error('Sélectionnez une portion.');
+ if(original.length<2)throw Error('Sélectionnez un secteur.');
  const {nodes,graph,nearest}=prepare(elements,onProgress),anchors=sample(original,120),candidates=anchors.map(p=>nearest(p,tolerance));
  const choices=[];
  for(const component of candidates[0].keys())if(candidates.at(-1).has(component)){let coverage=0,error=0;for(const c of candidates){const n=c.get(component);if(n){coverage++;error+=n.d2;}}choices.push({component,coverage,error});}
@@ -63,6 +63,6 @@ export function routeOSM(original,elements,{tolerance=150,onProgress=()=>{}}={})
  if(!start)throw Error('Départ et arrivée sans chemin OSM relié dans cette zone. Essayez une plus grande tolérance ou le mode manuel.');
  const end=b.get(start.component);onProgress({stage:'route'});const ids=shortest(graph,start.id,end.id,nodes,{respectDirection:true}),points=ids.map(id=>nodes.get(id));
  if(points.length<2)throw Error('Départ et arrivée trop proches sur le même chemin.');
- if(routeLength(points)>15000)throw Error('Routage limité à 15 km. Réduisez la portion.');
+ if(routeLength(points)>15000)throw Error('Routage limité à 15 km. Rapprochez les points.');
  return {coordinates:points,surface:surfaceAlong(ids,graph),stats:{ignoredAnchors:0,maxOffset:Math.round(Math.sqrt(Math.max(start.d2,end.d2))),tolerance}};
 }

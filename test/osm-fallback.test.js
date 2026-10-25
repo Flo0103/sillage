@@ -48,3 +48,17 @@ test('échecs Overpass espacés progressivement sans repousser la reprise à cha
  let clock=0,attempts=0;const service=createOSMService({mapFallback:true,now:()=>clock,wait:async()=>{},fetcher:async url=>{if(String(url).includes('overpass')){attempts++;if(attempts!==3)throw Error('occupied');return Response.json({elements:fixture.elements});}return Response.json(apiData());}});
  const box=n=>[50+n*.02,5,50.005+n*.02,5.005];await service(box(0));assert.equal(attempts,1);clock=30000;await service(box(1));assert.equal(attempts,1);clock=61000;await service(box(2));assert.equal(attempts,2);clock=130000;await service(box(3));assert.equal(attempts,2);clock=182000;await service(box(4));assert.equal(attempts,3);clock=183000;await service(box(5));assert.equal(attempts,4);clock=244000;await service(box(6));assert.equal(attempts,5);
 });
+
+test('longue étape restreinte : mosaïque OSM bornée plutôt que détour du fournisseur de secours',async()=>{
+ const points=[[50.5,6.05],[50.51,6.07],[50.52,6.09],[50.53,6.11]],ways=points.slice(1).map((p,i)=>({type:'way',id:100+i,nodes:[i+1,i+2],geometry:[{lat:points[i][0],lon:points[i][1]},{lat:p[0],lon:p[1]}],tags:{highway:'track',surface:'gravel',...(i===1?{access:'private'}:{})}}));let now=0,overpass=0,external=0;const requests=[];
+ const osm=createOSMService({mapFallback:true,now:()=>now,wait:async ms=>{now+=ms;},fetcher:async url=>{
+  if(String(url).includes('overpass')){overpass++;throw Error('Overpass indisponible');}
+  const [w,s,e,n]=new URL(url).searchParams.get('bbox').split(',').map(Number);requests.push([w,s,e,n]);assert.ok((e-w)*(n-s)<=.001);
+  const picked=ways.filter(way=>Math.max(...way.geometry.map(p=>p.lat))>=s&&Math.min(...way.geometry.map(p=>p.lat))<=n&&Math.max(...way.geometry.map(p=>p.lon))>=w&&Math.min(...way.geometry.map(p=>p.lon))<=e),nodes=new Map();for(const way of picked)way.nodes.forEach((id,i)=>nodes.set(id,{type:'node',id,...way.geometry[i]}));return Response.json({elements:[...nodes.values(),...picked.map(({geometry,...way})=>way)]});
+ }}),route=createRoutingService({localRouting:createLocalRouting({osmService:osm}),fetcher:async()=>{external++;throw Error('Ne pas contourner les accès');}});
+ const result=await route({points:[points[0],points.at(-1)],allowRestricted:true,purpose:'itinerary'});assert.equal(result.accessPolicy,'warn');assert.equal(result.osmSource,'OSM API');assert.equal(external,0);assert.equal(overpass,1);assert.ok(requests.length>1&&requests.length<=9);assert.ok(result.analysis.accessRuns.some(r=>/privé/.test(r.label)));assert.deepEqual(result.coordinates,points);
+ const count=requests.length;await route({points:[points.at(-1),points[0]],allowRestricted:true,purpose:'itinerary'});assert.equal(requests.length,count);assert.equal(external,0);
+});
+test('mosaïque : cases sans chemin valides, nombre de zones borné et téléchargement dédupliqué',async()=>{
+ let overpass=0,maps=0,clock=0;const osm=createOSMService({mapFallback:true,now:()=>clock,wait:async ms=>{clock+=ms;},fetcher:async url=>{if(String(url).includes('overpass')){overpass++;throw Error('offline');}maps++;return Response.json({elements:[]});}}),box=[50.501,6.051,50.539,6.089];const result=await Promise.all([osm.forRouting(box),osm.forRouting(box)]);assert.deepEqual(result[0].elements,[]);assert.equal(maps,4);assert.equal(overpass,1);await osm.forRouting(box);assert.equal(maps,4);await assert.rejects(osm.forRouting([50.4,6,50.5,6.1]));assert.equal(maps,4);
+});

@@ -67,10 +67,20 @@ export function createLocalRouting({osmService=createOSMService({mapFallback:tru
  const resultFor=(input,data)=>({...routeOnOSM(input.points,data.elements,input),osmSource:data.source||'Overpass'});
  const service=async input=>{
   const direct=routeLength(input.points);if(direct>15000)throw tooLarge();
-  let cached=null;try{cached=await osmService.peek?.(routingBox(input.points,Math.max(200,(input.tolerance??150)+50)),{inFlight:true});}catch{/* A failed warm-up must not block a new request. */}
-  if(cached){try{const result=resultFor(input,cached);if(routeLength(result.coordinates)<=direct*1.8+200)return result;}catch{ /* A larger area may provide the missing connection. */ }}
-  let box=routingBox(input.points),data=await osmService(box);
-  try{return resultFor(input,data);}catch(e){if(!e.localNoPath)throw e;try{box=routingBox(input.points,1800);}catch{throw e;}data=await osmService(box);return resultFor(input,data);}
+  let best=null,bestLength=Infinity,lastError=null,noPathError=null;const seen=new Set(),enough=result=>routeLength(result.coordinates)<=direct*1.8+200;
+  const consider=data=>{if(seen.has(data.elements))return null;seen.add(data.elements);try{const result=resultFor(input,data),length=routeLength(result.coordinates);if(length<bestLength){best=result;bestLength=length;}return result;}catch(e){lastError=e;if(e.localNoPath)noPathError=e;return null;}};
+  const narrow=Math.max(200,(input.tolerance??150)+50);let cached=null;try{cached=await osmService.peek?.(routingBox(input.points,narrow),{inFlight:true});}catch{/* A failed warm-up must not block a new request. */}
+  if(cached){const result=consider(cached);if(result&&enough(result))return result;}
+  // Small frames can use the bounded direct OSM fallback when Overpass is down.
+  // Grow only when the network is disconnected or forces a substantial detour.
+  for(const margin of [...new Set([narrow,650,1800])]){
+   let box;try{box=routingBox(input.points,margin);}catch(e){lastError=e;continue;}
+   try{const data=await (osmService.forRouting?osmService.forRouting(box):osmService(box)),result=consider(data);if(result&&enough(result))return result;}catch(e){lastError=e;}
+  }
+  if(best)return best;
+  // A network/direction failure must never be bypassed by a different provider.
+  if(noPathError)throw noPathError;
+  throw lastError||noPath();
  };
  service.nearest=async input=>{
   const tolerance=input.tolerance??150,required=routingBox([input.point],tolerance+25);let cached=null;try{cached=await osmService.peek?.(required,{inFlight:true});}catch{}const data=cached||await osmService(routingBox([input.point],Math.max(400,tolerance+100))),anchor=closest(input.point,prepareOSM(data.elements),tolerance);

@@ -49,6 +49,6 @@ test('planification longue distincte des portions : 500 km / 50 points et points
 });
 
 test('le secours public refuse les portions à pied ou poussées qui peuvent remonter un sens unique',async()=>{
- for(const mode of ['pushing bike','walking','steps up','steps down']){let url;const service=createRoutingService({wait:async()=>{},fetcher:async u=>{url=new URL(u);return response({code:'Ok',routes:[{geometry,legs:[{steps:[{mode}]}]}]});}});await assert.rejects(service(request),/portion à pied/);assert.equal(url.searchParams.get('steps'),'true');}
+ for(const mode of ['pushing bike','walking','steps up','steps down']){let url;const service=createRoutingService({wait:async()=>{},fetcher:async u=>{url=new URL(u);return response({code:'Ok',routes:[{geometry,legs:[{steps:[{mode}]}]}]});}});await assert.rejects(service(request),/passage à pied/);assert.equal(url.searchParams.get('steps'),'true');}
  const service=createRoutingService({wait:async()=>{},fetcher:async()=>response({code:'Ok',routes:[{geometry,legs:[{steps:[{mode:'cycling'}]}]}]})});assert.ok((await service(request)).coordinates.length);
 });

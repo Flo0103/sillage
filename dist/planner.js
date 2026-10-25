@@ -1,5 +1,5 @@
-import {buildElevationModel} from './elevation.js?v=6.13.0';
-import {distance,routeLength} from './geo.js?v=6.13.0';
+import {buildElevationModel} from './elevation.js?v=6.14.0';
+import {distance,routeLength} from './geo.js?v=6.14.0';
 import {routePosition} from './route-edit.js';
 let serial=0;
 const point=p=>[...p];

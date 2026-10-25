@@ -25,7 +25,7 @@ export function portion(body){
     const combined=legs.flatMap((l,i)=>i?l.coordinates.slice(1):l.coordinates);if(JSON.stringify(combined)!==JSON.stringify(points))throw Error('Les portions ne correspondent pas au tracé.');
     routePoints=[legs[0].coordinates[0],...legs.map(l=>l.coordinates.at(-1))];
   }
-  return {legs,name:text(body.name,100)||`Portion de ${(meters/1000).toFixed(2).replace('.',',')} km`,rating:body.rating,surface:body.surface,difficulty:body.difficulty,winter:body.winter??'unknown',singleTrack:body.singleTrack??'unknown',notes:text(body.notes,2000),source:text(body.source,200),coordinates:points,routePoints,snapped:body.snapped===true,mode:['manual','route','snap'].includes(body.mode)?body.mode:'gps',distance:meters};
+  return {legs,name:text(body.name,100)||`Secteur de ${(meters/1000).toFixed(2).replace('.',',')} km`,rating:body.rating,surface:body.surface,difficulty:body.difficulty,winter:body.winter??'unknown',singleTrack:body.singleTrack??'unknown',notes:text(body.notes,2000),source:text(body.source,200),coordinates:points,routePoints,snapped:body.snapped===true,mode:['manual','route','snap'].includes(body.mode)?body.mode:'gps',distance:meters};
 }
 export async function hashPassword(password){const salt=randomBytes(16).toString('hex');const key=await scrypt(password,salt,64);return `${salt}:${key.toString('hex')}`;}
 export async function verifyPassword(password,stored){const[salt,hash]=stored.split(':');const key=await scrypt(password,salt,64);const expected=Buffer.from(hash,'hex');return key.length===expected.length&&timingSafeEqual(key,expected);}

@@ -58,8 +58,8 @@ test('catalogue initial, filtres personnel/public/hiver et légende sans GPX',as
  ctx.fetch=async(path,options)=>path==='/api/catalog'?{ok:true,status:200,json:async()=>items}:base(path,options);
  await vm.runInNewContext(`(async()=>{${script}})()`,ctx);assert.equal(elements.get('editorPanel').hidden,true);assert.equal(elements.get('gpxLegend').hidden,true);assert.equal(elements.get('segmentLegend').hidden,false);assert.equal(elements.get('savedList').children.length,1);assert.equal(elements.get('segmentSelect').children.length,2);
  elements.get('showMine').checked=false;elements.get('showMine').onchange();assert.equal(elements.get('savedList').children.length,1);
- elements.get('winterFilter').value='yes';elements.get('winterFilter').onchange();assert.equal(elements.get('savedList').children.length,0);assert.equal(elements.get('segmentSelect').children[0].textContent,'Aucun segment avec ces filtres');
- elements.get('colorMode').value='surface';elements.get('colorMode').onchange();assert.equal(elements.get('legendContent').children[0].textContent,'Segments · Revêtement');
+ elements.get('winterFilter').value='yes';elements.get('winterFilter').onchange();assert.equal(elements.get('savedList').children.length,0);assert.equal(elements.get('segmentSelect').children[0].textContent,'Aucun secteur avec ces filtres');
+ elements.get('colorMode').value='surface';elements.get('colorMode').onchange();assert.equal(elements.get('legendContent').children[0].textContent,'Secteurs · Revêtement');
 });
 test('changer la tolérance réutilise les données OSM déjà chargées dans la page',async()=>{
  const {ctx,elements,calls}=context(),base=ctx.fetch;ctx.fetch=async(path,options)=>{if(path==='/api/osm'){calls.push({path,options});return {ok:true,status:200,json:async()=>({bbox:[49.99,4.99,50.02,5.03],elements:[{id:1,nodes:[1,2],geometry:[{lat:50,lon:5},{lat:50,lon:5.02}]}]})};}return base(path,options);};
@@ -71,7 +71,7 @@ test('plein écran de secours et sortie conservent un contrôle utilisable',asyn
 test('clic propriétaire ouvre tous les attributs et soumission PATCH sans nouvelle portion',async()=>{
  const {ctx,elements,calls}=context(),base=ctx.fetch,r={id:'00000000-0000-0000-0000-000000000123',isMine:true,isPublic:true,name:'Sentier du bois',rating:4,surface:'Chemin de terre',difficulty:'Technique',winter:'conditions',singleTrack:'yes',notes:'Racines',snapped:true,mode:'route',coordinates:[[50,5],[50.001,5]]};
  const result=await vm.runInNewContext(`(async()=>{${script}\nshowSegment(${JSON.stringify(r)});return {view,editing:editingSegment.id,points:selected.length};})()`,ctx);
- assert.equal(result.view,'explore');assert.equal(result.editing,r.id);assert.equal(result.points,2);assert.equal(elements.get('editorTitle').textContent,'Modifier la portion');assert.equal(elements.get('name').value,r.name);assert.equal(elements.get('singleTrack').value,'yes');assert.equal(elements.get('winter').value,'conditions');assert.equal(elements.get('save').disabled,false);
+ assert.equal(result.view,'explore');assert.equal(result.editing,r.id);assert.equal(result.points,2);assert.equal(elements.get('editorTitle').textContent,'Modifier le secteur');assert.equal(elements.get('name').value,r.name);assert.equal(elements.get('singleTrack').value,'yes');assert.equal(elements.get('winter').value,'conditions');assert.equal(elements.get('save').disabled,false);
  elements.get('name').value='Sentier corrigé';await elements.get('ratingForm').onsubmit({preventDefault(){}});
  const patch=calls.find(c=>c.options.method==='PATCH');assert.equal(patch.path,'/api/portions/'+r.id);assert.equal(JSON.parse(patch.options.body).name,'Sentier corrigé');assert.equal(JSON.parse(patch.options.body).singleTrack,'yes');assert.ok(!calls.some(c=>c.path==='/api/portions'&&c.options.method==='POST'));
 });
@@ -82,7 +82,7 @@ test('segments et légende restent visibles lors de la création sans recentrage
  const layer=()=>({on(){return this;},addTo(){return this;},clearLayers(){},bindTooltip(){return this;}}),tile=()=>layer();tile.wms=tile;
  ctx.L={map:()=>map,tileLayer:tile,layerGroup:layer,polyline:(coordinates,options)=>{drawn.push({coordinates,options});return layer();},latLngBounds:p=>p,control:{layers:()=>({addTo(){return this;}}),zoom:()=>({addTo(){}})}};
  await vm.runInNewContext(`(async()=>{${script}})()`,ctx);const before=drawn.length;elements.get('drawSegment').onclick();assert.ok(drawn.length>before);assert.equal(drawn.at(-1).options.interactive,true);assert.equal(elements.get('segmentLegend').hidden,false);assert.equal(elements.get('catalogFilters').hidden,false);
- const count=fits;elements.get('showMine').checked=false;elements.get('showMine').onchange();assert.equal(fits,count);assert.equal(elements.get('segmentCount').textContent,'0 segment(s) affiché(s)');
+ const count=fits;elements.get('showMine').checked=false;elements.get('showMine').onchange();assert.equal(fits,count);assert.equal(elements.get('segmentCount').textContent,'0 secteur(s) affiché(s)');
 });
 test('snapping Worker publie une progression réelle et un résultat tardif annulé ne modifie pas la sélection',async()=>{
  const {ctx,elements}=context(),workers=[];ctx.Worker=class{constructor(url){this.url=url;workers.push(this);}postMessage(data){this.data=data;}terminate(){this.terminated=true;}};
@@ -280,7 +280,7 @@ test('consultation avec bornes kilométriques adaptatives, sans passages ; graph
 test('cocher le mode d’un point change uniquement sa portion entrante et la légende de technicité est disponible',async()=>{
  const {ctx,elements,calls}=context(),base=ctx.fetch,p=profilePlan();ctx.fetch=async(path,options)=>path==='/api/plans/'+p.id?{ok:true,status:200,json:async()=>p}:base(path,options);
  const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadPlan('${p.id}');$('editPlan').onclick();const outgoing=planDraft.legs[1];openPointSettings(1);return {state:()=>({first:planDraft.legs[0].mode,outgoingUnchanged:outgoing===planDraft.legs[1]}),setPointMode};})()`,ctx);assert.equal(elements.get('pointSettings').hidden,false);elements.get('pointIncomingManual').checked=true;elements.get('pointIncomingManual').onchange();assert.equal(access.state().first,'manual');assert.equal(access.state().outgoingUnchanged,true);elements.get('undoPlan').onclick();assert.equal(access.state().first,'route');
- elements.get('colorMode').value='difficulty';elements.get('colorMode').onchange();assert.ok(elements.get('legendContent').children.some(c=>c.textContent==='Segments · Technicité'));assert.ok(elements.get('legendContent').children.some(c=>c.children?.some(x=>x.textContent==='Très technique')));assert.ok(html.includes('<option value="difficulty">Technicité</option>'));
+ elements.get('colorMode').value='difficulty';elements.get('colorMode').onchange();assert.ok(elements.get('legendContent').children.some(c=>c.textContent==='Secteurs · Technicité'));assert.ok(elements.get('legendContent').children.some(c=>c.children?.some(x=>x.textContent==='Très technique')));assert.ok(html.includes('<option value="difficulty">Technicité</option>'));
 });
 
 test('ouvrir un itinéraire complet ou incomplet, sa copie et son édition ne déclenchent aucun calcul externe',async()=>{
@@ -315,6 +315,20 @@ test('réponse locale : pointillés immédiats, repère d’accès sur le seul t
  const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();choose({lat:50,lng:5});choose({lat:50.01,lng:5});return {legs:()=>planDraft.serialise(),drawSelection,setView};})()`,ctx);flushTimers();await new Promise(r=>setImmediate(r));assert.equal(JSON.parse(calls.find(c=>c.path==='/api/route').options.body).allowRestricted,true);
  const runs=fake.lines.filter(l=>!l.removed&&l.options.weight===6);assert.ok(runs.some(l=>l.options.dashArray==='7 7'));const warnings=fake.markers.filter(m=>!m.removed&&m.options.icon?.className==='access-warning');assert.equal(warnings.length,1);assert.ok(Math.abs(warnings[0].coords[0]-50.0075)<.00001);assert.deepEqual(access.legs()[0].analysis.accessRuns,analysis.accessRuns);
  flushTimers(1000);await new Promise(r=>setImmediate(r));assert.equal(calls.filter(c=>c.path==='/api/plan-metrics').length,0);assert.equal(access.legs()[0].analysis.surfaceVersion,2);access.setView('saved');access.drawSelection();assert.equal(fake.markers.filter(m=>!m.removed&&m.options.icon?.className==='access-warning').length,0);
+});
+
+test('secteur : accès limité visible dans la carte et sa légende, y compris après un zoom',async()=>{
+ const {ctx,elements,flushTimers}=context(),base=ctx.fetch,fake=interactiveMap(ctx),a=[50,5],b=[50.01,5],analysis={surfaceVersion:2,surfaces:[{type:'Gravier',distance:1112}],surfaceRuns:[{type:'Gravier',unpaved:true,coordinates:[a,b]}],accessRuns:[{label:'Accès privé (access=private)',coordinates:[a,b]}],errors:[]};
+ ctx.fetch=async(path,options)=>path==='/api/route'?{ok:true,status:200,json:async()=>({coordinates:[a,b],analysis,stats:{maxOffset:0}})}:base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\n$('drawSegment').onclick();choose({lat:50,lng:5});choose({lat:50.01,lng:5});return {setView};})()`,ctx);flushTimers();await new Promise(r=>setImmediate(r));
+ const warnings=()=>fake.markers.filter(m=>!m.removed&&m.options.icon?.className==='access-warning');assert.equal(warnings().length,1);assert.match(warnings()[0].tooltip.html,/Accès privé/);assert.ok(elements.get('legendContent').children.some(e=>e.children?.some(c=>/! Accès limité/.test(c.textContent))));fake.setZoom(16);assert.equal(warnings().length,1);assert.equal(elements.get('routingSourceNotice').hidden,true);assert.equal(elements.get('reset').classList.contains('is-plan'),false);
+ elements.get('finishDrawing').onclick();assert.equal(warnings().length,0);await elements.get('plannerTab').onclick();assert.equal(elements.get('reset').classList.contains('is-plan'),true);
+});
+
+test('le recours au moteur de secours reste signalé pendant le dessin',async()=>{
+ const {ctx,elements,flushTimers}=context(),base=ctx.fetch,warning='Moteur vélo de secours : les accès restreints peuvent être évités.';
+ ctx.fetch=async(path,options)=>path==='/api/route'?{ok:true,status:200,json:async()=>({coordinates:JSON.parse(options.body).points,warning,stats:{maxOffset:0}})}:base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();choose({lat:50,lng:5});choose({lat:50.01,lng:5});return {update,setView};})()`,ctx);flushTimers();await new Promise(r=>setImmediate(r));access.update();assert.equal(elements.get('routingSourceNotice').hidden,false);assert.equal(elements.get('routingSourceNotice').textContent,warning);access.setView('saved');assert.equal(elements.get('routingSourceNotice').hidden,true);
 });
 
 test('échec signalé par l’analyse de surface ne remplace pas les données sauvegardées par de l’inconnu',async()=>{
@@ -371,7 +385,7 @@ test('survol des segments dans les deux onglets : attributs échappés, single t
  const {ctx,elements}=context(),fake=interactiveMap(ctx),r={id:'segment',name:'Sentier <img onerror=alert(1)>',notes:'Racines & boue',isMine:true,isPublic:true,rating:2,difficulty:'Technique',surface:'Gravier fin',singleTrack:'yes',winter:'conditions',owner:'alice',distance:1111,coordinates:[[50,5],[50.01,5]]};
  const access=await vm.runInNewContext(`(async()=>{${script}\nreturn {draw(v){setView(v);catalog=[${JSON.stringify(r)},{...${JSON.stringify(r)},id:'large',singleTrack:'no'}];drawCatalog();},state:()=>({view,editing:editingSegment?.id,points:planDraft.points.length}),setMode};})()`,ctx);
  for(const view of ['saved','explore','planner']){access.draw(view);const lines=fake.lines.filter(l=>!l.removed&&l.options.opacity===.9),line=lines[0];assert.equal(line.options.interactive,true);assert.equal(line.options.dashArray,'5 6');assert.equal(lines[1].options.dashArray,null);for(const text of ['Technicité','Technique','Gravier fin','2/5','Single track','Hiver selon conditions','alice','Racines &amp; boue'])assert.ok(line.tooltip.html.includes(text),text);assert.ok(line.tooltip.html.includes('&lt;img'));assert.ok(!line.tooltip.html.includes('<img'));if(view==='explore'){access.setMode('manual');line.events.click({latlng:{lat:50.005,lng:5}});assert.equal(access.state().editing,undefined);}if(view==='planner'){elements.get('manualLeg').checked=true;line.events.click({latlng:{lat:50.005,lng:5}});assert.equal(access.state().points,1);}}
- assert.equal(elements.has('singleTrackFilter'),false);assert.equal(elements.has('plannerShowSegments'),false);assert.doesNotMatch(html,/<option value="singleTrack">/);assert.match(html,/Segments publiques/);
+ assert.equal(elements.has('singleTrackFilter'),false);assert.equal(elements.has('plannerShowSegments'),false);assert.doesNotMatch(html,/<option value="singleTrack">/);assert.match(html,/Secteurs publics/);
 });
 
 test('recherche itinéraire et filtres combinés : pas de chargement, de modification du brouillon ni de recalcul d’altitude',async()=>{
