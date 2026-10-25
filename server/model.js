@@ -1,3 +1,4 @@
+import {elevationData} from './profile-data.js';
 import { randomBytes, scrypt as scryptCb, timingSafeEqual, createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 const scrypt = promisify(scryptCb);
@@ -19,7 +20,7 @@ export function portion(body){
   if(body.mode==='route'){routePoints=coordinates(body.routePoints??[points[0],points.at(-1)]);if(routePoints.length>200)throw Error('Routage limité à 200 points.');}
   if(body.legs!==undefined&&body.legs!==null){
     if(body.mode!=='route'||!Array.isArray(body.legs)||body.legs.length<1||body.legs.length>199)throw Error('Portions de tracé invalides.');
-    legs=body.legs.map(l=>{if(!l||!['route','manual'].includes(l.mode))throw Error('Mode de portion invalide.');return {mode:l.mode,coordinates:coordinates(l.coordinates)};});
+    legs=body.legs.map(l=>{if(!l||!['route','manual'].includes(l.mode))throw Error('Mode de portion invalide.');const path=coordinates(l.coordinates),analysis=l.analysis&&Object.hasOwn(l.analysis,'elevation')?{elevation:elevationData(l.analysis.elevation,routeLength(path)),errors:Array.isArray(l.analysis.errors)?l.analysis.errors.filter(e=>typeof e==='string'&&e.toLowerCase().includes('altitude')).slice(0,2).map(e=>e.slice(0,100)):[]}:null;return {mode:l.mode,coordinates:path,...(analysis?{analysis}:{})};});
     if(legs.reduce((n,l)=>n+l.coordinates.length,0)>100200)throw Error('Tracé trop détaillé.');
     for(let i=1;i<legs.length;i++)if(JSON.stringify(legs[i-1].coordinates.at(-1))!==JSON.stringify(legs[i].coordinates[0]))throw Error('Les portions doivent se rejoindre.');
     const combined=legs.flatMap((l,i)=>i?l.coordinates.slice(1):l.coordinates);if(JSON.stringify(combined)!==JSON.stringify(points))throw Error('Les portions ne correspondent pas au tracé.');

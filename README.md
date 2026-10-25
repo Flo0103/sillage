@@ -237,3 +237,12 @@ Les tests couvrent une longue liaison synthétique comprenant un chemin privé, 
 ## Logo gravel (6.14.1)
 
 Roues agrandies de 14 % et deux bornes ouvertes aux changements de direction du cadre. Les versions couleur, monochrome, le bandeau et les icônes utilisent la même géométrie. Les centres des bornes sont transparents, pour les fonds clairs et sombres. Les actifs `v3` remplacent les références `v2` ; les anciens fichiers restent servis pour le cache. Mise à jour habituelle sans migration ni modification du routage.
+
+
+## Profil de relief des secteurs (6.15.0)
+
+Le panneau repliable « Le relief » sous la carte accompagne aussi les secteurs, pendant le dessin et lors de l’ouverture d’un secteur personnel ou public. Il reprend le graphe coloré, les extrema, les graduations, le dénivelé filtré et le curseur lié à un repère sur la carte des itinéraires. Le défilement mobile vers le formulaire reste celui du panneau existant.
+
+Les altitudes sont demandées par lots, seulement pour les étapes manquantes ; les profils existants sont réutilisés sans requête et sans nouveau routage. Les nouvelles analyses d’altitude sont enregistrées avec les étapes du secteur dans son JSONB, avec la même validation que les itinéraires. Les anciens secteurs peuvent recevoir un profil à l’ouverture ; il est conservé au prochain enregistrement par leur propriétaire. La consultation d’un secteur public n’écrit rien dans le compte de son auteur. Les réponses devenues obsolètes sont ignorées. Si la source d’altitude échoue, une commande « Compléter le profil d’altitude » permet une nouvelle tentative explicite.
+
+Aucune migration ni nouvelle clé. Mettre à jour normalement puis recharger le navigateur pour les modules `v=6.15.0`. Vérifier un secteur en création, un secteur enregistré avec profil et un ancien secteur, personnel et public : replier le panneau, déplacer le curseur, enregistrer puis rouvrir. Les tests couvrent la conservation des profils à l’édition, les altitudes invalides, l’absence de recalcul d’un profil stocké, le curseur et les réponses obsolètes.

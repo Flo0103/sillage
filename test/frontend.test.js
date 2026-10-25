@@ -439,7 +439,7 @@ test('segments : un seul tracé incrémental, correction locale disponible dès 
  const path=[[50,5],[50.001,5.001],[50.002,5]];access.showSegment({id:'old',isMine:true,isPublic:false,name:'Ancien manuel',rating:4,surface:'Sable',difficulty:'Facile',winter:'yes',mode:'manual',snapped:false,coordinates:path});assert.equal(access.state().mode,'route');assert.deepEqual(JSON.parse(access.state().legs).flatMap((l,i)=>i?l.coordinates.slice(1):l.coordinates),path);assert.ok(JSON.parse(access.state().legs).every(l=>l.mode==='manual'));assert.equal(calls.filter(c=>c.path==='/api/route').length,0);
 });
 
-test('surface inconnue renvoyée au premier routage : enrichissement sans déplacer le tracé ni demander ses altitudes en segment',async()=>{
+test('surface inconnue renvoyée au premier routage : enrichissement sans déplacer le tracé, avec profil d’altitude du secteur',async()=>{
  const {ctx,elements,calls}=context(),base=ctx.fetch;
  ctx.fetch=async(path,options={})=>{
   if(path==='/api/route'){calls.push({path,options});const points=JSON.parse(options.body).points;return {ok:true,status:200,json:async()=>({coordinates:points,analysis:{surfaceVersion:2,surfaces:[{type:'Inconnu',distance:1112}],surfaceRuns:[{type:'Inconnu',unpaved:null,coordinates:points}],errors:[]}})};}
@@ -447,7 +447,7 @@ test('surface inconnue renvoyée au premier routage : enrichissement sans dépla
   return base(path,options);
  };
  const result=await vm.runInNewContext(`(async()=>{${script}\n$('drawSegment').onclick();choose({lat:50,lng:5});choose({lat:50.01,lng:5});await calculatePlanLegs();const before=JSON.stringify(selected);await analysePlanLegs();return {before,after:JSON.stringify(selected),types:planDraft.legs[0].analysis.surfaces.map(s=>s.type)};})()`,ctx);
- assert.equal(result.before,result.after);assert.ok(result.types.includes('Gravier'));assert.equal(elements.get('surface').value,'Gravier fin');assert.match(elements.get('surfaceSource').textContent,/Suggestion OSM/);assert.equal(calls.filter(c=>c.path==='/api/route').length,1);assert.equal(calls.filter(c=>c.path==='/api/plan-metrics').length,1);assert.equal(calls.filter(c=>c.path==='/api/plan-elevations').length,0);
+ assert.equal(result.before,result.after);assert.ok(result.types.includes('Gravier'));assert.equal(elements.get('surface').value,'Gravier fin');assert.match(elements.get('surfaceSource').textContent,/Suggestion OSM/);assert.equal(calls.filter(c=>c.path==='/api/route').length,1);assert.equal(calls.filter(c=>c.path==='/api/plan-metrics').length,1);assert.equal(calls.filter(c=>c.path==='/api/plan-elevations').length,1);
 });
 
 test('surface indisponible : une seule relance automatique et pas de boucle sur OSM non renseigné',async()=>{
@@ -493,4 +493,28 @@ test('surface : une réponse de l’ancienne géométrie ne remplace pas le rés
  };
  const access=await vm.runInNewContext(`(async()=>{${script}\n$('drawSegment').onclick();$('manualLeg').checked=true;choose({lat:50,lng:5});choose({lat:50.01,lng:5});await calculatePlanLegs();return {analysePlanLegs,moveRouteControl,state:()=>JSON.stringify(planDraft.serialise())};})()`,ctx);
  const pending=access.analysePlanLegs();await new Promise(r=>setImmediate(r));await access.moveRouteControl(1,[50.02,5]);release();await pending;const legs=JSON.parse(access.state());assert.equal(legs[0].mode,'manual');assert.deepEqual(legs[0].coordinates.at(-1),[50.02,5]);assert.equal(legs[0].analysis.surfaces[0].type,'Gravier');assert.deepEqual(legs[0].analysis.surfaceRuns.at(-1).coordinates.at(-1),[50.02,5]);assert.equal(calls.filter(c=>c.path==='/api/route').length,0);assert.equal(number,2);
+});
+
+test('profil d’un secteur enregistré personnel ou public : graphe, curseur et aucune nouvelle altitude',async()=>{
+ for(const mine of [true,false]){
+  const {ctx,elements,calls}=context(),fake=interactiveMap(ctx),p=profilePlan(),sector={...p,isMine:mine,isPublic:true,owner:'alice',rating:4,surface:'Gravier fin',difficulty:'Facile',winter:'yes',mode:'route',snapped:true};
+  const access=await vm.runInNewContext(`(async()=>{${script}\nshowSegment(${JSON.stringify(sector)});await analysePlanLegs();return {reset,update};})()`,ctx);
+  assert.equal(elements.get('elevationPanel').hidden,false);assert.match(elements.get('elevationGraph').innerHTML,/elevation-chart/);assert.match(elements.get('profileSummary').textContent,/D\+/);assert.equal(calls.filter(c=>c.path==='/api/plan-elevations').length,0);assert.equal(calls.filter(c=>c.path==='/api/route').length,0);
+  elements.get('elevationSeek').value='1000';elements.get('elevationSeek').oninput();assert.ok(fake.markers.some(m=>!m.removed&&m.options.icon?.className==='elevation-map-cursor'));assert.match(elements.get('elevationReadout').textContent,/1.00 km/);elements.get('profileExtrema').checked=false;elements.get('profileExtrema').onchange();access.reset();access.update();assert.equal(fake.markers.filter(m=>!m.removed&&m.options.icon?.className==='elevation-map-cursor').length,0);
+  if(!mine)assert.equal(elements.get('elevationPanel').hidden,true);
+ }
+});
+
+test('ancien secteur : calcul des seules altitudes manquantes, réponse obsolète ignorée',async()=>{
+ const {ctx,elements,calls}=context(),base=ctx.fetch;let release;
+ ctx.fetch=async(path,options)=>{if(path==='/api/plan-elevations'){calls.push({path,options});return new Promise(r=>release=()=>r({ok:true,status:200,json:async()=>[{elevation:{ascent:50,descent:0,profile:[{at:0,altitude:100},{at:1112,altitude:150}]}}]}));}return base(path,options);};
+ const access=await vm.runInNewContext(`(async()=>{${script}\nshowSegment({id:'legacy',name:'Ancien',isMine:false,owner:'bob',rating:4,surface:'Sable',coordinates:[[50,5],[50.01,5]]});return {analysePlanLegs,reset,update,state:()=>JSON.stringify(planDraft.serialise())};})()`,ctx);
+ const job=access.analysePlanLegs();await new Promise(r=>setImmediate(r));assert.equal(calls.filter(c=>c.path==='/api/plan-elevations').length,1);assert.equal(calls.filter(c=>c.path==='/api/route').length,0);access.reset();access.update();release();await job;assert.equal(access.state(),'[]');assert.equal(elements.get('elevationPanel').hidden,true);
+});
+
+test('secteur public : altitude indisponible puis relance explicite depuis le profil',async()=>{
+ const {ctx,elements,calls}=context(),base=ctx.fetch;let attempts=0;
+ ctx.fetch=async(path,options)=>{if(path==='/api/plan-elevations'){attempts++;calls.push({path,options});return {ok:true,status:200,json:async()=>attempts===1?[{elevation:null,error:'Altitudes indisponibles.'}]:[{elevation:{ascent:50,descent:0,profile:[{at:0,altitude:100},{at:1111,altitude:150}]}}]};}return base(path,options);};
+ const access=await vm.runInNewContext(`(async()=>{${script}\nshowSegment({id:'public',name:'Public',isMine:false,owner:'bob',rating:4,surface:'Sable',coordinates:[[50,5],[50.01,5]]});await analysePlanLegs();return {analysePlanLegs};})()`,ctx);
+ assert.equal(elements.get('retryProfile').hidden,false);elements.get('retryProfile').onclick();await access.analysePlanLegs();assert.equal(attempts,2);assert.equal(JSON.parse(calls.at(-1).options.body).retry,true);assert.equal(elements.get('retryProfile').hidden,true);assert.match(elements.get('profileSummary').textContent,/D\+/);assert.equal(calls.some(c=>['POST','PATCH'].includes(c.options.method)&&c.path.startsWith('/api/portions')),false);
 });

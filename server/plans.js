@@ -1,3 +1,4 @@
+import {elevationData} from './profile-data.js';
 import {buildElevationModel,elevationAt} from '../dist/elevation.js';
 import {randomUUID} from 'node:crypto';
 import {coordinates,routeLength,distance} from './model.js';
@@ -6,7 +7,7 @@ function analysisData(a,path){
  const surfaces=Array.isArray(a.surfaces)&&a.surfaces.length<=50?a.surfaces.filter(s=>typeof s.type==='string'&&s.type.length<=50&&finite(s.distance)&&s.distance<=limit).map(s=>({type:s.type,distance:s.distance})):[];
  const surfaceRuns=Array.isArray(a.surfaceRuns)&&a.surfaceRuns.length<=25000?a.surfaceRuns.map(s=>{if(typeof s.type!=='string'||s.type.length>50||![true,false,null].includes(s.unpaved))throw Error('Revêtement invalide.');return {type:s.type,unpaved:s.unpaved,coordinates:coordinates(s.coordinates)};}):[];
  const accessRuns=Array.isArray(a.accessRuns)&&a.accessRuns.length<=25000?a.accessRuns.map(s=>{if(typeof s.label!=='string'||!s.label.trim()||s.label.length>200)throw Error('Accès invalide.');return {label:s.label,coordinates:coordinates(s.coordinates)};}):[];
- let elevation=null;const e=a.elevation;if(e){if(!finite(e.ascent)||!finite(e.descent)||e.ascent>100000||e.descent>100000||!Array.isArray(e.profile)||e.profile.length<2||e.profile.length>401||!e.profile.every((p,i)=>finite(p.at)&&p.at<=limit&&Number.isFinite(p.altitude)&&p.altitude>=-500&&p.altitude<=9000&&(!i||p.at>e.profile[i-1].at)))throw Error('Altitudes invalides.');elevation={ascent:e.ascent,descent:e.descent,profile:e.profile.map(p=>({at:p.at,altitude:p.altitude})),spacing:Number.isFinite(e.spacing)?e.spacing:0,source:'Open-Meteo · Copernicus DEM GLO-90'};}
+ const elevation=elevationData(a.elevation,routeLength(path));
  return {surfaces,surfaceRuns,accessRuns,...(a.surfaceVersion===2?{surfaceVersion:2}:{}),...(Object.hasOwn(a,'elevation')?{elevation}:{}),errors:Array.isArray(a.errors)?a.errors.filter(s=>typeof s==='string').slice(0,2).map(s=>s.slice(0,100)):[]};
 }
 export function planData(body){

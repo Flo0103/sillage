@@ -180,3 +180,11 @@ test('identité et polices accessibles à la connexion avec une liste publique l
  }
  for(const url of ['/fonts/unlisted.woff2','/server/db.js','/fonts/hanken-v1-OFL.txt'])assert.equal((await request(app,{url})).status,303,url);
 });
+
+test('secteur : profil validé stocké et relu sans perte à l’édition des attributs',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'}),points=[[50,5],[50.01,5]],elevation={ascent:50,descent:0,profile:[{at:0,altitude:100},{at:1111,altitude:150}]},body={name:'Secteur avec relief',rating:4,surface:'Sable',difficulty:'Facile',mode:'route',coordinates:points,legs:[{mode:'route',coordinates:points,analysis:{elevation}}]};
+ const created=await request(app,{url:'/api/portions',method:'POST',user:'alice',body});assert.equal(created.status,201);const id=JSON.parse(created.body).id;
+ const read=JSON.parse((await request(app,{url:'/api/portions',user:'alice'})).body).find(s=>s.id===id);assert.deepEqual(read.legs[0].analysis.elevation.profile,elevation.profile);
+ const edited=await request(app,{url:'/api/portions/'+id,method:'PATCH',user:'alice',body:{notes:'Profil conservé'}});assert.equal(edited.status,200);assert.deepEqual(JSON.parse(edited.body).legs[0].analysis.elevation.profile,elevation.profile);
+ const invalid=await request(app,{url:'/api/portions',method:'POST',user:'alice',body:{...body,legs:[{mode:'route',coordinates:points,analysis:{elevation:{...elevation,profile:[{at:0,altitude:100},{at:99999,altitude:150}]}}}]}});assert.equal(invalid.status,400);
+});

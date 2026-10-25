@@ -215,3 +215,12 @@ Mettre à jour avec `git pull --ff-only`, puis `sudo docker compose up -d --buil
 Vérifier le long de la Fagne wallonne : placer deux points de part et d’autre d’une portion d’accès limité, puis allonger l’étape. Le calcul OSM doit conserver le chemin et ses repères « ! » ; vérifier les deux onglets et les sens uniques vélo. En cas de panne Overpass, le service direct OSM peut charger jusqu’à neuf petites zones en série (une requête par seconde), sans nouvelle configuration. Les cadres déjà chargés sont réutilisés. Les limites locales et les pannes peuvent toujours imposer un secours : son message reste visible dans l’éditeur, plutôt que seulement dans une notification passagère. Le résultat local valide est gardé si seule la recherche plus large échoue.
 
 Vérifier aussi le logo sur fond clair/sombre, la connexion et les icônes de l’onglet Itinéraires et de création de secteur. Les versions vectorielles couleur et monochrome sont dans `dist/sillage-logo-v2.svg` et `dist/sillage-logo-mono-v2.svg`.
+
+
+## Profil de relief des secteurs (6.15.0)
+
+Le panneau repliable « Le relief » sous la carte accompagne aussi les secteurs, pendant le dessin et lors de l’ouverture d’un secteur personnel ou public. Il reprend le graphe coloré, les extrema, les graduations, le dénivelé filtré et le curseur lié à un repère sur la carte des itinéraires. Le défilement mobile vers le formulaire reste celui du panneau existant.
+
+Les altitudes sont demandées par lots, seulement pour les étapes manquantes ; les profils existants sont réutilisés sans requête et sans nouveau routage. Les nouvelles analyses d’altitude sont enregistrées avec les étapes du secteur dans son JSONB, avec la même validation que les itinéraires. Les anciens secteurs peuvent recevoir un profil à l’ouverture ; il est conservé au prochain enregistrement par leur propriétaire. La consultation d’un secteur public n’écrit rien dans le compte de son auteur. Les réponses devenues obsolètes sont ignorées. Si la source d’altitude échoue, une commande « Compléter le profil d’altitude » permet une nouvelle tentative explicite.
+
+Aucune migration ni nouvelle clé. Mettre à jour normalement puis recharger le navigateur pour les modules `v=6.15.0`. Vérifier un secteur en création, un secteur enregistré avec profil et un ancien secteur, personnel et public : replier le panneau, déplacer le curseur, enregistrer puis rouvrir. Les tests couvrent la conservation des profils à l’édition, les altitudes invalides, l’absence de recalcul d’un profil stocké, le curseur et les réponses obsolètes.
