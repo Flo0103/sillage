@@ -70,3 +70,12 @@ test('bibliothèque : filtre sur les extrémités réelles, départ et/ou arriv�
 test('part non asphaltée calculée sur les géométries et distinguée des surfaces inconnues',()=>{
  const a=[50,5],b=[50.01,5],c=[50.02,5],d=[50.03,5],summary=planSummary([{coordinates:[a,b,c,d],analysis:{surfaceRuns:[{coordinates:[a,b],unpaved:true},{coordinates:[b,c],unpaved:false},{coordinates:[c,d],unpaved:null}]}}]);assert.ok(Math.abs(summary.unpaved/summary.total-1/3)<.001);assert.ok(Math.abs(summary.unpavedKnown/summary.total-2/3)<.001);assert.equal(planSummary([{coordinates:[a,b]}]).unpavedKnown,0);
 });
+
+test('surface inconnue en cache : actualiser interroge OSM à nouveau sans déplacer les coordonnées',async()=>{
+ let calls=0,known=false,time=0;const way={tags:{highway:'track',surface:'gravel'},geometry:[{lat:a[0],lon:a[1]},{lat:b[0],lon:b[1]}]},service=createPlanMetrics({now:()=>time,wait:async ms=>{time+=ms;},fetcher:async()=>{calls++;return Response.json({elements:known?[way]:[]});}}),first=await service({coordinates:[a,b],kind:'surface'});
+ assert.equal(first.surfaces[0].type,'Inconnu');await service({coordinates:[a,b],kind:'surface'});assert.equal(calls,1);known=true;const refreshed=await service({coordinates:[a,b],kind:'surface',retry:true});assert.equal(calls,2);assert.equal(refreshed.surfaces[0].type,'Gravier');await service({coordinates:[a,b],kind:'surface'});assert.equal(calls,2);
+});
+test('cache des surfaces inconnues expire rapidement, les données complètes gardent leur cache long',async()=>{
+ let calls=0,known=false,time=0;const way={tags:{highway:'track',surface:'asphalt'},geometry:[{lat:a[0],lon:a[1]},{lat:b[0],lon:b[1]}]},service=createPlanMetrics({now:()=>time,wait:async()=>{},fetcher:async()=>{calls++;return Response.json({elements:known?[way]:[]});}});
+ await service({coordinates:[a,b],kind:'surface'});known=true;time=59000;await service({coordinates:[a,b],kind:'surface'});assert.equal(calls,1);time=61000;const result=await service({coordinates:[a,b],kind:'surface'});assert.equal(calls,2);assert.equal(result.surfaces[0].type,'Asphalte / bitume');time=300000;await service({coordinates:[a,b],kind:'surface'});assert.equal(calls,2);
+});

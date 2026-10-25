@@ -211,3 +211,13 @@ La signature et le signe à double trace, la planche de relief originale, les re
 Sur téléphone, le panneau « Carte et légendes » est ancré en haut à droite, face aux outils. Sa hauteur tient compte des crédits cartographiques réels pour garder les commandes visibles avec les différents fonds et WMS. Sur ordinateur, la légende reste en bas à gauche, au-dessus des crédits. Les dimensions sont mises à jour au redimensionnement et lors des changements de texte et d’outils.
 
 La commande de nouveau segment ou nouvel itinéraire quitte l’éditeur et rejoint les outils de carte, juste après Annuler/Rétablir. Son nom accessible et son infobulle suivent l’onglet. La création d’un nouvel itinéraire conserve l’historique existant et reste annulable ; elle ne supprime aucun itinéraire enregistré.
+
+## Tracé unique, défilement mobile et surfaces (6.13.0)
+
+Le dessin des segments suit le même modèle incrémental que les itinéraires : routage OSM à 150 m par défaut, points successifs, corrections locales sans routage, déplacement et annuler/rétablir. Les trois boutons de mode sont retirés ; les GPX et sorties Strava restent des repères sur la carte. Les segments historiques restent éditables, y compris leurs géométries manuelles, sans routage imposé au chargement. Les règles de confidentialité et de provenance restent appliquées côté serveur.
+
+Sur mobile, le profil déplié laisse le geste vertical défiler vers le formulaire. Le panneau n’intercepte plus le dépassement de défilement ; les événements tactiles du graphe sont passifs et ne forcent pas de capture du pointeur.
+
+Une réponse de routage avec des surfaces inconnues peut désormais être enrichie par une analyse de corridor, sans déplacer les points. Les revêtements déjà connus sont conservés sur leurs intervalles ; les données d’altitude enregistrées sont conservées. Une analyse OSM manquante ou inconnue dispose d’une seule nouvelle tentative automatique, après 65 secondes, pour respecter les délais de reprise des fournisseurs. Les réponses arrivées pour une ancienne géométrie sont ignorées. Les secteurs réellement non renseignés dans OSM restent inconnus.
+
+Les réponses de surface inconnues sont mises en cache une minute, au lieu d’une heure. Une actualisation explicite réinterroge le fournisseur même si la précédente réponse inconnue ne contenait pas d’erreur. Le cache long des surfaces complètes et le cache des altitudes restent conservés. La suggestion de revêtement des nouveaux segments utilise les analyses par portion et respecte les corrections manuelles du formulaire ; l’enregistrement attend la première analyse en cours et vérifie que la géométrie n’a pas changé.

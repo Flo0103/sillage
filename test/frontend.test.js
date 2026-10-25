@@ -109,7 +109,7 @@ test('Mon compte propose OAuth Strava officiel selon la configuration et la conn
 test('routage vélo appelle le nouvel endpoint et conserve les points exacts à chaque changement de mode',async()=>{
  const {ctx,elements,calls}=context(),base=ctx.fetch;
  ctx.fetch=async(path,options)=>{if(path==='/api/route'){calls.push({path,options});return {ok:true,status:200,json:async()=>({coordinates:[[50,5.0001],[50,5.005],[50,5.0099]],stats:{maxOffset:8,ignoredAnchors:0},engine:'OSRM vélo / FOSSGIS'})};}if(path==='/api/osm')return {ok:false,status:503,json:async()=>({error:'Indisponible'})};return base(path,options);};
- const result=await vm.runInNewContext(`(async()=>{${script}\nsetView('explore');trace=[[50,5],[50,5.005],[50,5.01]];endpoints=[[50,5],[50,5.01]];gpsSelection=endpoints.map(p=>[...p]);await snap();const routed=JSON.stringify(selected);setMode('manual');const manual=JSON.stringify(selected);setMode('route');const restored=JSON.stringify(selected);setMode('snap');cancelSnap();const preserved=JSON.stringify(endpoints);setMode('manual');return {routed,manual,restored,preserved,manualAgain:JSON.stringify(selected)};})()`,ctx);
+ const result=await vm.runInNewContext(`(async()=>{${script}\nsetView('explore');segmentDraftActive=false;trace=[[50,5],[50,5.005],[50,5.01]];endpoints=[[50,5],[50,5.01]];gpsSelection=endpoints.map(p=>[...p]);await snap();const routed=JSON.stringify(selected);setMode('manual');const manual=JSON.stringify(selected);setMode('route');const restored=JSON.stringify(selected);setMode('snap');cancelSnap();const preserved=JSON.stringify(endpoints);setMode('manual');return {routed,manual,restored,preserved,manualAgain:JSON.stringify(selected)};})()`,ctx);
  assert.equal(result.preserved,JSON.stringify([[50,5.0001],[50,5.0099]]));assert.equal(result.manual,result.preserved);assert.equal(result.manualAgain,result.manual);assert.equal(result.restored,result.routed);
  const route=calls.find(c=>c.path==='/api/route');assert.deepEqual(JSON.parse(route.options.body).points,[[50,5],[50,5.01]]);assert.equal(calls.filter(c=>c.path==='/api/route').length,1);
 });
@@ -145,7 +145,7 @@ test('chargement de sortie : réponse tardive ignorée après choix plus récent
 test('déplacer départ, arrivée et passages recalcule tous les points sans perdre leur ordre',async()=>{
  const {ctx,elements,calls}=context(),base=ctx.fetch;
  ctx.fetch=async(path,options)=>{if(path==='/api/route'){calls.push({path,options});const points=JSON.parse(options.body).points;return {ok:true,status:200,json:async()=>({coordinates:points,legFractions:points.map((_,i)=>i/(points.length-1)),stats:{maxOffset:0,ignoredAnchors:0}})};}if(path==='/api/osm')return {ok:false,status:503,json:async()=>({error:'Indisponible'})};return base(path,options);};
- const access=await vm.runInNewContext(`(async()=>{${script}\nsetView('explore');endpoints=[[50,5],[50.002,5]];selected=endpoints.map(p=>[...p]);snapped=true;return {insertVia,moveRouteControl,removeVia,setMode,state:()=>JSON.stringify(routeControls())};})()`,ctx);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nsetView('explore');segmentDraftActive=false;endpoints=[[50,5],[50.002,5]];selected=endpoints.map(p=>[...p]);snapped=true;return {insertVia,moveRouteControl,removeVia,setMode,state:()=>JSON.stringify(routeControls())};})()`,ctx);
  await access.insertVia(1,[50.001,5.001]);assert.equal(JSON.parse(access.state()).length,3);await access.moveRouteControl(0,[50,4.999]);await access.moveRouteControl(2,[50.003,5]);await access.moveRouteControl(1,[50.001,5.002]);
  const expected=[[50,4.999],[50.001,5.002],[50.003,5]];assert.deepEqual(JSON.parse(access.state()),expected);assert.deepEqual(JSON.parse(calls.filter(c=>c.path==='/api/route').at(-1).options.body).points,expected);
  access.setMode('manual');access.setMode('route');assert.deepEqual(JSON.parse(access.state()),expected);elements.get('waypointDetails').open=true;elements.get('waypointDetails').ontoggle();assert.equal(elements.get('waypointList').children.length,3);
@@ -153,7 +153,7 @@ test('déplacer départ, arrivée et passages recalcule tous les points sans per
 });
 test('dessin indépendant garde le repère Strava privé et envoie uniquement les nouveaux points OSM',async()=>{
  const {ctx,elements,calls}=context();const access=await vm.runInNewContext(`(async()=>{${script}\ncurrentRide={id:'00000000-0000-0000-0000-000000000001',source_type:'strava',name:'Activité privée',coordinates:[[51,6],[51.001,6]],distance:111};trace=[[51,6],[51.001,6]];selected=trace.map(p=>[...p]);$('independentSegment').onclick();setMode('snap');setMode('manual');choose({lat:50,lng:5});choose({lat:50.001,lng:5});rating=4;update();return {mode,points:JSON.stringify(selected),trace:trace.length};})()`,ctx);
- assert.equal(access.mode,'manual');assert.equal(access.trace,2);assert.equal(access.points,'[[50,5],[50.001,5]]');assert.equal(elements.get('autoMode').disabled,true);assert.equal(elements.get('publicSegment').checked,true);
+ assert.equal(access.mode,'manual');assert.equal(access.trace,2);assert.equal(access.points,'[[50,5],[50.001,5]]');assert.equal(elements.has('autoMode'),false);assert.equal(elements.get('publicSegment').checked,true);
  elements.get('surface').value='Sable';elements.get('difficulty').value='Facile';elements.get('winter').value='unknown';elements.get('singleTrack').value='unknown';await elements.get('ratingForm').onsubmit({preventDefault(){}});
  const saved=JSON.parse(calls.find(c=>c.path==='/api/portions'&&c.options.method==='POST').options.body);assert.equal(saved.independentOsm,true);assert.equal(saved.rideId,null);assert.equal(saved.source,'Dessin OSM indépendant');assert.equal(saved.isPublic,true);assert.ok(!JSON.stringify(saved).includes('Activité privée'));assert.deepEqual(saved.coordinates,[[50,5],[50.001,5]]);
 });
@@ -177,7 +177,7 @@ test('glissement réel de marqueur et de ligne ajoute un passage, recalcul à la
  const tile=()=>layer();tile.wms=tile;
  ctx.L={map:()=>map,tileLayer:tile,layerGroup:()=>layer(),polyline:(p,o)=>{const l=layer(p,o);lines.push(l);return l;},marker:(p,o)=>{const l=layer(p,o);markers.push(l);return l;},divIcon:o=>o,latLngBounds:p=>p,DomEvent:{stopPropagation(){}},control:{layers:()=>({addTo(){return this;}}),zoom:()=>({addTo(){}})}};
  ctx.fetch=async(path,options)=>{if(path==='/api/route'){calls.push({path,options});const points=JSON.parse(options.body).points;return {ok:true,status:200,json:async()=>({coordinates:points,legFractions:points.map((_,i)=>i/(points.length-1)),stats:{maxOffset:0,ignoredAnchors:0}})};}if(path==='/api/osm')return {ok:false,status:503,json:async()=>({error:'Indisponible'})};return base(path,options);};
- const access=await vm.runInNewContext(`(async()=>{${script}\nsetView('explore');endpoints=[[50,5],[50.002,5]];selected=endpoints.map(p=>[...p]);snapped=true;rating=4;drawSelection();update();return {controls:()=>JSON.stringify(routeControls())};})()`,ctx);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nsetView('explore');segmentDraftActive=false;endpoints=[[50,5],[50.002,5]];selected=endpoints.map(p=>[...p]);snapped=true;rating=4;drawSelection();update();return {controls:()=>JSON.stringify(routeControls())};})()`,ctx);
  const start=markers.find(m=>m.options.draggable&&!m.removed);start.events.dragstart();start.setLatLng([50.0001,5]);start.events.dragend({target:start});await new Promise(r=>setImmediate(r));assert.equal(JSON.parse(access.controls())[0][0],50.0001);
  const line=lines.filter(l=>l.options.className==='routing-draggable'&&!l.removed).at(-1),event={pointerId:7,button:0,isPrimary:true,clientX:100,clientY:100,lat:50.001,lng:5,preventDefault(){},stopPropagation(){}};
  const before=calls.filter(c=>c.path==='/api/route').length;line.node.events.pointerdown(event);assert.equal(mapDragging,false);listeners.get('pointermove')({...event,clientX:120,clientY:110,lat:50.001,lng:5.001});assert.equal(calls.filter(c=>c.path==='/api/route').length,before);
@@ -232,7 +232,7 @@ test('itinéraires : ajout incrémental, correction manuelle, undo/redo et nom o
  ctx.fetch=async(path,options={})=>{if(path==='/api/route'){calls.push({path,options});const {points}=JSON.parse(options.body);return {ok:true,status:200,json:async()=>({coordinates:[points[0],[(points[0][0]+points[1][0])/2,5.0001],points[1]]})};}if(path==='/api/plan-metrics')return {ok:true,status:200,json:async()=>({elevation:null,surfaces:[],surfaceRuns:[],errors:[]})};return base(path,options);};
  const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();return {choose,moveRouteControl,insertVia,state:()=>JSON.stringify({points:planDraft.points,legs:planDraft.serialise(),selected})};})()`,ctx);
  access.choose({lat:50,lng:5});access.choose({lat:50.01,lng:5});flushTimers(150);await new Promise(r=>setImmediate(r));const original=JSON.parse(access.state()).legs[0];
- assert.equal(elements.get('savePlan').disabled,true);assert.equal(elements.get('toleranceControls').hidden,true);assert.equal(elements.get('modeControls').hidden,true);assert.equal(elements.get('plannerTools').hidden,false);
+ assert.equal(elements.get('savePlan').disabled,true);assert.equal(elements.get('toleranceControls').hidden,true);assert.equal(elements.has('modeControls'),false);assert.equal(elements.get('plannerTools').hidden,false);
  elements.get('planName').value='Les bois';elements.get('planName').oninput();assert.equal(elements.get('savePlan').disabled,false);
  access.choose({lat:50.02,lng:5});flushTimers(150);await new Promise(r=>setImmediate(r));assert.deepEqual(JSON.parse(access.state()).legs[0],original);const requests=calls.filter(c=>c.path==='/api/route');assert.equal(requests.length,2);assert.deepEqual(JSON.parse(requests[1].options.body).points,[[50.01,5],[50.02,5]]);assert.equal(JSON.parse(requests[1].options.body).tolerance,150);
  elements.get('manualLeg').checked=true;access.choose({lat:50.021,lng:5.001});flushTimers(150);await new Promise(r=>setImmediate(r));assert.equal(calls.filter(c=>c.path==='/api/route').length,2);assert.equal(JSON.parse(access.state()).legs.at(-1).mode,'manual');
@@ -292,9 +292,9 @@ test('profil visible dès la réponse groupée des altitudes, avant les revêtem
  ctx.fetch=async(path,options={})=>{if(path==='/api/plans/'+p.id)return {ok:true,status:200,json:async()=>p};if(path==='/api/plan-elevations'){calls.push({path,options});return {ok:true,status:200,json:async()=>original.legs.map(l=>({elevation:l.analysis.elevation,error:null}))};}if(path==='/api/plan-metrics'){if(firstSurface){firstSurface=false;return new Promise(r=>releaseSurface=()=>r({ok:true,status:200,json:async()=>({surfaces:[],surfaceRuns:[],errors:[]})}));}return {ok:true,status:200,json:async()=>({surfaces:[],surfaceRuns:[],errors:[]})};}return base(path,options);};
  await vm.runInNewContext(`(async()=>{${script}\nawait loadPlan('${p.id}');})()`,ctx);elements.get('retryAnalysis').onclick();await new Promise(r=>setImmediate(r));assert.ok(releaseSurface);assert.match(elements.get('planElevation').textContent,/D\+ 250 m/);assert.match(elements.get('elevationGraph').innerHTML,/elevation-line/);assert.equal(JSON.parse(calls.find(c=>c.path==='/api/plan-elevations').options.body).paths.length,2);releaseSurface();await new Promise(r=>setImmediate(r));
 });
-test('prolonger un ancien itinéraire ne calcule pas ses anciennes portions sans analyse',async()=>{
+test('prolonger un ancien itinéraire ne recalcule pas ses anciennes altitudes',async()=>{
  const {ctx,calls,elements,flushTimers}=context(),base=ctx.fetch,p=profilePlan();p.legs=p.legs.map(l=>({...l,analysis:null}));ctx.fetch=async(path,options)=>path==='/api/plans/'+p.id?{ok:true,status:200,json:async()=>p}:base(path,options);
- const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadPlan('${p.id}');$('editPlan').onclick();$('manualLeg').checked=true;choose({lat:50.201,lng:5});return {state:()=>planDraft.legs.slice(0,2).map(l=>l.analysis)};})()`,ctx);flushTimers(350);await new Promise(r=>setImmediate(r));flushTimers(1000);await new Promise(r=>setImmediate(r));const batch=calls.filter(c=>c.path==='/api/plan-elevations');assert.equal(batch.length,1);assert.deepEqual(JSON.parse(batch[0].options.body).paths,[[[50.2,5],[50.201,5]]]);assert.ok(access.state().every(a=>a===null));
+ const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadPlan('${p.id}');$('editPlan').onclick();$('manualLeg').checked=true;choose({lat:50.201,lng:5});return {state:()=>planDraft.legs.slice(0,2).map(l=>l.analysis)};})()`,ctx);flushTimers(350);await new Promise(r=>setImmediate(r));flushTimers(1000);await new Promise(r=>setImmediate(r));const batch=calls.filter(c=>c.path==='/api/plan-elevations');assert.equal(batch.length,1);assert.deepEqual(JSON.parse(batch[0].options.body).paths,[[[50.2,5],[50.201,5]]]);assert.ok(access.state().every(a=>!Object.hasOwn(a||{},'elevation')));
 });
 
 test('bibliothèque repliable du planificateur : redimensionne la carte, conserve le tracé et reste réouvrable',async()=>{
@@ -413,4 +413,70 @@ test('points sélectionnés : repère visible, suppression des extrémités et d
 });
 test('surfaces : pourcentage non asphalté compact, détail replié à l’ouverture et aides dans une icône',async()=>{
  const {ctx,elements}=context(),base=ctx.fetch,p=profilePlan();ctx.fetch=async(path,options)=>path==='/api/plans/'+p.id?{ok:true,status:200,json:async()=>p}:base(path,options);elements.get('surfaceDetails').open=true;await vm.runInNewContext(`(async()=>{${script}\nawait loadPlan('${p.id}');})()`,ctx);assert.equal(elements.get('surfaceDetails').open,false);assert.equal(elements.get('planUnpaved').textContent,'100 % non asphalté');assert.ok(elements.get('planSurfaces').children.length>0);assert.ok(html.indexOf('id="undoPlan"')<html.indexOf('id="editorPanel"'));assert.ok(html.indexOf('Ajoutez les étapes par clics successifs')<html.indexOf('id="editorPanel"'));assert.match(html,/id="drawingHelp"[^>]*><summary[^>]*aria-label="Aide au tracé"/);
+});
+
+test('segments : un seul tracé incrémental, correction locale disponible dès le départ et anciens manuels conservés',async()=>{
+ const {ctx,elements,calls,flushTimers}=context(),base=ctx.fetch;
+ ctx.fetch=async(path,options={})=>path==='/api/plan-metrics'?{ok:true,status:200,json:async()=>({surfaces:[],surfaceRuns:[],errors:[]})}:base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\n$('drawSegment').onclick();return {choose,showSegment,state:()=>({mode,points:JSON.stringify(planDraft.points),legs:JSON.stringify(planDraft.serialise())})};})()`,ctx);
+ for(const id of ['modeControls','routeMode','autoMode','manualMode'])assert.equal(elements.has(id),false);
+ assert.equal(elements.get('plannerTools').hidden,false);assert.equal(elements.get('manualLegControls').hidden,false);assert.equal(elements.get('toleranceControls').hidden,true);
+ elements.get('manualLeg').checked=true;access.choose({lat:50,lng:5});access.choose({lat:50.01,lng:5});access.choose({lat:50.02,lng:5});flushTimers(150);await new Promise(r=>setImmediate(r));assert.equal(access.state().mode,'route');assert.deepEqual(JSON.parse(access.state().legs).map(l=>l.mode),['manual','manual']);assert.equal(calls.filter(c=>c.path==='/api/route').length,0);
+ const path=[[50,5],[50.001,5.001],[50.002,5]];access.showSegment({id:'old',isMine:true,isPublic:false,name:'Ancien manuel',rating:4,surface:'Sable',difficulty:'Facile',winter:'yes',mode:'manual',snapped:false,coordinates:path});assert.equal(access.state().mode,'route');assert.deepEqual(JSON.parse(access.state().legs).flatMap((l,i)=>i?l.coordinates.slice(1):l.coordinates),path);assert.ok(JSON.parse(access.state().legs).every(l=>l.mode==='manual'));assert.equal(calls.filter(c=>c.path==='/api/route').length,0);
+});
+
+test('surface inconnue renvoyée au premier routage : enrichissement sans déplacer le tracé ni demander ses altitudes en segment',async()=>{
+ const {ctx,elements,calls}=context(),base=ctx.fetch;
+ ctx.fetch=async(path,options={})=>{
+  if(path==='/api/route'){calls.push({path,options});const points=JSON.parse(options.body).points;return {ok:true,status:200,json:async()=>({coordinates:points,analysis:{surfaceVersion:2,surfaces:[{type:'Inconnu',distance:1112}],surfaceRuns:[{type:'Inconnu',unpaved:null,coordinates:points}],errors:[]}})};}
+  if(path==='/api/plan-metrics'){calls.push({path,options});return {ok:true,status:200,json:async()=>({surfaceVersion:2,surfaces:[{type:'Gravier',distance:1112}],surfaceRuns:[{type:'Gravier',unpaved:true,coordinates:JSON.parse(options.body).coordinates}],errors:[]})};}
+  return base(path,options);
+ };
+ const result=await vm.runInNewContext(`(async()=>{${script}\n$('drawSegment').onclick();choose({lat:50,lng:5});choose({lat:50.01,lng:5});await calculatePlanLegs();const before=JSON.stringify(selected);await analysePlanLegs();return {before,after:JSON.stringify(selected),types:planDraft.legs[0].analysis.surfaces.map(s=>s.type)};})()`,ctx);
+ assert.equal(result.before,result.after);assert.ok(result.types.includes('Gravier'));assert.equal(elements.get('surface').value,'Gravier fin');assert.match(elements.get('surfaceSource').textContent,/Suggestion OSM/);assert.equal(calls.filter(c=>c.path==='/api/route').length,1);assert.equal(calls.filter(c=>c.path==='/api/plan-metrics').length,1);assert.equal(calls.filter(c=>c.path==='/api/plan-elevations').length,0);
+});
+
+test('surface indisponible : une seule relance automatique et pas de boucle sur OSM non renseigné',async()=>{
+ const {ctx,calls,flushTimers}=context(),base=ctx.fetch;let fail=true;
+ ctx.fetch=async(path,options={})=>{
+  if(path==='/api/plan-metrics'){calls.push({path,options});return fail?{ok:false,status:503,json:async()=>({error:'offline'})}:{ok:true,status:200,json:async()=>({surfaces:[{type:'Inconnu',distance:1112}],surfaceRuns:[{type:'Inconnu',unpaved:null,coordinates:JSON.parse(options.body).coordinates}],errors:[]})};}
+  return base(path,options);
+ };
+ const access=await vm.runInNewContext(`(async()=>{${script}\n$('drawSegment').onclick();$('manualLeg').checked=true;choose({lat:50,lng:5});choose({lat:50.01,lng:5});await calculatePlanLegs();await analysePlanLegs();return {analysePlanLegs,state:()=>JSON.stringify(selected)};})()`,ctx),before=access.state();assert.equal(calls.filter(c=>c.path==='/api/plan-metrics').length,1);
+ fail=false;flushTimers(65000);await new Promise(r=>setImmediate(r));await access.analysePlanLegs();assert.equal(calls.filter(c=>c.path==='/api/plan-metrics').length,2);assert.equal(access.state(),before);flushTimers(65000);await new Promise(r=>setImmediate(r));await access.analysePlanLegs();assert.equal(calls.filter(c=>c.path==='/api/plan-metrics').length,2);assert.equal(calls.filter(c=>c.path==='/api/route').length,0);
+});
+
+test('enrichir les surfaces inconnues préserve les portions connues et le profil enregistré',async()=>{
+ const {ctx}=context(),access=await vm.runInNewContext(`(async()=>{${script}\nreturn {mergeSurfaceResult};})()`,ctx),path=[[50,5],[50.005,5],[50.01,5]],total=routeLength(path),elevation={profile:[{at:0,altitude:100},{at:total,altitude:200}]},previous={surfaceVersion:2,elevation,surfaces:[{type:'Asphalte / bitume',distance:total/2},{type:'Inconnu',distance:total/2}],surfaceRuns:[{type:'Asphalte / bitume',unpaved:false,coordinates:path.slice(0,2)},{type:'Inconnu',unpaved:null,coordinates:path.slice(1)}],accessRuns:[{label:'Accès privé',coordinates:path.slice(1)}]},incoming={surfaceVersion:2,surfaces:[{type:'Gravier',distance:total}],surfaceRuns:[{type:'Gravier',unpaved:true,coordinates:path}],errors:[]};
+ const merged=access.mergeSurfaceResult({coordinates:path,analysis:previous},incoming);assert.equal(merged.elevation,elevation);assert.deepEqual(Array.from(merged.surfaceRuns,r=>r.type),['Asphalte / bitume','Gravier']);assert.ok(Math.abs(merged.surfaces.reduce((n,s)=>n+s.distance,0)-total)<.001);assert.deepEqual(merged.accessRuns,previous.accessRuns);assert.deepEqual(merged.surfaceRuns[0].coordinates[0],path[0]);assert.deepEqual(merged.surfaceRuns.at(-1).coordinates.at(-1),path.at(-1));
+ const failed=access.mergeSurfaceResult({coordinates:path,analysis:merged},{errors:['Revêtements OSM indisponibles.']});assert.equal(failed.surfaceRuns,merged.surfaceRuns);assert.equal(failed.elevation,elevation);assert.ok(failed.errors.length);
+});
+
+test('enregistrement d’un segment attend la suggestion de surface et refuse un changement de géométrie pendant l’analyse',async()=>{
+ const {ctx,elements,calls}=context(),base=ctx.fetch;let release;
+ ctx.fetch=async(path,options={})=>{
+  if(path==='/api/plan-metrics')return new Promise(r=>release=()=>r({ok:true,status:200,json:async()=>({surfaces:[{type:'Sable',distance:1112}],surfaceRuns:[{type:'Sable',unpaved:true,coordinates:JSON.parse(options.body).coordinates}],errors:[]})}));
+  return base(path,options);
+ };
+ const access=await vm.runInNewContext(`(async()=>{${script}\n$('drawSegment').onclick();$('manualLeg').checked=true;choose({lat:50,lng:5});choose({lat:50.01,lng:5});await calculatePlanLegs();rating=4;update();return {start:async()=>{$('manualLeg').checked=true;choose({lat:50.02,lng:5});choose({lat:50.03,lng:5});await calculatePlanLegs();rating=4;update();}};})()`,ctx);
+ elements.get('difficulty').value='Facile';elements.get('winter').value='yes';elements.get('singleTrack').value='no';const saving=elements.get('ratingForm').onsubmit({preventDefault(){}});await new Promise(r=>setImmediate(r));assert.equal(elements.get('save').disabled,true);assert.equal(calls.filter(c=>c.path==='/api/portions'&&c.options.method==='POST').length,0);release();await saving;const saved=JSON.parse(calls.find(c=>c.path==='/api/portions'&&c.options.method==='POST').options.body);assert.equal(saved.surface,'Sable');assert.deepEqual(saved.legs.map(l=>l.mode),['manual']);
+ await access.start();
+ const second=elements.get('ratingForm').onsubmit({preventDefault(){}});await new Promise(r=>setImmediate(r));elements.get('reset').onclick();release();await second;assert.equal(calls.filter(c=>c.path==='/api/portions'&&c.options.method==='POST').length,1);assert.match(elements.get('toast').textContent,/tracé a changé/);
+});
+
+test('profil tactile : le geste vertical peut défiler dans la page avec le profil déplié',async()=>{
+ const {ctx,elements}=context(),p=profilePlan(),base=ctx.fetch;const handlers={},options={};let captured=0;
+ const attrs=()=>({setAttribute(){}}),svg={getBoundingClientRect:()=>({left:0,width:390}),querySelector:()=>attrs(),setPointerCapture(){captured++;},addEventListener(name,handler,opts){handlers[name]=handler;options[name]=opts;}};elements.get('elevationGraph').querySelector=()=>svg;ctx.fetch=async(path,opts)=>path==='/api/plans/'+p.id?{ok:true,status:200,json:async()=>p}:base(path,opts);
+ await vm.runInNewContext(`(async()=>{${script}\nawait loadPlan('${p.id}');})()`,ctx);handlers.pointerdown({clientX:120,pointerType:'touch',pointerId:1});handlers.pointermove({clientX:130,pointerType:'touch',pointerId:1});assert.equal(captured,0);assert.equal(options.pointerdown.passive,true);assert.equal(options.pointermove.passive,true);
+ const css=await readFile(new URL('../dist/style.css',import.meta.url),'utf8'),mobile=css.slice(css.indexOf('@media(max-width:850px)'));assert.match(mobile,/\.elevation-panel\{[^}]*overflow:visible;overscroll-behavior:auto;touch-action:pan-y/);assert.match(elements.get('elevationReadout').textContent,/km/);
+});
+
+test('surface : une réponse de l’ancienne géométrie ne remplace pas le résultat après déplacement manuel',async()=>{
+ const {ctx,calls}=context(),base=ctx.fetch;let release,number=0;
+ ctx.fetch=async(path,options={})=>{
+  if(path==='/api/plan-metrics'){calls.push({path,options});const coordinates=JSON.parse(options.body).coordinates,answer=type=>({ok:true,status:200,json:async()=>({surfaces:[{type,distance:routeLength(coordinates)}],surfaceRuns:[{type,unpaved:true,coordinates}],errors:[]})});if(++number===1)return new Promise(r=>release=()=>r(answer('Sable')));return answer('Gravier');}
+  return base(path,options);
+ };
+ const access=await vm.runInNewContext(`(async()=>{${script}\n$('drawSegment').onclick();$('manualLeg').checked=true;choose({lat:50,lng:5});choose({lat:50.01,lng:5});await calculatePlanLegs();return {analysePlanLegs,moveRouteControl,state:()=>JSON.stringify(planDraft.serialise())};})()`,ctx);
+ const pending=access.analysePlanLegs();await new Promise(r=>setImmediate(r));await access.moveRouteControl(1,[50.02,5]);release();await pending;const legs=JSON.parse(access.state());assert.equal(legs[0].mode,'manual');assert.deepEqual(legs[0].coordinates.at(-1),[50.02,5]);assert.equal(legs[0].analysis.surfaces[0].type,'Gravier');assert.deepEqual(legs[0].analysis.surfaceRuns.at(-1).coordinates.at(-1),[50.02,5]);assert.equal(calls.filter(c=>c.path==='/api/route').length,0);assert.equal(number,2);
 });

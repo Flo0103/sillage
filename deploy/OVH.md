@@ -202,3 +202,7 @@ Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d 
 ## Commandes de carte sur mobile (6.12.1)
 
 Mise à jour habituelle : `git pull --ff-only`, puis `sudo docker compose up -d --build --wait`, puis rechargement complet pour les ressources `v=6.12.1`. Aucune migration ni configuration supplémentaire. Sur téléphone, vérifier « Carte et légendes » en haut à droite, son ouverture avec OSM, IGN et WMS, puis le nouveau bouton de création près d’Annuler/Rétablir. La création d’un nouvel itinéraire reste annulable.
+
+## Tracé unifié et surfaces (6.13.0)
+
+Mettre à jour avec `git pull --ff-only`, puis `sudo docker compose up -d --build --wait`, et recharger complètement le navigateur pour les scripts `v=6.13.0`. Aucune migration ni nouvelle clé. Vérifier un nouveau segment avec plusieurs points, une portion manuelle et annuler/rétablir. Sur téléphone, vérifier le défilement depuis le profil déplié jusqu’au bouton Enregistrer. Les nouveaux calculs de surface inconnus sont revérifiés sans déplacer les points, avec une relance automatique au maximum après 65 secondes. Les anciens itinéraires peuvent être vérifiés avec « Actualiser les revêtements OSM » ; les altitudes ne sont pas recalculées par cette commande.
