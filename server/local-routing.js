@@ -74,22 +74,32 @@ export function annotateSteps(steps,nodes){const surfaceRuns=[],accessRuns=[],le
 export function routeOnOSM(points,elements,{tolerance=150,maxDistance=15000,accessMode='explicit'}={}){const data=prepareOSM(elements),key=JSON.stringify([points,tolerance,maxDistance,accessMode]);if(data.routes.has(key)){const saved=data.routes.get(key);data.routes.delete(key);data.routes.set(key,saved);return {...saved.result,cached:true};}const anchors=points.map(p=>closest(p,data,tolerance,accessMode)),components=accessMode==='explicit'?new Set(anchors.filter(a=>a.offset<=5&&a.edge.component!==null).map(a=>a.edge.component)):null,network=build(data,anchors),steps=[],legLengths=[];for(let i=1;i<network.controls.length;i++){const part=pathBetween(network,network.controls[i-1],network.controls[i],components);for(const step of part)steps.push(step);legLengths.push(part.reduce((n,e)=>n+e.meters,0));}const path=[network.nodes.get(steps[0].from),...steps.map(e=>network.nodes.get(e.to))],length=routeLength(path);if(length>maxDistance)throw tooLarge();let at=0;const result={coordinates:path,snappedPoints:network.controls.map(id=>network.nodes.get(id)),legFractions:[0,...legLengths.map(m=>{at+=m;return at/length;})],analysis:annotateSteps(steps,network.nodes),stats:{maxOffset:Math.round(Math.max(...anchors.map(a=>a.offset))),ignoredAnchors:0,tolerance},engine:'OSM local · sens vélo',cached:false,accessPolicy:accessMode};const bytes=path.length*96+steps.length*64+JSON.stringify(points).length;if(bytes<=4*1024*1024){while(data.routes.size&&(data.routes.size>=64||data.routeBytes+bytes>4*1024*1024)){const first=data.routes.keys().next().value;data.routeBytes-=data.routes.get(first).bytes;data.routes.delete(first);}data.routes.set(key,{result,bytes});data.routeBytes+=bytes;}return result;}
 export function createLocalRouting({osmService=createOSMService({mapFallback:true})}={}){
  const resultFor=(input,data)=>({...routeOnOSM(input.points,data.elements,input),osmSource:data.source||'Overpass'});
+ const fromCache=input=>{try{const data=osmService.peek?.(routingBox(input.points,Math.max(200,(input.tolerance??150)+50)));return data&&!data.then?resultFor(input,data):null;}catch{return null;}};
  const service=async input=>{
   const direct=routeLength(input.points);if(direct>15000)throw tooLarge();
   let best=null,bestLength=Infinity,lastError=null,noPathError=null;const seen=new Set(),enough=result=>routeLength(result.coordinates)<=direct*1.8+200;
   const consider=data=>{if(seen.has(data.elements))return null;seen.add(data.elements);try{const result=resultFor(input,data),length=routeLength(result.coordinates);if(length<bestLength){best=result;bestLength=length;}return result;}catch(e){lastError=e;if(e.localNoPath)noPathError=e;return null;}};
   const narrow=Math.max(200,(input.tolerance??150)+50);let cached=null;try{cached=await osmService.peek?.(routingBox(input.points,narrow),{inFlight:true});}catch{/* A failed warm-up must not block a new request. */}
-  if(cached){const result=consider(cached);if(result&&enough(result))return result;}
+  if(cached){const result=consider(cached);if(result&&(cached.bbox||enough(result)))return result;}
   // Small frames can use the bounded direct OSM fallback when Overpass is down.
   // Grow only when the network is disconnected or forces a substantial detour.
   for(const margin of [...new Set([narrow,650,1800])]){
    let box;try{box=routingBox(input.points,margin);}catch(e){lastError=e;continue;}
-   try{const data=await (osmService.forRouting?osmService.forRouting(box):osmService(box)),result=consider(data);if(result&&enough(result))return result;}catch(e){lastError=e;}
+   try{const data=await (osmService.forRouting?osmService.forRouting(box):osmService(box)),result=consider(data);if(result)return result;}catch(e){lastError=e;break;}
   }
   if(best)return best;
   // A network/direction failure must never be bypassed by a different provider.
   if(noPathError)throw noPathError;
   throw lastError||noPath();
+ };
+ service.cached=fromCache;
+ // The public router supplies a search guide, never an unchecked result.
+ // Rebuild a directed OSM graph around its nodes and apply exactly the same
+ // bicycle bans, explicit access components and surface annotation as locally.
+ if(osmService.forRoute)service.guided=async(input,guide)=>{
+  const cached=fromCache(input);if(cached)return cached;
+  const data=await osmService.forRoute({nodes:guide.osmNodes,points:input.points,coordinates:guide.coordinates});
+  return {...resultFor(input,data),engine:'OSM vélo · accès vérifiés'};
  };
  service.nearest=async input=>{
   const tolerance=input.tolerance??150,required=routingBox([input.point],tolerance+25);let cached=null;try{cached=await osmService.peek?.(required,{inFlight:true});}catch{}const data=cached||await osmService(routingBox([input.point],Math.max(400,tolerance+100))),anchor=closest(input.point,prepareOSM(data.elements),tolerance,input.accessMode);
