@@ -63,7 +63,27 @@ services:
       timeout: 5s
       retries: 10
     logging: *logging
+  routing-import:
+    profiles: ["tools"]
+    mem_limit: 2g
+    cpus: 1.0
+    build:
+      context: .
+      dockerfile: deploy/routing-import.Dockerfile
+    environment:
+      PGHOST: db
+      PGUSER: sillage
+      PGDATABASE: sillage
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Exécutez bash deploy/configure.sh}
+      ROUTING_REGION: ${ROUTING_REGION:-belgium}
+    volumes:
+      - routing_downloads:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *logging
 volumes:
   caddy_data:
   caddy_config:
   postgres_data:
+  routing_downloads:

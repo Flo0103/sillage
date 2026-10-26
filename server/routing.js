@@ -55,6 +55,11 @@ export function createRoutingService({fetcher=(...args)=>fetch(...args),now=Date
   const args=routeRequest(input),{points,tolerance,maxDistance}=args;
   if(input.allowRestricted!==true&&input.accessMode!=='explicit')return provider(args);
   const localInput={points,tolerance,maxDistance,accessMode:'explicit'},cached=localRouting.cached?.(localInput);if(cached)return cached;
+  // A preinstalled PostGIS network can route the common editing steps without
+  // calling OSRM or Overpass at all. Do not send these through the public queue.
+  if(localRouting.offline&&await localRouting.offline(localInput)){
+   try{return await localRouting(localInput);}catch(e){if(e.code!=='LOCAL_TOO_LARGE')throw Object.assign(e,{status:e.status||503});}
+  }
   const long=routeLength(points)>2000&&!!localRouting.guided;let guideError;
   if(long)try{return await guided(args);}catch(e){guideError=e;}
   try{return await localRouting(localInput);}catch(e){
@@ -65,6 +70,7 @@ export function createRoutingService({fetcher=(...args)=>fetch(...args),now=Date
    throw Object.assign(error,{status:error.status||(error.code==='LOCAL_TOO_LARGE'?422:503)});
   }
  };
+ if(localRouting.status)route.status=()=>localRouting.status();
  route.nearest=async input=>{if(input.accessMode!==undefined&&input.accessMode!=='explicit')throw Error('Politique d’accès invalide.');const point=coordinates([input.point,input.point])[0],tolerance=input.tolerance??150;if(![75,150,250].includes(tolerance))throw Error('Tolérance invalide.');
   if(input.allowRestricted===true||input.accessMode==='explicit'){try{return await localRouting.nearest({point,tolerance,accessMode:'explicit'});}catch(e){throw Object.assign(e,{status:e.status||503});}}
   return enqueue(JSON.stringify({nearest:point,tolerance}),async()=>{
