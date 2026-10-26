@@ -310,3 +310,11 @@ Les calculs courts et les réseaux déjà en cache conservent le moteur local. U
 Tests de régression : diagonale de 25 km, deux requêtes ciblées au lieu d’un rectangle, cache, déduplication, expiration, source de secours, absence de téléchargement après un résultat valide, accès privés, interdictions vélo, sens uniques et disponibilité du routeur pendant une autre vérification. Ces tests utilisent des réponses réseau simulées ; ils ne mesurent pas les délais réels des fournisseurs depuis le VPS.
 
 Mise à jour habituelle, sans migration, nouveau secret ni changement des scripts du navigateur. La commande de version doit afficher `6.18.1`.
+
+## 6.19.0 — Emporter un itinéraire sur Garmin ou COROS
+
+Un bouton **Garmin / COROS** est disponible dans la bibliothèque et sur le panneau d’un itinéraire enregistré. La fiche propose le partage natif du fichier GPX si le navigateur le permet, le téléchargement et les étapes d’import pour les deux applications. Elle reste accessible avec la bibliothèque repliée et dans la carte en plein écran. Les noms, les altitudes disponibles et le type vélo restent ceux de l’export GPX existant.
+
+Ce transfert ne nécessite aucune clé et ne change pas la visibilité des itinéraires. Il ne constitue pas une synchronisation automatique : l’utilisateur enregistre le fichier dans Garmin Connect ou COROS puis synchronise son appareil compatible. La connexion des comptes et l’envoi direct demanderont des accès partenaires approuvés. Le [guide GPS](deploy/GPS.md) réunit les sources officielles, les démarches à effectuer et le dossier à compléter pour préparer ces intégrations.
+
+Le GPX à partager est chargé lors de l’ouverture de la fiche pour préserver l’activation du clic mobile. Fermeture et changement de parcours annulent le chargement précédent ; une réponse tardive est ignorée. Annulation du menu natif, refus de partage, session expirée et format inattendu gardent un état explicite, sans annoncer un envoi au GPS ni forcer un téléchargement. Les scripts sont actualisés en `v=6.19.0` ; aucune migration ni variable supplémentaire.

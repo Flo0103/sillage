@@ -1,11 +1,13 @@
-import {filterPlans,planLibraryStats} from './plan-library.js?v=6.18.0';
-import {buildElevationModel,pointAtDistance,elevationAt,slopeAt,routeRenderRuns,kilometreMarkers,renderElevationChart,resizeElevationChart,setChartCursor,elevationColors,slopeBins,routeSurfaceColors} from './elevation.js?v=6.18.0';
-import {ItineraryDraft,planSummary} from './planner.js?v=6.18.0';
-import {insertionIndex} from './route-edit.js?v=6.18.0';
-import {previewPath,renderPreview,disposePreviews} from './preview.js?v=6.18.0';
-import {distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds} from './geo.js?v=6.18.0';
-import {visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML} from './catalog.js?v=6.18.0';
+import {filterPlans,planLibraryStats} from './plan-library.js?v=6.19.0';
+import {createGpsTransfer} from './gps-transfer.js?v=6.19.0';
+import {buildElevationModel,pointAtDistance,elevationAt,slopeAt,routeRenderRuns,kilometreMarkers,renderElevationChart,resizeElevationChart,setChartCursor,elevationColors,slopeBins,routeSurfaceColors} from './elevation.js?v=6.19.0';
+import {ItineraryDraft,planSummary} from './planner.js?v=6.19.0';
+import {insertionIndex} from './route-edit.js?v=6.19.0';
+import {previewPath,renderPreview,disposePreviews} from './preview.js?v=6.19.0';
+import {distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds} from './geo.js?v=6.19.0';
+import {visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML} from './catalog.js?v=6.19.0';
 const $=id=>document.getElementById(id);
+const gpsTransfer=createGpsTransfer({document,fetcher:(...args)=>fetch(...args)});
 if(innerWidth<=850){$('rideChooser').open=false;$('segmentBrowser').open=false;}
 const setHidden=(id,value)=>{const element=$(id);if(element)element.hidden=value;};
 let trace=[],selected=[],gpsSelection=[],records=[],rides=[],first=null,last=null,rating=0,mode='route',snapped=false,busy=false,view='saved',currentRide=null,map,routeLayer,selectionLayer,marks,snapController,snapVersion=0,catalog=[],catalogLayer,layerControl,hillshadeLayer,activeBaseLayer,osmSnapshot=null,editingSegment=null,snapWorker=null,workerReject=null,surfaceTouched=false,geometryChanged=false,endpoints=[],modeDrafts=new Map(),ridePreviewVersion=0,rideLoadVersion=0,stravaActivities=[],stravaPage=0,stravaBusy=false,stravaState={configured:false,connected:false},pickedSegmentId=null,viaPoints=[],routeLegFractions=null,routeDrag=null,independentOsm=false,planRecords=[],editingPlan=null,planReadOnly=false,planLoadVersion=0,importedTraces=null,importedLayer=null,overlayVersion=0,planRecalcTimer=null;
@@ -133,7 +135,7 @@ function calculateOSM(points,elements,tolerance,version,calculationMode=mode){
  const onProgress=p=>{if(version===snapVersion&&calculationMode!=='surface')showProgress(p);};
  if(typeof Worker==='undefined')return Promise.resolve((calculationMode==='route'?routeOSM:matchOSMDetailed)(points,elements,{tolerance,onProgress}));
  return new Promise((resolve,reject)=>{
-  const worker=new Worker('/osm-worker.js?v=6.18.0',{type:'module'});snapWorker=worker;workerReject=reject;
+  const worker=new Worker('/osm-worker.js?v=6.19.0',{type:'module'});snapWorker=worker;workerReject=reject;
   const finish=()=>{worker.terminate();if(snapWorker===worker){snapWorker=null;workerReject=null;}};
   worker.onmessage=({data})=>{if(version!==snapVersion)return;if(data.progress){onProgress(data.progress);return;}finish();if(data.error)reject(Error(data.error));else resolve(data.result);};
   worker.onerror=()=>{finish();reject(Error('Le calcul OSM a échoué. Réessayez ou utilisez le mode manuel.'));};worker.postMessage({points,elements,tolerance,mode:calculationMode});
@@ -452,7 +454,7 @@ function renderLibrary(){
 $('planScope').value='mine';$('libraryType').value='plans';$('libraryType').onchange=()=>{renderLibrary();if($('libraryType').value==='rides')$('rideChooser').open=true;if($('libraryType').value==='segments')$('segmentBrowser').open=true;};
 function previewPlan(){
  const p=planRecords.find(p=>p.id===$('planSelect').value);if(p===planPreviewRecord)return;planPreviewRecord=p;renderPreview($('planPreview'),p,{label:p?.isMine?'Mon itinéraire':p?`Itinéraire de ${p.owner}`:'',meta:p?`${(p.distance/1000).toFixed(1)} km · ${p.isPublic?'Public':'Privé'}`:''});
- $('deletePlan').disabled=!p?.isMine;$('exportPlan').hidden=!p;$('copyPlan').disabled=!p;if(p)$('exportPlan').href=`/api/plans/${p.id}/gpx`;renderPlanMiniProfile(p);
+ $('deletePlan').disabled=!p?.isMine;$('exportPlan').hidden=!p;$('transferPlan').hidden=!p;$('copyPlan').disabled=!p;if(p)$('exportPlan').href=`/api/plans/${p.id}/gpx`;renderPlanMiniProfile(p);
 }
 const planRanges=[{prefix:'planDistance',unit:'km',cap:500,step:1},{prefix:'planAscent',unit:'m',cap:5000,step:10}];let planRangeInitialised=false;
 function updatePlanRange(range,changed){
@@ -474,6 +476,8 @@ async function loadPlan(id,{copy=false}={}){
 
 $('planSelect').onchange=()=>{previewPlan();const id=$('planSelect').value;if(id)void loadPlan(id).catch(e=>toast(e.message));};$('planScope').onchange=()=>renderLibrary();
 $('copyPlan').onclick=()=>{const id=$('planSelect').value;if(id)loadPlan(id,{copy:true}).catch(e=>toast(e.message));};
+$('transferPlan').onclick=()=>{const plan=planRecords.find(p=>p.id===$('planSelect').value);if(plan)void gpsTransfer.open(plan).catch(e=>toast(e.message));};
+$('transferCurrentPlan').onclick=()=>{if(view==='planner'&&planViewing&&editingPlan?.id)void gpsTransfer.open(editingPlan).catch(e=>toast(e.message));};
 $('deletePlan').onclick=async()=>{const id=$('planSelect').value;if(!id||!confirm('Supprimer cet itinéraire ?'))return;try{await api(`/api/plans/${id}`,{method:'DELETE'});if(editingPlan?.id===id)newPlan();await refreshPlans();toast('Itinéraire supprimé.');}catch(e){toast(e.message);}};
 $('planForm').onsubmit=async e=>{
  e.preventDefault();if(view!=='planner'||planReadOnly||planViewing||planSaving||selected.length<2||busy||!planDraft.complete())return;if(!$('planName').value.trim()){toast('Donnez un nom à votre itinéraire.');$('planName').focus?.();return;}planSaving=true;update();const draft=planDraft,signature=JSON.stringify(selected);

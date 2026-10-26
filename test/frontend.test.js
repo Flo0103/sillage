@@ -8,6 +8,7 @@ import * as Elevation from '../dist/elevation.js';
 import {filterPlans,planLibraryStats} from '../dist/plan-library.js';
 import {ItineraryDraft,planSummary} from '../dist/planner.js';
 import {insertionIndex} from '../dist/route-edit.js';
+import {createGpsTransfer} from '../dist/gps-transfer.js';
 import {visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML} from '../dist/catalog.js';
 const html=await readFile(new URL('../dist/index.html',import.meta.url),'utf8');
 const previewScript=(await readFile(new URL('../dist/preview.js',import.meta.url),'utf8')).replace(/^export /gm,'');
@@ -23,7 +24,7 @@ function context({optionalMissing=false}={}){
  const document={body:element(),addEventListener(){},getElementById:id=>elements.get(id)||null,createElement:()=>element(),createTextNode:text=>({textContent:text}),querySelector:()=>null};
  const fetch=async(path,options={})=>{calls.push({path,options});const data=path==='/api/plan-elevations'?JSON.parse(options.body).paths.map(()=>({elevation:null,error:'Altitudes indisponibles.'})):path==='/api/route/nearest'?{point:JSON.parse(options.body).point}:path==='/api/me'?{username:'alice'}:['/api/portions','/api/catalog','/api/wms','/api/plans','/api/rides/overlay'].includes(path)?[]:path==='/api/rides'?options.method==='POST'?{id:ride.id}:[ride]:ride;return {ok:true,status:200,json:async()=>data};};
  const xml={querySelector:()=>null,getElementsByTagNameNS:(ns,tag)=>tag==='trkpt'?points.map(p=>({hasAttribute:()=>true,getAttribute:n=>n==='lat'?String(p[0]):String(p[1])})):[]};
- const ctx={filterPlans,planLibraryStats,...Elevation,smoothElevation,elevationGain,document,fetch,ItineraryDraft,planSummary,insertionIndex,distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds,visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML,location:{replace(){}},localStorage:{getItem:()=>null},AbortController,console,setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),innerWidth:1200,Blob,URL,URLSearchParams,confirm:()=>true,DOMParser:class{parseFromString(){return xml;}}};
+ const ctx={filterPlans,planLibraryStats,createGpsTransfer,...Elevation,smoothElevation,elevationGain,document,fetch,ItineraryDraft,planSummary,insertionIndex,distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds,visibleSegments,segmentColor,ratingColors,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML,location:{replace(){}},localStorage:{getItem:()=>null},AbortController,console,setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),innerWidth:1200,Blob,URL,URLSearchParams,confirm:()=>true,DOMParser:class{parseFromString(){return xml;}}};
  return {elements,calls,ctx,flushTimers(max=350){for(const[id,t]of [...timers])if(t.delay<=max){timers.delete(id);t.fn();}}};
 }
 test('choix d’une sortie sauvegardée sans dépendre des contrôles facultatifs',async()=>{
@@ -207,6 +208,14 @@ test('itinéraire public d’un autre membre non modifiable, copie privée édit
  const access=await vm.runInNewContext(`(async()=>{${script}\nreturn {loadPlan,choose,state:()=>({readonly:planReadOnly,editing:editingPlan?.id,coords:JSON.stringify(selected),canDraw:canDraw()})};})()`,ctx);
  await access.loadPlan(p.id);assert.equal(access.state().readonly,true);assert.equal(access.state().canDraw,false);assert.equal(elements.get('savePlan').disabled,true);access.choose({lat:51,lng:6});assert.equal(access.state().coords,JSON.stringify(p.coordinates));
  await access.loadPlan(p.id,{copy:true});assert.equal(access.state().readonly,false);assert.equal(access.state().editing,undefined);assert.equal(elements.get('publicPlan').checked,false);assert.equal(elements.get('planName').value,'Copie de Tour public');
+});
+test('Garmin / COROS : itinéraire affiché ou sélection de bibliothèque, sans exposition du brouillon',async()=>{
+ const {ctx,elements}=context(),base=ctx.fetch,a={id:'00000000-0000-0000-0000-000000000771',name:'Tour des crêtes',coordinates:[[50,5],[50.02,5]],routePoints:[[50,5],[50.02,5]],distance:2224,mode:'route',snapped:true,isMine:true,owner:'alice'},b={...a,id:'00000000-0000-0000-0000-000000000772',name:'Tour public',isMine:false,isPublic:true,owner:'bob'};
+ ctx.fetch=async(path,options)=>path==='/api/plans'?{ok:true,status:200,json:async()=>[a,b]}:path==='/api/plans/'+a.id?{ok:true,status:200,json:async()=>a}:path==='/api/plans/'+b.id?{ok:true,status:200,json:async()=>b}:base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nreturn {loadPlan,previewPlan,newPlan};})()`,ctx);
+ await access.loadPlan(a.id);assert.equal(elements.get('planViewActions').hidden,false);await elements.get('transferCurrentPlan').onclick();assert.equal(elements.get('gpsTransferName').textContent,a.name);assert.equal(elements.get('gpsTransferDownload').href,`/api/plans/${a.id}/gpx`);elements.get('gpsTransferClose').onclick();
+ elements.get('planScope').value='all';elements.get('planScope').onchange();elements.get('planSelect').value=b.id;access.previewPlan();assert.equal(elements.get('transferPlan').hidden,false);await elements.get('transferPlan').onclick();assert.equal(elements.get('gpsTransferName').textContent,b.name);assert.equal(elements.get('gpsTransferDownload').href,`/api/plans/${b.id}/gpx`);elements.get('gpsTransferClose').onclick();
+ access.newPlan();assert.equal(elements.get('planViewActions').hidden,true);elements.get('transferCurrentPlan').onclick();assert.equal(elements.get('gpsTransferDialog').open,false);
 });
 test('superposition des traces désactivée par défaut et chargement tardif ignoré après décochage',async()=>{
  const {ctx,elements}=context(),base=ctx.fetch;let finish;ctx.fetch=async(path,options)=>path==='/api/rides/overlay'?new Promise(r=>finish=r):base(path,options);
