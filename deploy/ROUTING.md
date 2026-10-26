@@ -1,4 +1,4 @@
-# Routage local sur le VPS — 6.20.1
+# Routage local sur le VPS — 6.21.0
 
 ## Pourquoi changer la source de données
 
@@ -32,7 +32,7 @@ Chaque import charge une nouvelle révision inactive. L’ancien réseau reste u
 
 Le diagnostic doit afficher :
 
-- `Sillage 6.20.1` ;
+- `Sillage 6.21.0` ;
 - `mode: stored`, avec la région `belgium` et un nombre de chemins supérieur à zéro ;
 - `source: PostGIS · belgium` ;
 - `timings.offline: true` pour les trajets de test ;
@@ -67,6 +67,40 @@ sudo docker compose run --rm -e ROUTING_REGION=luxembourg routing-import
 Une étape trop étendue ou trop détaillée pour la fenêtre locale peut encore utiliser le guide du routeur public, puis vérifier les chemins sur les données stockées. En dehors des régions importées, le mécanisme public de secours subsiste et ses délais peuvent varier. Les limites géographiques et les limites du moteur local ne sont pas supprimées par l’import.
 
 Les profils d’altitude utilisent toujours leur source et leur cache existants. Ils sont enrichis après le calcul du tracé et leur disponibilité ne prouve pas que le routage est local.
+
+## Mise à jour automatique hebdomadaire — 6.21.0
+
+Après récupération du code, activer le minuteur une fois sur le VPS Ubuntu :
+
+```bash
+sudo bash deploy/install-routing-updates.sh
+```
+
+Le script vérifie les unités systemd, construit l’image d’import avec son contrôle natif Osmium, installe le service et active le minuteur. Il affiche ensuite la prochaine exécution. Il est réexécutable après une mise à jour du dépôt. L’activation ne lance aucun téléchargement ni import national immédiatement.
+
+L’horaire est **chaque dimanche à 04 h, Europe/Brussels**, avec adaptation automatique à l’heure d’été/hiver et une précision d’une minute. Si le VPS est éteint à cet instant, la tâche attend le dimanche suivant : pas de rattrapage imprévu en journée. L’horaire peut être affiché en UTC par le serveur.
+
+La tâche lit la liste des régions actives en base et actualise chacune avec `--refresh`, une seule à la fois. La Belgique et les éventuelles autres régions installées sont donc entretenues ensemble. Elle exige un premier réseau installé ; elle ne crée pas de nouvelle région à partir d’une simple configuration. Les limites de l’importeur restent celles décrites plus haut. L’ancien réseau de chaque région reste actif jusqu’à la publication complète de sa révision.
+
+Un verrou hôte empêche deux lancements de cette tâche. Le verrou PostgreSQL de préparation protège aussi contre un import manuel simultané. Le service réutilise l’image construite à l’installation, sans récupération de code Git, sans construction nocturne et sans redémarrage de l’application ou de la base. Si l’image manque ou si la base ne répond pas, il échoue explicitement. L’exécution est limitée à trois heures ; un arrêt termine le conteneur appartenant à cette tâche. Une région en échec conserve son ancien réseau, les autres sont traitées et le bilan global marque le service en échec.
+
+Vérifier la prochaine exécution et le dernier résultat :
+
+```bash
+sudo systemctl list-timers --all sillage-routing-update.timer --no-pager
+sudo journalctl -u sillage-routing-update.service -n 80 --no-pager
+```
+
+Le journal contient les étapes d’import et un bilan JSON des régions actualisées ou en échec. Une session SSH peut être fermée sans interrompre le service. Pour lancer volontairement une mise à jour immédiate, puis suivre son journal :
+
+```bash
+sudo systemctl start --no-block sillage-routing-update.service
+sudo journalctl -u sillage-routing-update.service -f
+```
+
+Quitter `journalctl` avec Ctrl+C arrête seulement l’affichage. Pour interrompre la tâche, utiliser `sudo systemctl stop sillage-routing-update.service`. Pour désactiver les prochains lancements, utiliser `sudo systemctl disable --now sillage-routing-update.timer` ; cela ne supprime aucune donnée.
+
+La planification n’est pas activée par un simple `git pull` ou `docker compose up` : le script d’installation doit être exécuté sur le VPS. Les tests locaux vérifient la séquence des régions, les échecs, les verrous, le nettoyage du conteneur, le rendu des unités et l’horaire été/hiver avec le parseur systemd. Les appels Docker sont simulés et le gestionnaire systemd de production n’est pas exécuté dans l’environnement de travail ; le script effectue la validation native des unités sur le VPS avant installation.
 
 ## Validation et limites des mesures
 

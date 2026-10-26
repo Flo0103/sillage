@@ -1,0 +1,11 @@
+[Unit]
+Description=Mise à jour OSM hebdomadaire de Sillage
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00 Europe/Brussels
+AccuracySec=1min
+Persistent=false
+Unit=sillage-routing-update.service
+
+[Install]
+WantedBy=timers.target

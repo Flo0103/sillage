@@ -332,3 +332,9 @@ La migration ajoute uniquement deux tables et leurs index au PostGIS existant. A
 Supprimer l’étape `tags-filter` qui gardait en mémoire les références des chemins et remplacer l’index natif en mémoire par un index `sparse_file_array` sur disque. Le flux OPL complet est lu progressivement et seuls les chemins routables sont enregistrés, en conservant leurs véritables identifiants et coordonnées. Le téléchargement précédent est réutilisé ; les anciens fichiers partiels et index temporaires sont nettoyés sous le verrou de préparation.
 
 Le lecteur affiche le signal d’arrêt et identifie un OOM uniquement si le compteur mémoire du conteneur le confirme. Le tas Node est plafonné à 384 Mo et Osmium utilise un worker. Le journal émet un message périodique pendant la construction de l’index. La construction de l’image exécute un contrôle natif du lecteur et du routage sur un petit réseau, avant d’autoriser l’import national. Voir la [procédure de reprise](deploy/ROUTING.md).
+
+## 6.21.0 — Actualisation OSM hebdomadaire
+
+Le script `sudo bash deploy/install-routing-updates.sh` construit l’importeur puis active un minuteur systemd chaque dimanche à 04 h, heure de Belgique. Il ne lance pas d’import à l’installation. Les régions actives en base sont actualisées l’une après l’autre, avec les limites mémoire existantes et conservation de l’ancien réseau en cas d’échec. Aucun code Git n’est récupéré automatiquement et l’application n’est pas redémarrée par cette tâche.
+
+Le journal systemd donne le résultat par région et signale les échecs. Les lancements simultanés sont bloqués, la durée totale est bornée à trois heures et le conteneur de la tâche est arrêté en cas d’interruption. L’horaire tient compte de l’heure d’été/hiver et les lancements manqués lorsque le VPS est arrêté ne sont pas rattrapés en journée. Voir les [commandes d’activation, de contrôle et d’arrêt](deploy/ROUTING.md). L’activation sur le VPS reste nécessaire après publication du code.

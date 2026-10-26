@@ -1,0 +1,23 @@
+[Unit]
+Description=Actualisation des réseaux OSM de Sillage
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+RequiresMountsFor="@PROJECT_DIR@"
+
+[Service]
+Type=oneshot
+WorkingDirectory="@PROJECT_DIR@"
+ExecStart=/usr/bin/bash deploy/refresh-routing.sh
+TimeoutStartSec=3h
+TimeoutStopSec=90s
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+UMask=0077
+RuntimeDirectory=sillage-routing-update
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sillage-routing-update

@@ -65,6 +65,7 @@ services:
     logging: *logging
   routing-import:
     profiles: ["tools"]
+    image: sillage-routing-import:local
     mem_limit: 2g
     cpus: 1.0
     build:
