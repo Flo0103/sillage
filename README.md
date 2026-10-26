@@ -326,3 +326,9 @@ Les étapes couvertes peuvent maintenant être calculées depuis le PostgreSQL/P
 **Il faut effectuer l’import initial, pas seulement reconstruire l’application.** Le [guide du routage local](deploy/ROUTING.md) donne les commandes, le contrôle `--require-local`, les mesures du diagnostic, les journaux de requête, les mises à jour et les limites de validation. La Belgique est proposée par défaut. Sans import ou en dehors des données installées, le secours public reste disponible ; ses délais ne sont pas garantis. Les grandes étapes dépassant les bornes locales peuvent encore utiliser un guide public.
 
 La migration ajoute uniquement deux tables et leurs index au PostGIS existant. Aucun changement d’image PostgreSQL, de volume de données utilisateur ni de secret. Les scripts du navigateur restent identiques à 6.19.0. Les tests utilisent un adaptateur SQL en mémoire ; les mesures réelles nécessitent le diagnostic sur le VPS après import.
+
+## 6.20.1 — Import adapté à la mémoire du VPS
+
+Supprimer l’étape `tags-filter` qui gardait en mémoire les références des chemins et remplacer l’index natif en mémoire par un index `sparse_file_array` sur disque. Le flux OPL complet est lu progressivement et seuls les chemins routables sont enregistrés, en conservant leurs véritables identifiants et coordonnées. Le téléchargement précédent est réutilisé ; les anciens fichiers partiels et index temporaires sont nettoyés sous le verrou de préparation.
+
+Le lecteur affiche le signal d’arrêt et identifie un OOM uniquement si le compteur mémoire du conteneur le confirme. Le tas Node est plafonné à 384 Mo et Osmium utilise un worker. Le journal émet un message périodique pendant la construction de l’index. La construction de l’image exécute un contrôle natif du lecteur et du routage sur un petit réseau, avant d’autoriser l’import national. Voir la [procédure de reprise](deploy/ROUTING.md).

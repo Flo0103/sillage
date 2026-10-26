@@ -1,4 +1,4 @@
-# Routage local sur le VPS — 6.20.0
+# Routage local sur le VPS — 6.20.1
 
 ## Pourquoi changer la source de données
 
@@ -18,9 +18,11 @@ sudo docker compose run --rm --build routing-import &&
 sudo docker compose exec app node server/check-routing.js --require-local
 ```
 
-La deuxième commande construit l’outil Osmium, télécharge l’extrait de Belgique, filtre les routes/chemins et les importe par petits lots. Ce travail peut prendre plusieurs minutes. Ce n’est pas le temps d’un calcul d’itinéraire : c’est la préparation initiale des données. Le journal indique le téléchargement, le filtrage puis le nombre de chemins importés. Attendre la fin du processus.
+La deuxième commande construit l’outil Osmium, vérifie son fonctionnement sur un petit réseau de test, télécharge l’extrait de Belgique, lit les coordonnées avec un index sur disque et importe seulement les routes/chemins par petits lots. Ce travail peut prendre plusieurs minutes. Ce n’est pas le temps d’un calcul d’itinéraire : c’est la préparation initiale des données. Le journal indique le téléchargement, la préparation de l’index puis le nombre de chemins importés ; un message périodique confirme que la préparation continue avant le premier lot. Attendre la fin du processus.
 
-L’outil d’import est plafonné à **2 Go de RAM et un CPU**. Il conserve les coordonnées directement sur les chemins et ne charge pas une table nationale de nœuds dans Node. Le moteur applicatif garde ses bornes : 25 000 chemins par lecture, 32 Mo de cache brut, 150 000 nœuds / 250 000 arêtes par réseau préparé et 250 000 arêtes en cache. Ces limites visent un VPS de 4 Go ; la consommation réelle totale et le temps de l’import restent à contrôler sur le VPS. Prévoir quelques Go libres sur disque pour l’extrait, les tables, les index et le journal PostgreSQL. L’extrait national PBF est de l’ordre de plusieurs centaines de Mo.
+L’outil d’import est plafonné à **2 Go de RAM et un CPU**, avec un tas Node limité à 384 Mo et un seul worker Osmium. Depuis 6.20.1, il utilise `sparse_file_array` pour les coordonnées des nœuds : l’index temporaire est stocké sur disque. Il n’exécute plus `tags-filter` avec conservation des références, dont les listes de nœuds en mémoire pouvaient dépasser le budget. Node retient uniquement les chemins routables lus dans le flux OPL. L’index est retiré après import ou erreur ; un index abandonné lors d’un arrêt complet du conteneur est nettoyé au lancement suivant sous le verrou de préparation. L’extrait PBF téléchargé est conservé.
+
+Le moteur applicatif garde ses bornes : 25 000 chemins par lecture, 32 Mo de cache brut, 150 000 nœuds / 250 000 arêtes par réseau préparé et 250 000 arêtes en cache. Ces limites visent un VPS de 4 Go ; la consommation réelle totale et le temps de l’import restent à contrôler sur le VPS. Prévoir quelques Go libres sur disque pour l’extrait, l’index temporaire, les tables et le journal PostgreSQL. L’extrait national PBF est de l’ordre de plusieurs centaines de Mo.
 
 L’import crée uniquement les tables `routing_networks` et `routing_ways` et leurs index. Il n’effectue aucune migration d’image PostgreSQL et ne remplace pas le volume de données existant. Les comptes, sorties, secteurs et itinéraires restent dans leurs tables actuelles.
 
@@ -30,7 +32,7 @@ Chaque import charge une nouvelle révision inactive. L’ancien réseau reste u
 
 Le diagnostic doit afficher :
 
-- `Sillage 6.20.0` ;
+- `Sillage 6.20.1` ;
 - `mode: stored`, avec la région `belgium` et un nombre de chemins supérieur à zéro ;
 - `source: PostGIS · belgium` ;
 - `timings.offline: true` pour les trajets de test ;
@@ -70,4 +72,12 @@ Les profils d’altitude utilisent toujours leur source et leur cache existants.
 
 Les tests automatisés couvrent un calcul de plusieurs kilomètres sans appels Internet, le cache, l’accrochage initial, la révision des données, les accès, les sens uniques et le cycle d’import. Le graphe minimal réel de la rue du Jeu de Paume sert à vérifier l’aller/retour de ses identifiants, géométries et revêtements à travers le format d’import. Les tests SQL utilisent un adaptateur en mémoire : **l’import national dans un vrai PostGIS, la construction du conteneur et la latence réelle sur le VPS n’ont pas pu être exécutés dans l’environnement de travail, dont le socket Docker et les connexions réseau sont inaccessibles**. Le diagnostic après import est donc indispensable avant de conclure sur les performances réelles.
 
-Sources et attribution : © OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright), extraits [Geofabrik Belgique](https://download.geofabrik.de/europe/belgium.html). Traitement par [Osmium tags-filter](https://docs.osmcode.org/osmium/latest/osmium-tags-filter.html), [add-locations-to-ways](https://docs.osmcode.org/osmium/latest/osmium-add-locations-to-ways.html) et [format OPL](https://osmcode.org/opl-file-format/).
+Sources et attribution : © OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright), extraits [Geofabrik Belgique](https://download.geofabrik.de/europe/belgium.html). Traitement par [add-locations-to-ways](https://docs.osmcode.org/osmium/latest/osmium-add-locations-to-ways.html), [index sur disque](https://docs.osmcode.org/osmium/latest/osmium-index-types.html) et [format OPL](https://osmcode.org/opl-file-format/).
+
+## Reprise après `osmium a échoué (null)` — 6.20.1
+
+Le code `null` signifiait que le processus avait été interrompu par un signal, mais l’ancien message ne l’affichait pas. Le filtrage de 6.20.0 conservait les références de nœuds en mémoire ; un dépassement mémoire est une cause probable de l’arrêt observé sur le VPS de 4 Go, sans être confirmé par la capture seule. Le nouveau lecteur affiche le signal exact et ne conclut à un OOM que si `SIGKILL` s’accompagne d’une hausse du compteur OOM du conteneur.
+
+Après récupération de 6.20.1, reconstruire et relancer `routing-import` avec les commandes d’installation ci-dessus. Le PBF déjà téléchargé est réutilisé. L’ancien fichier de filtrage partiel est supprimé. L’ancien réseau actif reste conservé jusqu’à validation et publication complète du nouvel import.
+
+La construction de l’image lance `node server/check-osmium.js` avec le vrai binaire Osmium, un index temporaire et un petit réseau utilisant de grands identifiants OSM. Elle vérifie les géométries, les raccords, les surfaces et les sens uniques avant tout import national. Le succès est indiqué par `OSMIUM_CHECK_OK`. Ce test ne mesure pas la mémoire nécessaire à l’extrait national. Les tests locaux de supervision simulent également les interruptions, le compteur OOM, l’absence du binaire et l’arrêt du lecteur.

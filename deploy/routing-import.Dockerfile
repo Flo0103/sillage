@@ -5,4 +5,5 @@ COPY package.json ./
 RUN npm install --omit=dev --ignore-scripts --no-audit --no-fund
 COPY server ./server
 COPY dist ./dist
+RUN node server/check-osmium.js
 ENTRYPOINT ["node", "server/import-routing.js"]

@@ -15,9 +15,9 @@ export function parseRoutingWay(line){
 }
 export async function importRoutingWays({client,stream,dataset,source,onProgress=()=>{},validate=async()=>{}}){
  if(!/^[a-z0-9][a-z0-9_/-]{0,79}$/.test(dataset)||dataset.includes('..'))throw Error('Région invalide.');
- const revision=randomUUID();let locked=false,created=false,activated=false,count=0,batch=[];
+ const revision=randomUUID();let locked=false,created=false,activated=false,count=0,nextProgress=10000,batch=[];
  const flush=async()=>{if(!batch.length)return;const rows=batch.map(w=>({...w,geojson:{type:'LineString',coordinates:w.geometry.map(p=>[p.lon,p.lat])}}));
-  await client.query("INSERT INTO routing_ways(revision,osm_id,data,geom) SELECT $1,(v->>'id')::bigint,v-'geojson',ST_SetSRID(ST_GeomFromGeoJSON(v->'geojson'),4326) FROM jsonb_array_elements($2::jsonb) v",[revision,JSON.stringify(rows)]);count+=batch.length;batch=[];if(count%10000===0)onProgress(count);
+  await client.query("INSERT INTO routing_ways(revision,osm_id,data,geom) SELECT $1,(v->>'id')::bigint,v-'geojson',ST_SetSRID(ST_GeomFromGeoJSON(v->'geojson'),4326) FROM jsonb_array_elements($2::jsonb) v",[revision,JSON.stringify(rows)]);count+=batch.length;batch=[];if(count>=nextProgress){onProgress(count);nextProgress=count+10000;}
  };
  try{
   const lock=await client.query("SELECT pg_try_advisory_lock(hashtext('sillage-routing-import:'||$1)) AS locked",[dataset]);if(!lock.rows[0]?.locked)throw Error('Un import de cette région est déjà en cours.');locked=true;

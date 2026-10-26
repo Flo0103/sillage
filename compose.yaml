@@ -76,6 +76,7 @@ services:
       PGDATABASE: sillage
       PGPASSWORD: ${POSTGRES_PASSWORD:?Exécutez bash deploy/configure.sh}
       ROUTING_REGION: ${ROUTING_REGION:-belgium}
+      NODE_OPTIONS: --max-old-space-size=384
     volumes:
       - routing_downloads:/data
     depends_on:
