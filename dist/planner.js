@@ -1,5 +1,5 @@
-import {buildElevationModel} from './elevation.js?v=6.17.0';
-import {distance,routeLength} from './geo.js?v=6.17.0';
+import {buildElevationModel} from './elevation.js?v=6.18.0';
+import {distance,routeLength} from './geo.js?v=6.18.0';
 import {routePosition} from './route-edit.js';
 let serial=0;
 const point=p=>[...p];
@@ -38,8 +38,14 @@ export class ItineraryDraft{
  invalidateRoutes(){if(!this.legs.some(l=>l.mode==='route'))return;this.remember();this.legs=this.legs.map(l=>l.mode==='route'?leg('route'):l);}
  serialise(){return this.legs.map(({mode,coordinates,analysis})=>({mode,coordinates,analysis}));}
 }
+const legSummaryCache=new WeakMap();
+function legSummary(l){
+ const cached=legSummaryCache.get(l);if(cached&&cached.coordinates===l.coordinates&&cached.analysis===l.analysis)return cached.value;
+ const a=l.analysis,surfaces={};let known=0,unpaved=0,unpavedKnown=0,failures=0;
+ if(a){for(const run of a.surfaceRuns||[]){const meters=routeLength(run.coordinates||[]);if(run.unpaved===true)unpaved+=meters;if(run.unpaved===true||run.unpaved===false)unpavedKnown+=meters;}if(!a.surfaceRuns?.length)for(const part of a.surfaces||[]){if(['Inconnu','Mixte'].includes(part.type))continue;unpavedKnown+=part.distance;if(!['Asphalte / bitume','Asphalte','Béton','Revêtu (non précisé)'].includes(part.type))unpaved+=part.distance;}for(const part of a.surfaces||[]){surfaces[part.type]=(surfaces[part.type]||0)+part.distance;if(part.type!=='Inconnu')known+=part.distance;}if(a.errors?.length)failures++;}
+ const value={known,unpaved,unpavedKnown,failures,surfaces};legSummaryCache.set(l,{coordinates:l.coordinates,analysis:l.analysis,value});return value;
+}
 export function planSummary(legs){
- const model=buildElevationModel(legs);let total=model.total,known=0,unpaved=0,unpavedKnown=0;const surfaces={};let failures=0;
- for(const l of legs){const a=l.analysis;if(!a)continue;for(const run of a.surfaceRuns||[]){const meters=routeLength(run.coordinates||[]);if(run.unpaved===true)unpaved+=meters;if(run.unpaved===true||run.unpaved===false)unpavedKnown+=meters;}if(!a.surfaceRuns?.length)for(const part of a.surfaces||[]){if(['Inconnu','Mixte'].includes(part.type))continue;unpavedKnown+=part.distance;if(!['Asphalte / bitume','Asphalte','Béton','Revêtu (non précisé)'].includes(part.type))unpaved+=part.distance;}for(const s of a.surfaces||[]){surfaces[s.type]=(surfaces[s.type]||0)+s.distance;if(s.type!=='Inconnu')known+=s.distance;}if(a.errors?.length)failures++;}
+ const model=buildElevationModel(legs),total=model.total,surfaces={};let known=0,unpaved=0,unpavedKnown=0,failures=0;for(const leg of legs){const s=legSummary(leg);known+=s.known;unpaved+=s.unpaved;unpavedKnown+=s.unpavedKnown;failures+=s.failures;for(const [type,n]of Object.entries(s.surfaces))surfaces[type]=(surfaces[type]||0)+n;}
  return {unpaved:Math.min(total,unpaved),unpavedKnown:Math.min(total,unpavedKnown),ascent:model.ascent,descent:model.descent,elevationCoverage:total?Math.min(100,Math.round(100*model.elevationLength/total)):0,surfaceCoverage:total?Math.min(100,Math.round(100*known/total)):0,surfaces,total,failures};
 }

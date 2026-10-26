@@ -79,3 +79,9 @@ test('cache des surfaces inconnues expire rapidement, les données complètes ga
  let calls=0,known=false,time=0;const way={tags:{highway:'track',surface:'asphalt'},geometry:[{lat:a[0],lon:a[1]},{lat:b[0],lon:b[1]}]},service=createPlanMetrics({now:()=>time,wait:async()=>{},fetcher:async()=>{calls++;return Response.json({elements:known?[way]:[]});}});
  await service({coordinates:[a,b],kind:'surface'});known=true;time=59000;await service({coordinates:[a,b],kind:'surface'});assert.equal(calls,1);time=61000;const result=await service({coordinates:[a,b],kind:'surface'});assert.equal(calls,2);assert.equal(result.surfaces[0].type,'Asphalte / bitume');time=300000;await service({coordinates:[a,b],kind:'surface'});assert.equal(calls,2);
 });
+
+test('synthèse des surfaces : une nouvelle analyse et annuler un déplacement conservent les bonnes statistiques',()=>{
+ const draft=new ItineraryDraft();draft.append(a);draft.append(b);solve(draft,0);draft.append(c);solve(draft,1);const first=draft.legs[0].id,last=draft.legs[1].id;
+ draft.analyse(first,{surfaces:[{type:'Gravier',distance:1112}],surfaceRuns:[{coordinates:[a,b],unpaved:true}]});draft.analyse(last,{surfaces:[{type:'Inconnu',distance:1112}],surfaceRuns:[{coordinates:[b,c],unpaved:null}]});const initial=planSummary(draft.legs);assert.ok(initial.unpaved>1100&&initial.unpaved<1120);
+ draft.analyse(last,{surfaces:[{type:'Gravier',distance:1112}],surfaceRuns:[{coordinates:[b,c],unpaved:true}]});const complete=planSummary(draft.legs);assert.ok(complete.unpaved>2200);assert.equal(complete.surfaceCoverage,100);draft.move(1,[50.011,5]);assert.equal(planSummary(draft.legs).unpavedKnown,0);draft.undo();assert.deepEqual(planSummary(draft.legs),complete);
+});

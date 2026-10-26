@@ -268,3 +268,31 @@ Le bouton de secteur possède le même signe + que celui d’itinéraire. Les co
 La bibliothèque utilise par défaut les éléments personnels et revient à ce choix après réinitialisation des filtres. Le libellé est « Mes secteurs » ou « Mes itinéraires » selon la catégorie. Les autres éléments publics restent accessibles par un choix explicite ; la recherche reste indépendante des couches visibles sur la carte. « Zone de recherche » propose Partout, Départ, Arrivée ou Départ et arrivée ; l’option Départ ou arrivée est supprimée de l’interface.
 
 Mettre à jour normalement puis recharger les modules `v=6.17.0`. Aucune migration ni nouvelle variable. Vérifier l’en-tête compact sur téléphone et ordinateur, les tailles des outils, les états de création/consultation et le retour aux éléments personnels après réinitialisation.
+
+
+## Routage explicite, file de calcul et mobile (6.18.0)
+
+Sur mobile, bibliothèque repliée, la carte occupe la hauteur du viewport dynamique moins l’en-tête et le profil réellement visibles, avec un minimum de 240 px pour les petits écrans en paysage. Le défilement vertical du profil et du formulaire reste disponible ; aucun bloc vide n’est réservé sous une carte de 68 svh.
+
+Les nouveaux calculs de l’interface et les demandes `allowRestricted: true` utilisent la politique OSM explicite. Une interdiction vélo inconditionnelle (`bicycle=no`, `dismount`, `use_sidepath`, avec priorité des tags directionnels) est exclue, même avec un point dessus. Les exceptions vélo explicites sur un accès général restent respectées. Les autres accès restreints sont exclus du transit, sauf si l’un des points de l’étape est placé sur ce chemin : son réseau restreint connecté est alors utilisable, toujours en respectant les sens uniques. Le rattachement se fait par les identifiants des nœuds OSM, sans raccord artificiel.
+
+La dérogation d’accès utilise une proximité de 5 m au chemin, distincte de la tolérance générale de 150 m pour l’accrochage. Une proximité plus large n’autorise pas un chemin privé ; à un carrefour partagé, le chemin libre est préféré. Les interdictions vélo ne servent jamais de pont entre deux réseaux restreints. Le cache des résultats distingue les politiques d’accès. Les repères « ! » restent présents sur les accès restreints effectivement empruntés.
+
+L’interface ne bascule plus vers un fournisseur dont les accès ne peuvent pas être vérifiés lorsque la source OSM locale est indisponible. Les points sont conservés et le routage peut être relancé. Les limites d’emprise et de 15 km par calcul local restent bornées : ajouter un point intermédiaire si nécessaire. Les géométries déjà enregistrées restent historiques ; la nouvelle règle s’applique aux nouveaux calculs et aux étapes recalculées.
+
+Le calcul utilise une file unique : les points ajoutés pendant une requête sont traités ensuite, à partir de l’extrémité réellement accrochée. Un ajout conserve la requête valide en cours ; déplacer ou supprimer son étape abandonne la requête obsolète côté navigateur. Une étape géométriquement impossible ne bloque plus les suivantes. Une panne ou un quota du fournisseur met la file en pause, sans rafale ni perte des points ; Réessayer reprend les seules étapes manquantes. Les analyses des étapes terminées peuvent progresser pendant la suite du routage.
+
+Les marqueurs gardent leur DOM si les points n’ont pas bougé, pour que le premier clic et les mises à jour d’analyse n’empêchent pas le double-clic. Le départ, l’arrivée et les passages disposent du même menu de suppression, du double-clic, du clic droit et de la touche Suppr. Les extrémités sont aussi retirables dans la liste des points, même si leurs marqueurs se superposent. Leur suppression reste annulable et ne déclenche pas un clic de dessin sur la carte.
+
+### Mesures de performance
+
+Les longueurs cumulées de chaque étape, les synthèses de surfaces et les propriétés OSM par chemin sont réutilisées. Les caches reposent sur les géométries et analyses immuables et sont invalidés lors d’un changement de tracé ou d’analyse. Mesures locales Node 24, hors affichage, HTTP et téléchargement :
+
+| Opération sur 60 000 points | Médiane avant | Médiane après |
+| --- | ---: | ---: |
+| Mise à jour du modèle de profil, géométrie identique | 8,44 ms | 2,12 ms |
+| Synthèse répétée du relief et des surfaces | 4,52 ms | 0,013 ms |
+
+Ces chiffres ne mesurent pas le délai de réponse des fournisseurs ni le temps total de tracé dans le navigateur. Les commandes `npm run bench:routing -- --profile` et `npm run bench:routing -- --summary` reproduisent les deux cas sur un checkout avec Node. Le benchmark du moteur seul garde un mode historique d’accès pour comparer le CPU, distinct de la politique de production.
+
+Mise à jour habituelle, sans migration ni nouveau secret ; recharger les scripts `v=6.18.0`. Vérifier sur téléphone la carte bibliothèque masquée puis le défilement jusqu’au formulaire avec profil ouvert. Tester plusieurs clics avant la fin du premier calcul, un déplacement pendant une requête, la suppression des deux extrémités et les restrictions sur un trajet connu. Le rendu réel et les services externes restent à vérifier après déploiement.

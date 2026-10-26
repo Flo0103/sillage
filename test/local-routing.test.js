@@ -48,13 +48,13 @@ test('analyse de surface récupère géométrie et tags ; réponse sans géomét
 });
 test('service local élargit la zone si aucun passage et accroche précisément un départ',async()=>{
  let calls=0;const elements=[way([1,2],[a,b])],service=createLocalRouting({osmService:async()=>{calls++;return {elements,cached:true};}});assert.equal((await service({points:[a,b],tolerance:150})).engine,'OSM local · sens vélo');assert.equal((await service.nearest({point:[50.0005,5.0001],tolerance:150})).point[1],5);assert.equal(calls,2);
- const missing=createLocalRouting({osmService:async()=>{calls++;return {elements:[way([1,2],[a,b],{oneway:'yes'})]};}});await assert.rejects(missing({points:[b,a],tolerance:150}),e=>e.localNoPath);assert.equal(calls,5);
+ const missing=createLocalRouting({osmService:async()=>{calls++;return {elements:[way([1,2],[a,b],{oneway:'yes'})]};}});await assert.rejects(missing({points:[b,a],tolerance:150}),e=>e.localNoPath);assert.equal(calls,5);const empty=createLocalRouting({osmService:async()=>({elements:[]})});await assert.rejects(empty({points:[a,b]}),e=>e.localNoPath&&e.status===422);
 });
-test('calcul local prioritaire : aucun secours qui contourne un sens unique ; panne locale annoncée en secours',async()=>{
- let external=0;const result=routeOnOSM([a,b],[way([1,2],[a,b])]),local=async()=>result;local.nearest=async()=>({point:a});
- const service=createRoutingService({wait:async()=>{},localRouting:local,fetcher:async()=>{external++;return Response.json({code:'Ok',routes:[{geometry:{type:'LineString',coordinates:[[5,50],[5,50.001]]}}]});}});assert.equal((await service({points:[a,b],allowRestricted:true})).accessPolicy,'warn');assert.deepEqual((await service.nearest({point:a,allowRestricted:true})).point,a);assert.equal(external,0);
+test('calcul local prioritaire : aucun secours qui contourne un sens unique ; panne locale sans secours non vérifié',async()=>{
+ let external=0;const result=routeOnOSM([a,b],[way([1,2],[a,b])],{accessMode:'explicit'}),local=async()=>result;local.nearest=async()=>({point:a});
+ const service=createRoutingService({wait:async()=>{},localRouting:local,fetcher:async()=>{external++;return Response.json({code:'Ok',routes:[{geometry:{type:'LineString',coordinates:[[5,50],[5,50.001]]}}]});}});assert.equal((await service({points:[a,b],allowRestricted:true})).accessPolicy,'explicit');assert.deepEqual((await service.nearest({point:a,allowRestricted:true})).point,a);assert.equal(external,0);
  const noRoute=createRoutingService({localRouting:async()=>{throw Object.assign(Error('sens interdit'),{localNoPath:true});},fetcher:async()=>{external++;}});await assert.rejects(noRoute({points:[b,a],allowRestricted:true}),/sens interdit/);assert.equal(external,0);
- const fallback=createRoutingService({wait:async()=>{},localRouting:async()=>{throw Error('OSM indisponible');},fetcher:async()=>{external++;return Response.json({code:'Ok',routes:[{geometry:{type:'LineString',coordinates:[[5,50],[5,50.001]]}}]});}});const response=await fallback({points:[a,b],allowRestricted:true});assert.match(response.warning,/secours/);assert.equal(response.accessPolicy,'provider');assert.equal(external,1);
+ const fallback=createRoutingService({wait:async()=>{},localRouting:async()=>{throw Error('OSM indisponible');},fetcher:async()=>{external++;return Response.json({code:'Ok',routes:[{geometry:{type:'LineString',coordinates:[[5,50],[5,50.001]]}}]});}});await assert.rejects(fallback({points:[a,b],allowRestricted:true}),e=>e.status===503);assert.equal(external,0);
 });
 
 test('cas réel Spa : rue entière dans les deux sens avec ou sans passage intermédiaire',async()=>{
@@ -89,8 +89,32 @@ test('réutilisation de nombreuses paires : mêmes distances qu’un Dijkstra in
 });
 
 test('une zone élargie indisponible ne remplace pas un routage local valide sur accès limité',async()=>{
- const end=[50,5.001],elements=[way([1,2,3,4],[a,[50.005,5],[50.005,5.001],end],{access:'private'})];let requests=0,external=0;const osm=async()=>{requests++;throw Error('zone élargie indisponible');};osm.peek=()=>({elements,cached:true,source:'OSM API'});const service=createRoutingService({localRouting:createLocalRouting({osmService:osm}),fetcher:async()=>{external++;throw Error('Pas de détour de secours');}}),result=await service({points:[a,end],allowRestricted:true});assert.equal(result.accessPolicy,'warn');assert.ok(result.analysis.accessRuns.length);assert.equal(external,0);assert.ok(requests>0);
+ const end=[50,5.001],elements=[way([1,2,3,4],[a,[50.005,5],[50.005,5.001],end],{access:'private'})];let requests=0,external=0;const osm=async()=>{requests++;throw Error('zone élargie indisponible');};osm.peek=()=>({elements,cached:true,source:'OSM API'});const service=createRoutingService({localRouting:createLocalRouting({osmService:osm}),fetcher:async()=>{external++;throw Error('Pas de détour de secours');}}),result=await service({points:[a,end],allowRestricted:true});assert.equal(result.accessPolicy,'explicit');assert.ok(result.analysis.accessRuns.length);assert.equal(external,0);assert.ok(requests>0);
 });
 test('échec de connexion dirigée conservé même si la recherche plus large devient indisponible',async()=>{
  const elements=[way([1,2],[a,b],{oneway:'yes',access:'private'})];let calls=0,external=0;const osm=async()=>{if(++calls===1)return {elements};throw Error('indisponible');};const service=createRoutingService({localRouting:createLocalRouting({osmService:osm}),fetcher:async()=>{external++;}});await assert.rejects(service({points:[b,a],allowRestricted:true}),e=>e.localNoPath);assert.equal(external,0);
+});
+
+test('accès explicites : un raccourci privé est évité sans point dessus, sans mélange du cache historique',()=>{
+ const start=[50,5],left=[50,5.002],mid=[50,5.003],right=[50,5.004],end=[50,5.006],x=[50.003,5.002],y=[50.003,5.004],elements=[way([1,2],[start,left]),way([2,3,4],[left,mid,right],{access:'private'}),way([4,5],[right,end]),way([2,6,7,4],[left,x,y,right])];
+ const standard=routeOnOSM([start,end],elements);assert.ok(standard.coordinates.some(p=>p[0]===x[0]));assert.equal(standard.analysis.accessRuns.length,0);assert.equal(standard.accessPolicy,'explicit');
+ const historical=routeOnOSM([start,end],elements,{accessMode:'warn'});assert.ok(historical.analysis.accessRuns.length);const repeated=routeOnOSM([start,end],elements);assert.equal(repeated.cached,true);assert.deepEqual(repeated.coordinates,standard.coordinates);
+ const deliberate=routeOnOSM([start,mid,end],elements);assert.deepEqual(deliberate.coordinates,[start,left,mid,right,end]);assert.equal(deliberate.analysis.accessRuns.length,1);
+});
+
+test('point restreint : permission limitée au réseau restreint connecté, pas aux autres raccourcis privés',()=>{
+ const p=Array.from({length:8},(_,i)=>[50,5+i*.001]),x=[50.003,5.001],y=[50.003,5.004],z=[50.003,5.005],elements=[way([1,2],p.slice(0,2)),way([2,3,4],p.slice(1,4),{access:'private'}),way([4,5],p.slice(3,5),{access:'permit'}),way([5,6],p.slice(4,6)),way([6,7],p.slice(5,7),{access:'private'}),way([7,8],p.slice(6,8)),way([2,9,5],[p[1],x,p[4]]),way([6,10,11,7],[p[5],y,z,p[6]])];
+ const route=routeOnOSM([p[0],p[2],p[7]],elements);assert.ok(route.coordinates.some(q=>q[0]===y[0]));assert.ok(route.analysis.accessRuns.some(r=>/Autorisation/.test(r.label)));assert.ok(!route.analysis.accessRuns.some(r=>r.coordinates.some(q=>q[1]===p[5][1])));
+});
+
+test('interdiction vélo : jamais routable, même avec un point dessus ; exceptions directionnelles et vélo prioritaires',()=>{
+ const elements=[way([1,2],[a,b],{bicycle:'no'})];for(const accessMode of ['explicit','warn'])assert.throws(()=>routeOnOSM([a,b],elements,{accessMode}),e=>e.localNoPath);
+ const directional=[way([1,2],[a,b],{bicycle:'no','bicycle:backward':'yes'})];assert.throws(()=>routeOnOSM([a,b],directional),e=>e.localNoPath);assert.deepEqual(routeOnOSM([b,a],directional).coordinates,[b,a]);
+ assert.equal(routeOnOSM([a,b],[way([1,2],[a,b],{access:'private',bicycle:'yes'})]).analysis.accessRuns.length,0);
+ const closed=[way([1,2],[a,b],{access:'private',oneway:'yes'})];assert.throws(()=>routeOnOSM([b,a],closed),e=>e.localNoPath);
+});
+
+test('accrochage : une proximité ne suffit pas à autoriser un chemin privé et un carrefour public ne donne pas la dérogation',async()=>{
+ const start=[50,5],left=[50,5.002],mid=[50,5.003],right=[50,5.004],end=[50,5.006],x=[50.003,5.002],y=[50.003,5.004],elements=[way([1,2],[start,left]),way([2,3,4],[left,mid,right],{access:'private'}),way([4,5],[right,end]),way([2,6,7,4],[left,x,y,right])],osm=async()=>({elements}),local=createLocalRouting({osmService:osm});
+ const nearest=await local.nearest({point:[50.0002,5.003],tolerance:150,accessMode:'explicit'});assert.notDeepEqual(nearest.point,mid);const route=await local({points:[left,end],accessMode:'explicit'});assert.equal(route.analysis.accessRuns.length,0);assert.ok(route.coordinates.some(p=>p[0]===x[0]));
 });

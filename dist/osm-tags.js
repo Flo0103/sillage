@@ -23,3 +23,9 @@ export function bicycleAccess(tags={},direction='forward'){
  if(condition)label=(label?label+' · ':'')+'Conditions : '+String(condition).slice(0,130);
  return label?{label:label.slice(0,200)}:null;
 }
+
+// Unconditional bicycle bans cannot be overridden by a waypoint. Directional
+// bicycle tags take precedence over the general bicycle tag.
+export function bicycleForbidden(tags={},direction='forward'){
+ const value=String(tags[`bicycle:${direction}`]??tags.bicycle??'').trim().toLowerCase();return ['no','0','false','dismount','use_sidepath'].includes(value);
+}

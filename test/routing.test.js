@@ -52,3 +52,9 @@ test('le secours public refuse les portions à pied ou poussées qui peuvent rem
  for(const mode of ['pushing bike','walking','steps up','steps down']){let url;const service=createRoutingService({wait:async()=>{},fetcher:async u=>{url=new URL(u);return response({code:'Ok',routes:[{geometry,legs:[{steps:[{mode}]}]}]});}});await assert.rejects(service(request),/passage à pied/);assert.equal(url.searchParams.get('steps'),'true');}
  const service=createRoutingService({wait:async()=>{},fetcher:async()=>response({code:'Ok',routes:[{geometry,legs:[{steps:[{mode:'cycling'}]}]}]})});assert.ok((await service(request)).coordinates.length);
 });
+
+test('accès explicites : politique transmise au calcul et à l’accrochage, aucun moteur non vérifié en secours',async()=>{
+ const seen=[],local=async input=>{seen.push(input);return {coordinates:input.points,accessPolicy:'explicit'};};local.nearest=async input=>{seen.push(input);return {point:input.point};};let provider=0;
+ const service=createRoutingService({localRouting:local,fetcher:async()=>{provider++;return response();}});await service({...request,accessMode:'explicit'});await service({...request,allowRestricted:true});await service.nearest({point:[50,5],accessMode:'explicit'});assert.ok(seen.every(input=>input.accessMode==='explicit'));assert.equal(provider,0);
+ const failing=async()=>{throw Error('OSM indisponible');};failing.nearest=failing;const down=createRoutingService({localRouting:failing,fetcher:async()=>{provider++;return response();}});await assert.rejects(down({...request,accessMode:'explicit'}),e=>e.status===503);await assert.rejects(down.nearest({point:[50,5],accessMode:'explicit'}),e=>e.status===503);assert.equal(provider,0);assert.throws(()=>routeRequest({...request,accessMode:'bypass'}),/Politique/);
+});

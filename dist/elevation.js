@@ -1,14 +1,17 @@
-import {smoothElevation,elevationGain} from './elevation-data.js?v=6.17.0';
-import {distance,routeLength} from './geo.js?v=6.17.0';
+import {smoothElevation,elevationGain} from './elevation-data.js?v=6.18.0';
+import {distance,routeLength} from './geo.js?v=6.18.0';
 export const elevationColors=['#28634e','#529255','#91a748','#cfb041','#d58b3d','#c56046','#884657'];
 export const slopeBins=[[-Infinity,-10,'Descente < −10 %','#124b8d'],[-10,-5,'Descente −10 à −5 %','#4c8dc4'],[-5,-2,'Descente −5 à −2 %','#a8c9e4'],[-2,-.5,'Descente −2 à −0,5 %','#e1edf5'],[-.5,.5,'Plat · −0,5 à +0,5 %','#fffdf9'],[.5,2,'Montée +0,5 à +2 %','#fae3df'],[2,5,'Montée +2 à +5 %','#f3b1a5'],[5,10,'Montée +5 à +10 %','#e46a58'],[10,Infinity,'Montée ≥ +10 %','#d82721']];
 export const routeSurfaceColors={'Asphalte / bitume':'#3c5447','Béton':'#788187','Gravier fin':'#d6b36d','Gravier':'#bf9845','Gravier compacté':'#aca263','Terre':'#986b48','Boue':'#6f4d3b','Herbe':'#78884d','Dalles engazonnées':'#99a26a','Sable':'#d5ba65','Roches':'#7a658b','Pierres':'#9a8280','Pavés':'#827e8e','Bois':'#9f7855','Non revêtu':'#b6845a','Revêtu (non précisé)':'#677c79','Non revêtu (tracktype)':'#b6845a','Mixte non revêtu':'#ac8055','Mixte':'#90886b','Copeaux de bois':'#ab8156','Métal':'#75838a','Inconnu':'#9b9b91'};
 function locate(values,target,key=v=>v){let lo=0,hi=values.length-1;while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(key(values[mid])<=target)lo=mid;else hi=mid-1;}return lo;}
-const modelCache=new WeakMap();
+const modelCache=new WeakMap(),geometryCache=new WeakMap();
+// Routed legs are immutable. Keep their cumulative lengths when only the
+// elevation data changes or another leg is appended.
+function geometryDistances(path){let cached=geometryCache.get(path);if(cached)return cached;const distances=new Float64Array(path.length);for(let i=1;i<path.length;i++)distances[i]=distances[i-1]+distance(path[i-1],path[i]);cached={distances,total:distances.at(-1)??0};geometryCache.set(path,cached);return cached;}
 export function buildElevationModel(legs){
  const signature=legs.map(l=>[l.coordinates,l.analysis?.elevation?.profile]),cached=modelCache.get(legs);if(cached&&cached.signature.length===signature.length&&signature.every((v,i)=>v[0]===cached.signature[i][0]&&v[1]===cached.signature[i][1]))return cached.model;
  const points=[],distances=[],rawSpans=[];let total=0;
- for(const l of legs){const path=l.coordinates||[];if(path.length<2)continue;const start=total;for(let i=0;i<path.length;i++){if(i)total+=distance(path[i-1],path[i]);if(!points.length||i){points.push(path[i]);distances.push(total);}}
+ for(const l of legs){const path=l.coordinates||[];if(path.length<2)continue;const start=total,geometry=geometryDistances(path);for(let i=0;i<path.length;i++)if(!points.length||i){points.push(path[i]);distances.push(start+geometry.distances[i]);}total+=geometry.total;
   const p=l.analysis?.elevation?.profile;if(p?.length>=2){const profile=p.filter(v=>Number.isFinite(v.at)&&Number.isFinite(v.altitude)&&v.at>=0&&v.at<=total-start+1).map(v=>({at:start+Math.min(total-start,v.at),altitude:v.altitude}));if(profile.length>=2)rawSpans.push({start:profile[0].at,end:profile.at(-1).at,profile});}
  }
  const spans=[];for(const next of rawSpans){const previous=spans.at(-1);if(previous&&Math.abs(previous.end-next.start)<=.2){const shared=previous.profile.at(-1);shared.altitude=(shared.altitude+next.profile[0].altitude)/2;previous.profile.push(...next.profile.slice(1));previous.end=next.end;}else spans.push({...next,profile:next.profile.map(p=>({...p}))});}
