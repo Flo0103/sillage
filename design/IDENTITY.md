@@ -8,7 +8,7 @@ Le signe associe deux roues circulaires, un guidon gravel et un cadre dessiné c
 
 La planche de relief est un dessin vectoriel original d’un terrain fictif : lignes de niveau, croix de calage, chemin et bornes. Elle accompagne la connexion et la marge du carnet. Elle n’est ni une carte réelle ni une donnée de navigation. Les coins de calage des aperçus, les numéros de chapitre et les filets prolongent ce langage.
 
-Un **secteur gravel** désigne un bout de chemin noté ; un **itinéraire** est un parcours complet. L’onglet « Sorties & secteurs » réunit les traces importées et les secteurs. La signature éditoriale est « Le carnet du gravel ». Les noms des API et des données historiques restent compatibles.
+Un **secteur gravel** désigne un bout de chemin noté ; un **itinéraire** est un parcours complet. La carte unique « Itinéraires » réunit les trois catégories dans une bibliothèque avec recherche commune. Deux commandes de création, itinéraire et secteur, partagent la barre d’outils et adaptent le même panneau de tracé. La signature éditoriale est « Le carnet du gravel ». Les noms des API et des données historiques restent compatibles.
 
 Les pictogrammes sont des dessins SVG sans police d’icônes. Le secteur est un trait court entre deux cercles ouverts. L’itinéraire relie les mêmes bornes par un chemin sinueux. Cette famille se retrouve dans les onglets et les outils de création. Leur trait de 1,6 px, leurs terminaisons arrondies et leurs formats de 18 à 22 px restent cohérents. Éviter les émojis dans les commandes et les symboles typographiques à la place de dessins.
 

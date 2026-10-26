@@ -321,8 +321,8 @@ test('secteur : accès limité visible dans la carte et sa légende, y compris a
  const {ctx,elements,flushTimers}=context(),base=ctx.fetch,fake=interactiveMap(ctx),a=[50,5],b=[50.01,5],analysis={surfaceVersion:2,surfaces:[{type:'Gravier',distance:1112}],surfaceRuns:[{type:'Gravier',unpaved:true,coordinates:[a,b]}],accessRuns:[{label:'Accès privé (access=private)',coordinates:[a,b]}],errors:[]};
  ctx.fetch=async(path,options)=>path==='/api/route'?{ok:true,status:200,json:async()=>({coordinates:[a,b],analysis,stats:{maxOffset:0}})}:base(path,options);
  const access=await vm.runInNewContext(`(async()=>{${script}\n$('drawSegment').onclick();choose({lat:50,lng:5});choose({lat:50.01,lng:5});return {setView};})()`,ctx);flushTimers();await new Promise(r=>setImmediate(r));
- const warnings=()=>fake.markers.filter(m=>!m.removed&&m.options.icon?.className==='access-warning');assert.equal(warnings().length,1);assert.match(warnings()[0].tooltip.html,/Accès privé/);assert.ok(elements.get('legendContent').children.some(e=>e.children?.some(c=>/! Accès limité/.test(c.textContent))));fake.setZoom(16);assert.equal(warnings().length,1);assert.equal(elements.get('routingSourceNotice').hidden,true);assert.equal(elements.get('reset').classList.contains('is-plan'),false);
- elements.get('finishDrawing').onclick();assert.equal(warnings().length,0);await elements.get('plannerTab').onclick();assert.equal(elements.get('reset').classList.contains('is-plan'),true);
+ const warnings=()=>fake.markers.filter(m=>!m.removed&&m.options.icon?.className==='access-warning');assert.equal(warnings().length,1);assert.match(warnings()[0].tooltip.html,/Accès privé/);assert.ok(elements.get('legendContent').children.some(e=>e.children?.some(c=>/! Accès limité/.test(c.textContent))));fake.setZoom(16);assert.equal(warnings().length,1);assert.equal(elements.get('routingSourceNotice').hidden,true);assert.equal(elements.get('reset').classList.contains('is-plan'),true);
+ elements.get('finishDrawing').onclick();assert.equal(warnings().length,0);await elements.get('reset').onclick();assert.equal(elements.get('reset').classList.contains('is-plan'),true);
 });
 
 test('le recours au moteur de secours reste signalé pendant le dessin',async()=>{
@@ -357,9 +357,9 @@ test('la liste de passages du planificateur est construite uniquement lorsqu’e
 test('onglet Carte commun : bibliothèques visibles en consultation et dessin, sortie conservée et clics libres',async()=>{
  const {ctx,elements}=context(),fake=interactiveMap(ctx);
  const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadRide('00000000-0000-0000-0000-000000000001');$('finishDrawing').onclick();return {state:()=>({view,ride:currentRide?.id,trace:trace.length,selected:selected.length}),drawCatalog};})()`,ctx);
- assert.equal(elements.has('savedTab'),false);assert.equal((html.match(/class="nav(?: active)?"/g)||[]).length,2);assert.equal(elements.get('rideChooser').hidden,false);assert.equal(elements.get('segmentBrowser').hidden,false);assert.equal(elements.get('editorPanel').hidden,true);assert.equal(elements.get('explore').classList.contains('active'),true);const before=access.state();
- elements.get('drawSegment').onclick();assert.equal(elements.get('editorPanel').hidden,false);assert.equal(elements.get('rideChooser').hidden,false);assert.equal(elements.get('segmentBrowser').hidden,false);assert.equal(access.state().ride,before.ride);assert.equal(access.state().trace,2);
- elements.get('explore').onclick();assert.equal(access.state().view,'explore');elements.get('finishDrawing').onclick();assert.equal(access.state().view,'saved');assert.equal(access.state().ride,before.ride);assert.equal(access.state().trace,2);assert.ok(fake.lines.some(l=>!l.removed&&l.options.pane==='gpxPane'));
+ assert.equal(elements.has('savedTab'),false);assert.equal((html.match(/class="nav(?: active)?"/g)||[]).length,1);assert.equal(elements.get('rideChooser').hidden,false);assert.equal(elements.get('segmentBrowser').hidden,true);assert.equal(elements.get('editorPanel').hidden,true);assert.equal(elements.get('explore').classList.contains('active'),true);const before=access.state();
+ elements.get('drawSegment').onclick();assert.equal(elements.get('editorPanel').hidden,false);assert.equal(elements.get('rideChooser').hidden,false);assert.equal(elements.get('segmentBrowser').hidden,true);assert.equal(access.state().ride,before.ride);assert.equal(access.state().trace,2);
+ elements.get('explore').onclick();assert.equal(access.state().view,'saved');elements.get('finishDrawing').onclick();assert.equal(access.state().view,'saved');assert.equal(access.state().ride,before.ride);assert.equal(access.state().trace,2);assert.ok(fake.lines.some(l=>!l.removed&&l.options.pane==='gpxPane'));
  elements.get('showLoadedRide').checked=false;elements.get('showLoadedRide').onchange();assert.equal(fake.lines.filter(l=>!l.removed&&l.options.pane==='gpxPane').length,0);assert.equal(access.state().trace,2);
 });
 
@@ -398,7 +398,7 @@ test('recherche itinéraire et filtres combinés : pas de chargement, de modific
 
 
 test('éditeur : formulaire au début et nouvel itinéraire annulable même avant le premier point',async()=>{
- const {ctx,elements}=context();await vm.runInNewContext(`(async()=>{${script}\nnewPlan();$('planName').value='Boucle à préparer';$('planNotes').value='Parking nord';$('reset').onclick();})()`,ctx);assert.equal(elements.get('planName').value,'');assert.equal(elements.get('planNotes').value,'');assert.equal(elements.get('reset').disabled,false);assert.ok(html.match(/id="reset" class="map-tool-button"/));elements.get('undoPlan').onclick();assert.equal(elements.get('planName').value,'Boucle à préparer');assert.equal(elements.get('planNotes').value,'Parking nord');assert.ok(html.indexOf('id="planForm"')<html.indexOf('id="status"'));assert.ok(html.indexOf('id="savePlan"')<html.indexOf('id="plannerTools"'));assert.equal(elements.has('export'),false);assert.equal(elements.has('toggleSidebar'),false);assert.equal(elements.has('collapseSidebar'),false);assert.match(html,/id="sidebarToggle"[^>]*aria-expanded/);
+ const {ctx,elements}=context();await vm.runInNewContext(`(async()=>{${script}\nnewPlan();$('planName').value='Boucle à préparer';$('planNotes').value='Parking nord';$('reset').onclick();})()`,ctx);assert.equal(elements.get('planName').value,'');assert.equal(elements.get('planNotes').value,'');assert.equal(elements.get('reset').disabled,false);assert.ok(html.match(/id="reset"[^>]*class="map-tool-button"/));elements.get('undoPlan').onclick();assert.equal(elements.get('planName').value,'Boucle à préparer');assert.equal(elements.get('planNotes').value,'Parking nord');assert.ok(html.indexOf('id="planForm"')<html.indexOf('id="status"'));assert.ok(html.indexOf('id="savePlan"')<html.indexOf('id="plannerTools"'));assert.equal(elements.has('export'),false);assert.equal(elements.has('toggleSidebar'),false);assert.equal(elements.has('collapseSidebar'),false);assert.match(html,/id="sidebarToggle"[^>]*aria-expanded/);
 });
 test('curseurs min/max : bornes adaptées aux parcours, poignées sans croisement et réinitialisation sans perdre le tracé',async()=>{
  const {ctx,elements}=context(),base=ctx.fetch,p=profilePlan();ctx.fetch=async(path,options)=>path==='/api/plans'?{ok:true,status:200,json:async()=>[p,{...p,id:'unknown',legs:[]}]}:base(path,options);
@@ -517,4 +517,44 @@ test('secteur public : altitude indisponible puis relance explicite depuis le pr
  ctx.fetch=async(path,options)=>{if(path==='/api/plan-elevations'){attempts++;calls.push({path,options});return {ok:true,status:200,json:async()=>attempts===1?[{elevation:null,error:'Altitudes indisponibles.'}]:[{elevation:{ascent:50,descent:0,profile:[{at:0,altitude:100},{at:1111,altitude:150}]}}]};}return base(path,options);};
  const access=await vm.runInNewContext(`(async()=>{${script}\nshowSegment({id:'public',name:'Public',isMine:false,owner:'bob',rating:4,surface:'Sable',coordinates:[[50,5],[50.01,5]]});await analysePlanLegs();return {analysePlanLegs};})()`,ctx);
  assert.equal(elements.get('retryProfile').hidden,false);elements.get('retryProfile').onclick();await access.analysePlanLegs();assert.equal(attempts,2);assert.equal(JSON.parse(calls.at(-1).options.body).retry,true);assert.equal(elements.get('retryProfile').hidden,true);assert.match(elements.get('profileSummary').textContent,/D\+/);assert.equal(calls.some(c=>['POST','PATCH'].includes(c.options.method)&&c.path.startsWith('/api/portions')),false);
+});
+
+test('carte unique : bibliothèque indépendante du dessin et recherche dans les trois catégories',async()=>{
+ const {ctx,elements}=context(),base=ctx.fetch,p=profilePlan(),ride={id:'ride1',name:'Sortie des crêtes',distance:15000,source_type:'gpx',start_point:[50,5],end_point:[50.01,5]},sector={id:'sector1',name:'Secteur des crêtes',notes:'Racines',owner:'bob',isMine:false,isPublic:true,rating:4,surface:'Sable',distance:1112,coordinates:[[50,5],[50.01,5]]};
+ ctx.fetch=async(path,options)=>['/api/plans','/api/rides','/api/catalog'].includes(path)?{ok:true,status:200,json:async()=>path==='/api/plans'?[{...p,name:'Boucle des crêtes'}]:path==='/api/rides'?[ride]:[sector]}:base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();planDraft.append([50,5]);planDraft.append([50.01,5],'manual');syncPlanner();return {state:()=>JSON.stringify({view,points:planDraft.points,legs:planDraft.serialise()})};})()`,ctx),before=access.state();
+ assert.equal(elements.has('plannerTab'),false);assert.equal((html.match(/class="nav(?: active)?"/g)||[]).length,1);assert.equal(elements.get('drawSegment').hidden,false);assert.equal(elements.get('reset').hidden,false);
+ elements.get('planSearch').value='cretes';elements.get('planSearch').oninput();assert.equal(elements.get('planSelect').children.length,2);
+ elements.get('libraryType').value='segments';elements.get('libraryType').onchange();assert.equal(elements.get('segmentBrowser').hidden,false);assert.equal(elements.get('planLibrary').hidden,true);assert.equal(elements.get('segmentSelect').children.length,1);assert.match(elements.get('planFilterStatus').textContent,/1 secteur/);
+ elements.get('planSearch').value='racines';elements.get('planSearch').oninput();assert.equal(elements.get('segmentSelect').children.length,1);elements.get('planSearch').value='absent';elements.get('planSearch').oninput();assert.match(elements.get('segmentSelect').children[0].textContent,/Aucun secteur/);
+ elements.get('planSearch').value='cretes';elements.get('libraryType').value='rides';elements.get('libraryType').onchange();assert.equal(elements.get('rideChooser').hidden,false);assert.equal(elements.get('planScope').hidden,true);assert.equal(elements.get('rideSelect').children.length,2);assert.equal(access.state(),before);assert.equal(elements.get('planForm').hidden,false);assert.equal(elements.get('ratingForm').hidden,true);
+ elements.get('planDistanceMin').value='20';elements.get('planDistanceMin').oninput();assert.equal(elements.get('rideSelect').children.length,1);elements.get('resetPlanFilters').onclick();assert.equal(elements.get('rideSelect').children.length,2);assert.equal(access.state(),before);
+});
+
+test('outils communs : sortie en repère, création explicite de chaque type et formulaire adapté',async()=>{
+ const {ctx,elements}=context(),fake=interactiveMap(ctx);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadRide('00000000-0000-0000-0000-000000000001');return {state:()=>({view,trace:trace.length,map,current:currentRide?.id})};})()`,ctx);
+ assert.equal(elements.get('editorPanel').hidden,true);const map=access.state().map;elements.get('reset').onclick();assert.equal(access.state().view,'planner');assert.equal(elements.get('planForm').hidden,false);assert.equal(elements.get('ratingForm').hidden,true);assert.equal(access.state().trace,2);assert.ok(fake.lines.some(l=>!l.removed&&l.options.pane==='gpxPane'));
+ elements.get('drawSegment').onclick();assert.equal(access.state().view,'explore');assert.equal(access.state().map,map);assert.equal(elements.get('planForm').hidden,true);assert.equal(elements.get('ratingForm').hidden,false);assert.equal(elements.get('plannerTools').hidden,false);assert.equal(elements.get('manualLeg').checked,false);assert.equal(elements.get('elevationPanel').hidden,false);elements.get('finishDrawing').onclick();assert.equal(elements.get('editorPanel').hidden,true);assert.equal(access.state().trace,2);
+});
+
+test('filtres de zone : métadonnées de sorties et aperçu Strava sans télécharger les traces',()=>{
+ const bounds={contains:p=>p[0]===50},ride={name:'GPX',distance:12000,start_point:[50,5],end_point:[51,5]},remote={name:'Strava',distance:20000,preview:[[51,5],[50,5]]};
+ assert.deepEqual(filterPlans([ride,remote],{bounds,mapFilter:'start'}),[ride]);assert.deepEqual(filterPlans([ride,remote],{bounds,mapFilter:'end'}),[remote]);assert.deepEqual(filterPlans([ride,remote],{ascentMin:100}),[]);
+});
+
+test('une consultation de secteur remplace un itinéraire public et invalide son chargement tardif',async()=>{
+ const {ctx,elements}=context(),base=ctx.fetch,p=profilePlan({mine:false});let release;
+ ctx.fetch=async(path,options)=>path==='/api/plans/'+p.id?new Promise(r=>release=()=>r({ok:true,status:200,json:async()=>p})):base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nreturn {loadPlan,showSegment,state:()=>({view,readOnly:planReadOnly,editing:editingSegment?.id,selected:JSON.stringify(selected)})};})()`,ctx);
+ const loading=access.loadPlan(p.id);await new Promise(r=>setImmediate(r));const sector={id:'mine',name:'Mon secteur',isMine:true,isPublic:true,rating:4,surface:'Sable',difficulty:'Facile',coordinates:[[50,5],[50.01,5]],mode:'route',snapped:true};access.showSegment(sector);release();await loading;
+ assert.equal(access.state().view,'explore');assert.equal(access.state().editing,'mine');assert.equal(access.state().selected,JSON.stringify(sector.coordinates));assert.equal(elements.get('manualLeg').disabled,false);
+});
+
+test('bibliothèque : recherche dans les activités Strava chargées sans appel API à chaque saisie',async()=>{
+ const {ctx,elements,calls}=context(),base=ctx.fetch,activities=[{id:'1',name:'Gravel des crêtes',distance:20000,startDate:'2026-01-01',preview:[[50,5],[50.1,5]]},{id:'2',name:'Sortie en ville',distance:10000,startDate:'2026-01-02',preview:[[51,5],[51.1,5]]}];
+ ctx.fetch=async(path,options)=>path==='/api/strava/status'?{ok:true,status:200,json:async()=>({connected:true,configured:true})}:path.startsWith('/api/strava/activities')?{ok:true,status:200,json:async()=>{calls.push({path,options:{}});return {activities,page:1,hasMore:false};}}:base(path,options);
+ await vm.runInNewContext(`(async()=>{${script}\n$('libraryType').value='rides';$('rideSource').value='strava';await changeRideSource();})()`,ctx);const requests=calls.filter(c=>c.path.startsWith('/api/strava/activities')).length;
+ elements.get('planSearch').value='cretes';elements.get('planSearch').oninput();assert.equal(elements.get('stravaRideSelect').children.length,2);assert.equal(elements.get('stravaRideSelect').children[1].value,'1');assert.match(elements.get('planFilterStatus').textContent,/1 sortie/);
+ elements.get('planSearch').value='absent';elements.get('planSearch').oninput();assert.equal(elements.get('stravaRideSelect').children.length,1);assert.equal(calls.filter(c=>c.path.startsWith('/api/strava/activities')).length,requests);
 });
