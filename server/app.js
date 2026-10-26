@@ -44,6 +44,8 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),r
         '/sillage-mark-v1.svg':'image/svg+xml',
         '/sillage-wordmark-v1.svg':'image/svg+xml',
         '/sillage-terrain-v1.svg':'image/svg+xml',
+        '/sillage-terrain-v2.svg':'image/svg+xml',
+        '/sillage-header-v1.svg':'image/svg+xml',
         '/sillage-mark-v1.png':'image/png',
         '/sillage-mark-v2.svg':'image/svg+xml',
         '/sillage-mark-v2.png':'image/png',

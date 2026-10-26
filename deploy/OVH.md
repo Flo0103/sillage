@@ -235,3 +235,14 @@ La bibliothèque possède un choix Itinéraire / Secteur / Sortie, un champ de r
 Les sorties importées utilisent des métadonnées légères de départ/arrivée issues de PostGIS pour le filtre de zone, sans charger chaque trace entière. La recherche dans les activités Strava utilise les activités déjà chargées et leurs aperçus ; les sorties plus anciennes restent accessibles avec la pagination existante. Les éléments sans profil enregistré sont exclus d’un filtre D+ actif. Aucune nouvelle donnée d’altitude n’est demandée pour faire une recherche. Les chargements devenus obsolètes ne remplacent pas un secteur ouvert ensuite.
 
 Mise à jour habituelle, sans migration ni nouvelle clé. Recharger le navigateur pour les modules `v=6.16.0`. Vérifier les trois catégories, leurs filtres et aperçus, la création de chaque type, une sortie conservée comme repère, les profils sous la carte et les deux commandes de création sur mobile et en plein écran.
+
+
+## En-tête compact et atlas gravel (6.17.0)
+
+L’onglet unique et le grand bandeau d’introduction de la bibliothèque sont retirés. L’en-tête reprend des lignes de niveau discrètes et un dessin vectoriel de chemins reliés par des bornes ouvertes. Le décor de connexion est également redessiné avec ce langage, en remplacement de la ligne sinueuse. Les libellés visibles utilisent « atlas » : signature, recherche, connexion et pied de page. Les nouveaux actifs `sillage-header-v1.svg` et `sillage-terrain-v2.svg` sont versionnés ; l’ancien reste disponible pour les caches.
+
+Le bouton de secteur possède le même signe + que celui d’itinéraire. Les commandes de zoom et les boutons utilisent une même dimension, avec centrage par flex et sans marge verticale du pictogramme SVG. La couleur verte et l’état accessible `aria-pressed` des commandes de création ne s’activent que pour le type d’un nouveau tracé en cours. Ils restent neutres lors de la consultation, après enregistrement et pendant l’édition d’un élément existant.
+
+La bibliothèque utilise par défaut les éléments personnels et revient à ce choix après réinitialisation des filtres. Le libellé est « Mes secteurs » ou « Mes itinéraires » selon la catégorie. Les autres éléments publics restent accessibles par un choix explicite ; la recherche reste indépendante des couches visibles sur la carte. « Zone de recherche » propose Partout, Départ, Arrivée ou Départ et arrivée ; l’option Départ ou arrivée est supprimée de l’interface.
+
+Mettre à jour normalement puis recharger les modules `v=6.17.0`. Aucune migration ni nouvelle variable. Vérifier l’en-tête compact sur téléphone et ordinateur, les tailles des outils, les états de création/consultation et le retour aux éléments personnels après réinitialisation.
