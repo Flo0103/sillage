@@ -308,6 +308,15 @@ test('prolonger un ancien itinéraire ne recalcule pas ses anciennes altitudes',
  const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadPlan('${p.id}');$('editPlan').onclick();$('manualLeg').checked=true;choose({lat:50.201,lng:5});return {state:()=>planDraft.legs.slice(0,2).map(l=>l.analysis)};})()`,ctx);flushTimers(350);await new Promise(r=>setImmediate(r));flushTimers(1000);await new Promise(r=>setImmediate(r));const batch=calls.filter(c=>c.path==='/api/plan-elevations');assert.equal(batch.length,1);assert.deepEqual(JSON.parse(batch[0].options.body).paths,[[[50.2,5],[50.201,5]]]);assert.ok(access.state().every(a=>!Object.hasOwn(a||{},'elevation')));
 });
 
+test('bibliothèque initiale : repliée sur mobile avant le chargement, ouverte sur ordinateur et choix manuel conservé',async()=>{
+ for(const width of [390,850,851,1200]){
+  const {ctx,elements}=context(),base=ctx.fetch,mobile=width<=850;ctx.innerWidth=width;
+  const assertSidebar=collapsed=>{assert.equal(ctx.document.body.classList.contains('sidebar-collapsed'),collapsed);assert.equal(elements.get('sidebarToggle').getAttribute('aria-expanded'),String(!collapsed));assert.equal(elements.get('sidebarToggle').getAttribute('aria-label'),collapsed?'Ouvrir la bibliothèque':'Fermer la bibliothèque');};
+  ctx.fetch=(path,options)=>{if(path==='/api/me')assertSidebar(mobile);return base(path,options);};
+  const access=await vm.runInNewContext(`(async()=>{${script}\nreturn {setView};})()`,ctx);
+  assertSidebar(mobile);elements.get('sidebarToggle').onclick();assertSidebar(!mobile);access.setView('saved');assertSidebar(!mobile);elements.get('sidebarToggle').onclick();assertSidebar(mobile);
+ }
+});
 test('bibliothèque repliable du planificateur : redimensionne la carte, conserve le tracé et reste réouvrable',async()=>{
  const {ctx,elements}=context(),fake=interactiveMap(ctx);let resizes=0;fake.map.invalidateSize=()=>resizes++;
  const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();planDraft.append([50,5]);planDraft.append([50.01,5],'manual');syncPlanner();return {state:()=>JSON.stringify(planDraft.snapshot()),setView};})()`,ctx),before=access.state();

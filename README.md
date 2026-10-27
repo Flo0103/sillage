@@ -439,3 +439,21 @@ Validation : 377 tests réussis, aucun échec, un contrôle systemd ignoré pour
 
 Mise à jour habituelle, puis rechargement des ressources `v=6.26.3`. Aucune migration ni modification des données ou du routage.
 
+## Bibliothèque repliée sur mobile (6.26.4)
+
+La bibliothèque démarre repliée sur les écrans jusqu’à 850 px, avant le chargement des données. Le bouton Bibliothèque permet de l’ouvrir et les changements de vue conservent le choix de l’utilisateur. Elle reste ouverte par défaut sur ordinateur. Les ressources de la page sont actualisées en `v=6.26.4`.
+
+Les corrections de carte et de relief font partie de la même PR #3. Tant qu’elle n’est pas fusionnée dans `main`, une mise à jour de `main` ne les récupère pas. Pour déployer directement cette version depuis le dossier Sillage du VPS :
+
+```bash
+git fetch origin
+git switch codex/mobile-map-tools-profile
+git pull --ff-only origin codex/mobile-map-tools-profile
+sudo docker compose up -d --build --wait
+sudo docker compose exec app node -p "require('./package.json').version"
+```
+
+La dernière commande doit afficher `6.26.4`. Recharger ensuite la page sur mobile. Aucune migration ni modification de la base de données.
+
+Validation : 378 tests réussis, aucun échec, un contrôle systemd ignoré pour la restriction SO_PASSCRED existante. Le nouveau cas vérifie les états et libellés de la bibliothèque avant la réponse de l’API, à 390, 850, 851 et 1200 px, ainsi que la conservation du choix manuel. Syntaxe JavaScript et diff vérifiés ; Chromium reste indisponible dans l’environnement pour la validation visuelle.
+
