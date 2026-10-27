@@ -7,7 +7,12 @@ if [[ "$project_dir" == *$'\n'* ]] || [[ "$project_dir" == *$'\r'* ]]; then
   exit 1
 fi
 render_units() {
-  local target=$1 escaped line
+  local target=$1 escaped directory line
+  # WorkingDirectory is one literal path, not a quoted word list. Leave its
+  # quotes/backslashes intact; only escape systemd specifiers. The final slash
+  # also preserves paths ending in whitespace or a line-continuation backslash.
+  directory=${project_dir//%/%%}/
+  # RequiresMountsFor, unlike WorkingDirectory, parses a quoted list of paths.
   escaped=${project_dir//\\/\\\\}
   escaped=${escaped//\"/\\\"}
   escaped=${escaped//%/%%}
@@ -15,7 +20,7 @@ render_units() {
   while IFS= read -r line; do
     case "$line" in
       'RequiresMountsFor="@PROJECT_DIR@"') printf 'RequiresMountsFor="%s"\n' "$escaped" ;;
-      'WorkingDirectory="@PROJECT_DIR@"') printf 'WorkingDirectory="%s"\n' "$escaped" ;;
+      'WorkingDirectory=@PROJECT_DIR@') printf 'WorkingDirectory=%s\n' "$directory" ;;
       *) printf '%s\n' "$line" ;;
     esac
   done < deploy/systemd/sillage-routing-update.service > "$target/sillage-routing-update.service"

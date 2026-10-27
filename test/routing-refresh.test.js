@@ -82,10 +82,36 @@ test('deux lancements simultanés : un seul import hôte',async()=>{
 test('arrêt du service : le conteneur de cette exécution est arrêté et le statut reste non nul',async()=>{
  const h=await host();let worker;try{worker=spawn('bash',[runner],{env:{...h.env,MOCK_RUN_DELAY:'20'},detached:true,stdio:'ignore'});const finished=once(worker,'close');await started(h.env.MOCK_RUN_MARKER);process.kill(-worker.pid,'SIGTERM');const [code,signal]=await finished;assert.ok(code!==0||signal);assert.ok((await h.commands()).some(c=>c[0]==='container'&&c[1]==='stop'));}finally{if(worker?.exitCode===null)try{process.kill(-worker.pid,'SIGKILL');}catch{}await h.close();}
 });
-test('rendu systemd : chemins avec espaces, guillemets, pourcentages et esperluettes',async()=>{
+async function renderUnits(directory,name){
+ const copy=directory+'/'+name,units=directory+'/units';await mkdir(copy+'/deploy',{recursive:true});await cp(project+'/deploy/install-routing-updates.sh',copy+'/deploy/install-routing-updates.sh');await cp(project+'/deploy/systemd',copy+'/deploy/systemd',{recursive:true});await exec('bash',[copy+'/deploy/install-routing-updates.sh','--render',units]);
+ return {copy,units,service:await readFile(units+'/sillage-routing-update.service','utf8'),timer:await readFile(units+'/sillage-routing-update.timer','utf8')};
+}
+test('rendu systemd : WorkingDirectory commence par / sans guillemets pour un dossier standard',async()=>{
  const directory=await mkdtemp(tmpdir()+'/sillage-units-');try{
-  const copy=directory+'/Atlas & 50% "test"';await mkdir(copy+'/deploy',{recursive:true});await cp(project+'/deploy/install-routing-updates.sh',copy+'/deploy/install-routing-updates.sh');await cp(project+'/deploy/systemd',copy+'/deploy/systemd',{recursive:true});await exec('bash',[copy+'/deploy/install-routing-updates.sh','--render',directory+'/units']);
-  const service=await readFile(directory+'/units/sillage-routing-update.service','utf8'),timer=await readFile(directory+'/units/sillage-routing-update.timer','utf8');assert.ok(service.includes('WorkingDirectory="'+copy.replaceAll('%','%%').replaceAll('"','\\"')+'"'));assert.ok(!service.includes('@PROJECT_DIR@'));assert.match(timer,/Sun \*-\*-\* 04:00:00 Europe\/Brussels/);assert.match(timer,/Persistent=false/);
+  const {copy,service}=await renderUnits(directory,'sillage'),value=service.match(/^WorkingDirectory=(.*)$/m)?.[1];assert.ok(value?.startsWith('/'));assert.equal(value,copy+'/');assert.match(service,/^RequiresMountsFor="\/.*"$/m);
+ }finally{await rm(directory,{recursive:true,force:true});}
+});
+test('rendu systemd : chemins avec espaces, guillemets, pourcentages, esperluettes et antislashs',async()=>{
+ const directory=await mkdtemp(tmpdir()+'/sillage-units-');try{
+  for(const name of ['Atlas & 50% "test" \\chemin','Atlas \\','Atlas  ']){
+   const {copy,service,timer}=await renderUnits(directory,name),value=service.match(/^WorkingDirectory=(.*)$/m)?.[1];assert.equal(value,copy.replaceAll('%','%%')+'/');assert.equal(await stat(value.replaceAll('%%','%')).then(s=>s.isDirectory()),true);assert.ok(service.includes('RequiresMountsFor="'+copy.replaceAll('\\','\\\\').replaceAll('"','\\"').replaceAll('%','%%')+'"'));assert.ok(!service.includes('@PROJECT_DIR@'));assert.match(timer,/Sun \*-\*-\* 04:00:00 Europe\/Brussels/);assert.match(timer,/Persistent=false/);
+  }
+ }finally{await rm(directory,{recursive:true,force:true});}
+});
+test('parseur systemd natif : unités valides et régression du WorkingDirectory entre guillemets rejetée',async t=>{
+ const directory=await mkdtemp(tmpdir()+'/sillage-native-units-');try{
+  for(const name of ['sillage','Atlas & 50% "test" \\chemin','Atlas \\','Atlas  ']){
+   const {units,service}=await renderUnits(directory,name),file=units+'/sillage-routing-update.service';
+   // A dependency stub keeps this a configuration check, independent of Docker
+   // installation. No service or timer is started by systemd-analyze verify.
+   await writeFile(units+'/docker.service','[Service]\nExecStart=/usr/bin/true\n');
+   const options={env:{...process.env,SYSTEMD_UNIT_PATH:units+':'},timeout:15000};
+   try{await exec('systemd-analyze',['--man=no','--generators=no','verify',file,units+'/sillage-routing-update.timer'],options);}catch(e){
+    if(e.code==='ENOENT'||/SO_PASSCRED failed: Operation not permitted/.test(e.stderr||'')){t.skip('parseur systemd indisponible dans cet environnement : '+(e.stderr?.trim()||e.code));return;}throw e;
+   }
+   await writeFile(file,service.replace(/^WorkingDirectory=(.*)$/m,'WorkingDirectory="$1"'));
+   await assert.rejects(exec('systemd-analyze',['--man=no','--generators=no','verify',file],options),e=>/WorkingDirectory=.*path is not absolute|WorkingDirectory= path is not absolute/.test(e.stderr||''));
+  }
  }finally{await rm(directory,{recursive:true,force:true});}
 });
 test('horaire belge : 4 h correspond à 2 h UTC en été et à 3 h UTC en hiver',async t=>{

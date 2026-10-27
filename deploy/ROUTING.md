@@ -1,4 +1,4 @@
-# Routage local sur le VPS — 6.21.0
+# Routage local sur le VPS — 6.21.1
 
 ## Pourquoi changer la source de données
 
@@ -32,7 +32,7 @@ Chaque import charge une nouvelle révision inactive. L’ancien réseau reste u
 
 Le diagnostic doit afficher :
 
-- `Sillage 6.21.0` ;
+- `Sillage 6.21.1` ;
 - `mode: stored`, avec la région `belgium` et un nombre de chemins supérieur à zéro ;
 - `source: PostGIS · belgium` ;
 - `timings.offline: true` pour les trajets de test ;
@@ -78,6 +78,8 @@ sudo bash deploy/install-routing-updates.sh
 
 Le script vérifie les unités systemd, construit l’image d’import avec son contrôle natif Osmium, installe le service et active le minuteur. Il affiche ensuite la prochaine exécution. Il est réexécutable après une mise à jour du dépôt. L’activation ne lance aucun téléchargement ni import national immédiatement.
 
+Si l’installation de 6.21.0 s’est arrêtée sur `WorkingDirectory= path is not absolute`, récupérer 6.21.1 puis relancer ce même script. `WorkingDirectory` prend un chemin unique sans guillemets englobants ; `RequiresMountsFor` utilise une liste de chemins avec sa propre syntaxe. Le rendu distingue maintenant ces deux cas et conserve les espaces, guillemets et pourcentages du chemin réel. Cet échec de validation survenait avant l’installation des unités et n’activait pas le minuteur. Les messages `CPUAccounting … has been removed` provenant d’unités système ne sont pas la cause de cet échec.
+
 L’horaire est **chaque dimanche à 04 h, Europe/Brussels**, avec adaptation automatique à l’heure d’été/hiver et une précision d’une minute. Si le VPS est éteint à cet instant, la tâche attend le dimanche suivant : pas de rattrapage imprévu en journée. L’horaire peut être affiché en UTC par le serveur.
 
 La tâche lit la liste des régions actives en base et actualise chacune avec `--refresh`, une seule à la fois. La Belgique et les éventuelles autres régions installées sont donc entretenues ensemble. Elle exige un premier réseau installé ; elle ne crée pas de nouvelle région à partir d’une simple configuration. Les limites de l’importeur restent celles décrites plus haut. L’ancien réseau de chaque région reste actif jusqu’à la publication complète de sa révision.
@@ -100,7 +102,7 @@ sudo journalctl -u sillage-routing-update.service -f
 
 Quitter `journalctl` avec Ctrl+C arrête seulement l’affichage. Pour interrompre la tâche, utiliser `sudo systemctl stop sillage-routing-update.service`. Pour désactiver les prochains lancements, utiliser `sudo systemctl disable --now sillage-routing-update.timer` ; cela ne supprime aucune donnée.
 
-La planification n’est pas activée par un simple `git pull` ou `docker compose up` : le script d’installation doit être exécuté sur le VPS. Les tests locaux vérifient la séquence des régions, les échecs, les verrous, le nettoyage du conteneur, le rendu des unités et l’horaire été/hiver avec le parseur systemd. Les appels Docker sont simulés et le gestionnaire systemd de production n’est pas exécuté dans l’environnement de travail ; le script effectue la validation native des unités sur le VPS avant installation.
+La planification n’est pas activée par un simple `git pull` ou `docker compose up` : le script d’installation doit être exécuté sur le VPS. Les tests locaux vérifient la séquence des régions, les échecs, les verrous, le nettoyage du conteneur, le rendu des unités et l’horaire été/hiver avec le parseur systemd. Un test natif vérifie aussi les unités rendues et le rejet de l’ancien chemin entre guillemets lorsqu’un environnement systemd compatible est disponible ; il est explicitement ignoré si le bac à sable interdit le socket interne du parseur. Les appels Docker sont simulés et le gestionnaire systemd de production n’est pas exécuté dans l’environnement de travail ; le script effectue la validation native des unités sur le VPS avant installation.
 
 ## Validation et limites des mesures
 

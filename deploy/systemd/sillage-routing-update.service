@@ -7,7 +7,7 @@ RequiresMountsFor="@PROJECT_DIR@"
 
 [Service]
 Type=oneshot
-WorkingDirectory="@PROJECT_DIR@"
+WorkingDirectory=@PROJECT_DIR@
 ExecStart=/usr/bin/bash deploy/refresh-routing.sh
 TimeoutStartSec=3h
 TimeoutStopSec=90s
