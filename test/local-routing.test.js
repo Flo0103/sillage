@@ -63,7 +63,7 @@ test('cas réel Spa : rue entière dans les deux sens avec ou sans passage inter
  assert.ok(Math.abs(length(direct)-822.7)<.5);assert.ok(Math.abs(length(reverse)-length(direct))<.1);
  // Le raccourci voisin en grade4 est moins adapté : le profil gravel conserve la rue en grade2.
  for(const points of [[fixture.endpoints[0],fixture.via,fixture.endpoints[1]],[fixture.endpoints[1],fixture.via,fixture.endpoints[0]]]){
-  const r=routeOnOSM(points,fixture.elements);assert.ok(Math.abs(length(r)-822.7)<.5);const gravel=r.analysis.surfaces.find(s=>s.type==='Gravier');assert.ok(Math.abs(gravel.distance-389.8)<.5);assert.equal(r.analysis.surfaceRuns.find(s=>s.type==='Gravier').unpaved,true);assert.ok(r.analysis.accessRuns.some(s=>/destination/.test(s.label)));
+  const r=routeOnOSM(points,fixture.elements);assert.ok(Math.abs(length(r)-822.7)<.5);const gravel=r.analysis.surfaces.find(s=>s.type==='Gravier');assert.ok(Math.abs(gravel.distance-389.8)<.5);assert.equal(r.analysis.surfaceRuns.find(s=>s.type==='Gravier').unpaved,true);assert.equal(r.analysis.accessRuns.length,0);
  }
  // Le raccord du changement de revêtement est le même identifiant OSM, sans raccord fictif.
  const asphalt=fixture.elements.find(w=>w.id===330261170),gravel=fixture.elements.find(w=>w.id===1293634009);assert.equal(asphalt.nodes.at(-1),3065855837);assert.equal(gravel.nodes.at(-1),3065855837);
@@ -114,7 +114,22 @@ test('interdiction vélo : jamais routable, même avec un point dessus ; excepti
  const closed=[way([1,2],[a,b],{access:'private',oneway:'yes'})];assert.throws(()=>routeOnOSM([b,a],closed),e=>e.localNoPath);
 });
 
-test('accrochage : une proximité ne suffit pas à autoriser un chemin privé et un carrefour public ne donne pas la dérogation',async()=>{
+test('accrochage : même rayon pour un chemin privé, sans autoriser le transit depuis un carrefour public',async()=>{
  const start=[50,5],left=[50,5.002],mid=[50,5.003],right=[50,5.004],end=[50,5.006],x=[50.003,5.002],y=[50.003,5.004],elements=[way([1,2],[start,left]),way([2,3,4],[left,mid,right],{access:'private'}),way([4,5],[right,end]),way([2,6,7,4],[left,x,y,right])],osm=async()=>({elements}),local=createLocalRouting({osmService:osm});
- const nearest=await local.nearest({point:[50.0002,5.003],tolerance:150,accessMode:'explicit'});assert.notDeepEqual(nearest.point,mid);const route=await local({points:[left,end],accessMode:'explicit'});assert.equal(route.analysis.accessRuns.length,0);assert.ok(route.coordinates.some(p=>p[0]===x[0]));
+ const nearest=await local.nearest({point:[50.0002,5.003],tolerance:150,accessMode:'explicit'});assert.deepEqual(nearest.point,mid);const deliberate=await local({points:[[50.0002,5.003],end],accessMode:'explicit'});assert.ok(deliberate.analysis.accessRuns.length);const route=await local({points:[left,end],accessMode:'explicit'});assert.equal(route.analysis.accessRuns.length,0);assert.ok(route.coordinates.some(p=>p[0]===x[0]));
+});
+test('circulation locale : transit vélo normal, sans repère limité, en conservant interdictions et sens uniques',()=>{
+ for(const key of ['access','vehicle','bicycle','access:forward','vehicle:forward','bicycle:forward'])assert.equal(bicycleAccess({[key]:'destination'}),null);
+ const elements=[way([1,2],[a,b],{access:'destination'}),way([2,3],[b,c],{vehicle:'destination'})];const r=routeOnOSM([a,c],elements);assert.deepEqual(r.coordinates,[a,b,c]);assert.equal(r.analysis.accessRuns.length,0);
+ assert.throws(()=>routeOnOSM([a,c],[...elements.slice(0,1),way([2,3],[b,c],{access:'destination',bicycle:'no'})]),e=>e.localNoPath);
+ assert.throws(()=>routeOnOSM([c,a],[...elements.slice(0,1),way([2,3],[b,c],{access:'destination',oneway:'yes'})]),e=>e.localNoPath);
+ assert.match(bicycleAccess({access:'destination','access:conditional':'no @ (winter)'}).label,/Conditions/);
+});
+test('projection privée ou publique : même tolérance de 150 m et aucun raccord inventé hors du réseau',async()=>{
+ for(const access of ['yes','private','permit']){
+  const elements=[way([1,2,3],[a,b,c],{access})],local=createLocalRouting({osmService:async()=>({elements})}),point=[50.001,5.0015];
+  const nearest=await local.nearest({point,tolerance:150,accessMode:'explicit'});assert.deepEqual(nearest.point,b);assert.ok(nearest.offset>100);
+  const r=routeOnOSM([point,c],elements);assert.deepEqual(r.snappedPoints,[b,c]);assert.equal(r.analysis.accessRuns.length,access==='yes'?0:1);
+  await assert.rejects(local.nearest({point:[50.001,5.003],tolerance:150}),e=>e.status===422);
+ }
 });

@@ -14,7 +14,9 @@ export function bicycleDirections(tags={}){
  if(!bike)for(const key of ['cycleway','cycleway:left','cycleway:right','cycleway:both']){const extra=String(tags[key+':oneway']??'').toLowerCase();if(/^opposite(?:_|$)/.test(tags[key]||'')||no.has(extra))forward=backward=true;else if(extra==='-1')backward=true;else if(yes.has(extra))forward=true;}
  return {forward,backward};
 }
-const allowed=new Set(['yes','designated','permissive','official','allowed']);
+// Local traffic is usable for the gravel planner. Bicycle-specific bans still
+// take precedence in bicycleForbidden, including on a destination-only street.
+const allowed=new Set(['yes','designated','permissive','official','allowed','destination']);
 const meanings={no:'Interdit',private:'Accès privé',destination:'Desserte locale uniquement',customers:'Réservé aux clients',permit:'Autorisation requise',forestry:'Usage forestier',agricultural:'Usage agricole',delivery:'Livraisons uniquement',dismount:'Vélo à pousser',use_sidepath:'Piste cyclable à utiliser',discouraged:'Circulation déconseillée'};
 export function bicycleAccess(tags={},direction='forward'){
  const keys=[`bicycle:${direction}`,'bicycle',`vehicle:${direction}`,'vehicle',`access:${direction}`,'access'];let label=null,level=keys.length-1;
