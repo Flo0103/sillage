@@ -1,4 +1,5 @@
 import { createStrava } from './strava.js';
+import {withRideOrigins} from './ride-links.js';
 import { createRoutingService } from './routing.js';
 import { createOSMService } from './osm.js';
 import { plans } from './plans.js';
@@ -81,7 +82,11 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),r
       if(ride&&method==='DELETE'){const q=await db.query('DELETE FROM rides WHERE id=$1 AND user_id=$2',[ride[1],user.id]);return json(res,q.rowCount?200:404,q.rowCount?{ok:true}:{error:'Sortie introuvable.'});}
       if(ride&&method==='GET'){const q=await db.query('SELECT id,name,coordinates,distance,source_type FROM rides WHERE id=$1 AND user_id=$2',[ride[1],user.id]);return q.rows.length?json(res,200,q.rows[0]):json(res,404,{error:'Sortie introuvable.'});}
       if(path==='/api/portions'&&method==='GET'){const q=await db.query('SELECT id,data,created_at,is_public,source_strava FROM portions WHERE user_id=$1 ORDER BY created_at DESC',[user.id]);return json(res,200,q.rows.map(r=>({...r.data,id:r.id,createdAt:r.created_at,isPublic:r.is_public,fromStrava:r.source_strava})));}
-      if(path==='/api/portions'&&method==='POST'){const b=await body(req);if(b.independentOsm===true&&(b.rideId||!['route','manual'].includes(b.mode)))throw Error('Un dessin OSM indépendant ne peut pas reprendre une sortie ou suivre le GPX.');const p=portion(b.independentOsm===true?{...b,source:'Dessin OSM indépendant'}:b),id=randomUUID();if(b.isPublic!==undefined&&typeof b.isPublic!=='boolean')throw Error('Visibilité invalide.');let sourceRide=null,fromStrava=false;if(b.rideId){const q=await db.query('SELECT id,source_type FROM rides WHERE id=$1 AND user_id=$2',[b.rideId,user.id]);sourceRide=q.rows[0];if(!sourceRide)throw Error('Sortie source introuvable.');fromStrava=sourceRide.source_type==='strava';}const isPublic=!fromStrava&&b.isPublic!==false;await db.query('INSERT INTO portions(id,user_id,data,is_public,source_ride_id,source_strava) VALUES($1,$2,$3,$4,$5,$6)',[id,user.id,JSON.stringify(p),isPublic,sourceRide?.id||null,fromStrava]);return json(res,201,{...p,id,isPublic,fromStrava});}
+      if(path==='/api/portions'&&method==='POST'){
+        const b=await body(req);if(b.independentOsm===true&&(b.rideId||!['route','manual'].includes(b.mode)))throw Error('Un dessin OSM indépendant ne peut pas reprendre une sortie ou suivre le GPX.');const p=portion(b.independentOsm===true?{...b,source:'Dessin OSM indépendant'}:b),id=randomUUID();if(b.isPublic!==undefined&&typeof b.isPublic!=='boolean')throw Error('Visibilité invalide.');
+        const save=async client=>{let sourceRide=null,fromStrava=false;if(b.rideId){const q=await client.query('SELECT id,source_type,strava_activity_id FROM rides WHERE id=$1 AND user_id=$2',[b.rideId,user.id]);sourceRide=q.rows[0];if(!sourceRide)throw Error('Sortie source introuvable.');fromStrava=sourceRide.source_type==='strava';}const isPublic=!fromStrava&&b.isPublic!==false;await client.query('INSERT INTO portions(id,user_id,data,is_public,source_ride_id,source_strava,source_strava_activity_id) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,user.id,JSON.stringify(p),isPublic,sourceRide?.id||null,fromStrava,fromStrava?sourceRide.strava_activity_id||null:null]);return {...p,id,isPublic,fromStrava};};
+        return json(res,201,b.rideId?await withRideOrigins(db,user.id,save):await save(db));
+      }
       if(path==='/api/import-legacy'&&method==='POST'){
         const b=await body(req);if(!Array.isArray(b)||b.length>500)throw Error('Import limité à 500 portions par lot.');
         const validated=b.map(r=>({data:portion(r),key:tokenHash(String(r.id||JSON.stringify(r)))}));

@@ -55,3 +55,7 @@ test('polyline aperçu bornée et géométrie invalide ignorée',()=>{
  assert.deepEqual(decodePolyline(''),[]);assert.deepEqual(decodePolyline('~'),[]);assert.deepEqual(decodePolyline('a'.repeat(200001)),[]);
  const points=decodePolyline('??'.repeat(500));assert.equal(points.length,400);assert.deepEqual(points[0],[0,0]);
 });
+
+test('révocation d’activité : supprime seulement ses données dérivées, même après détachement de la sortie',async()=>{
+ const f=fixture(),path='/api/strava/webhook/'+secret;const result=await f.run(path,'POST',{owner_id:77,object_type:'activity',aspect_type:'delete',object_id:12345},{anonymous:true});assert.equal(result.status,200);for(const table of ['planned_routes','portions']){const call=f.db.calls.find(c=>c.sql.startsWith('DELETE FROM '+table));assert.match(call.sql,/source_strava=true AND source_strava_activity_id=\$2/);assert.deepEqual(call.args,[user.id,'12345']);}const lock=f.db.calls.findIndex(c=>c.sql.includes('pg_advisory_xact_lock')),deletion=f.db.calls.findIndex(c=>c.sql.startsWith('DELETE FROM planned_routes'));assert.ok(lock>=0&&lock<deletion);assert.equal(f.db.calls.at(-1).sql,'COMMIT');
+});

@@ -1,6 +1,7 @@
 import {randomBytes,randomUUID,createCipheriv,createDecipheriv} from 'node:crypto';
 import {tokenHash,coordinates,routeLength} from './model.js';
 import {transaction} from './features.js';
+import {lockRideOrigins} from './ride-links.js';
 export function tokenCipher(hex){
  if(!/^[a-f0-9]{64}$/i.test(hex||''))throw Error('Clé de chiffrement Strava invalide.');const key=Buffer.from(hex,'hex');
  return {seal(data,userId){const iv=randomBytes(12),c=createCipheriv('aes-256-gcm',key,iv);c.setAAD(Buffer.from(userId));const content=Buffer.concat([c.update(JSON.stringify(data),'utf8'),c.final()]);return Buffer.concat([iv,c.getAuthTag(),content]).toString('base64');},open(text,userId){const b=Buffer.from(text,'base64'),c=createDecipheriv('aes-256-gcm',key,b.subarray(0,12));c.setAAD(Buffer.from(userId));c.setAuthTag(b.subarray(12,28));return JSON.parse(Buffer.concat([c.update(b.subarray(28)),c.final()]).toString('utf8'));}};
@@ -10,7 +11,7 @@ export function createStrava({clientId=process.env.STRAVA_CLIENT_ID,clientSecret
  const configured=/^\d+$/.test(clientId||'')&&!!clientSecret&&/^[a-f0-9]{64}$/i.test(key||''),cipher=configured?tokenCipher(key):null;
  async function request(url,options={}){let r;try{r=await fetcher(url,{...options,signal:AbortSignal.timeout(20000)});}catch{throw Object.assign(Error('Strava ne répond pas. Réessayez dans quelques instants.'),{status:504});}if(!r.ok){const error=Object.assign(Error(r.status===429?'Quota Strava atteint. Réessayez plus tard.':r.status===401?'Connexion Strava expirée ou révoquée. Reconnectez votre compte.':'Strava ne peut pas répondre à cette demande.'),{status:r.status===429?429:502,stravaUnauthorized:r.status===401});throw error;}return r.json();}
  const exchange=fields=>request('https://www.strava.com/oauth/token',{method:'POST',body:new URLSearchParams({client_id:clientId,client_secret:clientSecret,...fields})});
- async function removeData(db,userId){await transaction(db,async c=>{await c.query('DELETE FROM portions WHERE user_id=$1 AND source_strava=true',[userId]);await c.query("DELETE FROM rides WHERE user_id=$1 AND source_type='strava'",[userId]);await c.query('DELETE FROM strava_connections WHERE user_id=$1',[userId]);await c.query('DELETE FROM strava_oauth_states WHERE user_id=$1',[userId]);});}
+ async function removeData(db,userId){await transaction(db,async c=>{await lockRideOrigins(c,userId);await c.query('DELETE FROM planned_routes WHERE user_id=$1 AND source_strava=true',[userId]);await c.query('DELETE FROM portions WHERE user_id=$1 AND source_strava=true',[userId]);await c.query("DELETE FROM rides WHERE user_id=$1 AND source_type='strava'",[userId]);await c.query('DELETE FROM strava_connections WHERE user_id=$1',[userId]);await c.query('DELETE FROM strava_oauth_states WHERE user_id=$1',[userId]);});}
  async function connection(db,userId){
   try{return await transaction(db,async c=>{const q=await c.query('SELECT athlete_id,tokens FROM strava_connections WHERE user_id=$1 FOR UPDATE',[userId]),row=q.rows[0];if(!row)throw Error('Connectez votre compte Strava.');let data=cipher.open(row.tokens,userId);
    if(data.expires_at*1000<now()+60000){const next=await exchange({grant_type:'refresh_token',refresh_token:data.refresh_token});if(!next.access_token||!next.refresh_token||!Number.isFinite(next.expires_at))throw Error('Réponse Strava invalide.');data={...data,...next};await c.query('UPDATE strava_connections SET tokens=$1 WHERE user_id=$2',[cipher.seal(data,userId),userId]);}
@@ -27,7 +28,7 @@ export function createStrava({clientId=process.env.STRAVA_CLIENT_ID,clientSecret
    if(method==='POST'){
     const event=await body(req),athlete=String(event.owner_id||'');if(!/^\d{1,20}$/.test(athlete))return reply(400,{error:'Événement invalide.'});const q=await db.query('SELECT user_id FROM strava_connections WHERE athlete_id=$1',[athlete]);
     if(q.rows[0]&&event.object_type==='athlete'&&event.aspect_type==='update'&&event.updates?.authorized==='false')await removeData(db,q.rows[0].user_id);
-    else if(q.rows[0]&&event.object_type==='activity'&&event.aspect_type==='delete'&&/^\d{1,20}$/.test(String(event.object_id)))await db.query("DELETE FROM rides WHERE user_id=$1 AND source_type='strava' AND strava_activity_id=$2",[q.rows[0].user_id,String(event.object_id)]);
+    else if(q.rows[0]&&event.object_type==='activity'&&event.aspect_type==='delete'&&/^\d{1,20}$/.test(String(event.object_id)))await transaction(db,async c=>{await lockRideOrigins(c,q.rows[0].user_id);const args=[q.rows[0].user_id,String(event.object_id)];await c.query('DELETE FROM planned_routes WHERE user_id=$1 AND source_strava=true AND source_strava_activity_id=$2',args);await c.query('DELETE FROM portions WHERE user_id=$1 AND source_strava=true AND source_strava_activity_id=$2',args);await c.query("DELETE FROM rides WHERE user_id=$1 AND source_type='strava' AND strava_activity_id=$2",args);});
     return reply(200,{ok:true});
    }
    return reply(403,{error:'Vérification refusée.'});

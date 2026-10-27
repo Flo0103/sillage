@@ -6,7 +6,7 @@ Application web en français pour retrouver ses sorties, isoler des portions et 
 
 - Comptes privés sur invitation, administration des utilisateurs et changement de mot de passe.
 - Onglet « Carte · sorties et segments » commun à la consultation et au dessin, avec bibliothèques repliables et bouton « Dessiner un segment ». La sortie chargée reste visible en quittant le dessin ; les segments existants laissent passer les clics pendant le tracé.
-- Bibliothèque de sorties GPX / Strava avec menus déroulants, aperçu sur fond OSM, téléchargement et suppression de ses sorties (et segments liés). Conservation des GPX originaux.
+- Bibliothèque de sorties GPX / Strava avec menus déroulants, aperçu sur fond OSM, ouverture par clic sur la vignette, téléchargement et suppression de ses sorties en conservant les secteurs et itinéraires associés. Conservation des GPX originaux.
 - Connexion OAuth Strava, sélection paginée et aperçu de ses activités gravel / vélo directement dans le panneau latéral, puis import de sa propre trace. Le lien « Mon compte » reste disponible pour gérer la connexion.
 - Routage local OSM pour les étapes courtes, avec secours OSRM / FOSSGIS pour les grandes emprises ou les pannes ; snapping qui suit le GPX en option et tracé manuel point à point. Départ et arrivée déplaçables, glissement de la route pour ajouter des passages, déplacement et suppression des passages. Les points sont conservés au changement de mode et les points du routage sont enregistrés avec le segment.
 - Tolérance OSM 75 / 150 / 250 m ; index spatial, A*, cache de dix minutes et réutilisation des zones téléchargées. Calcul dans un Web Worker avec annulation et progression des points GPS traités.
@@ -367,3 +367,25 @@ La croix d’arrêt demande confirmation avant d’abandonner un dessin ou des m
 Une visite guidée en six étapes présente la bibliothèque, les outils, le dessin et les corrections, la légende, le profil et l’enregistrement. Elle s’affiche une fois par compte et par navigateur, après la connexion. Le navigateur mémorise la visite terminée ou passée dans `localStorage` ; effacer ces données la fait réapparaître. Le blocage du stockage n’empêche pas l’utilisation de l’application. La commande **Découvrir Sillage · visite guidée** dans l’aide « ? » permet de la relancer. La visite n’ajoute aucune donnée et restaure l’état de la bibliothèque et de la légende à sa fermeture. Elle utilise un dialogue accessible au clavier, une cible visuelle, une progression et des annonces des étapes.
 
 Mise à jour Docker habituelle, puis rechargement des modules `v=6.23.0`. Aucun import OSM, migration ou secret supplémentaire. Les tests couvrent les sauvegardes en plein écran natif et simulé, le retour au dessin, les erreurs, la hauteur du clavier, la confirmation d’arrêt, les symboles, les couches et le cycle de la visite. Les interactions DOM/Leaflet et les dialogues sont simulés dans ces tests ; le rendu tactile et le plein écran réels restent à vérifier après déploiement dans le navigateur.
+
+
+## 6.24.0 — Sens inverse et sorties indépendantes
+
+Le bouton à deux flèches dans les outils de la carte inverse le sens de l’itinéraire. Les points et les portions changent d’ordre. Les portions routées sont recalculées dans le sens opposé avec les règles OSM actuelles, notamment les sens uniques ; les portions manuelles gardent leur géométrie inversée, leurs surfaces et leur profil retourné. Annuler/rétablir conserve l’état précédent. Sur un itinéraire public d’un autre membre, l’inversion prépare une copie privée au lieu de modifier celui de son auteur.
+
+Les vignettes ouvrent directement les sorties enregistrées et les activités Strava, par clic ou au clavier. Les anciens boutons d’ouverture sont supprimés. Les liens d’attribution restent utilisables. La sortie de référence reste sur la carte quand on ouvre un secteur personnel ou public. Son panneau propose **Transformer en itinéraire**, aussi depuis le bouton de panneau en plein écran. Cette action crée un itinéraire privé en conservant chaque point de la sortie, découpé en portions manuelles modifiables ; elle n’impose pas un recalcul OSM de tout le parcours. Le menu d’un point permet ensuite de router localement une portion. La sortie d’origine reste enregistrée.
+
+Supprimer une sortie conserve les secteurs et les itinéraires associés. La migration remplace l’ancienne cascade du lien `portions.source_ride_id` par `ON DELETE SET NULL` et utilise ce même comportement pour les nouvelles copies d’itinéraires. Les noms, géométries, attributs et profils restent en place. Le panneau de confirmation décrit ce comportement et la suppression de la sortie de référence ne réinitialise plus le secteur en cours d’édition.
+
+Les copies provenant de l’API Strava restent privées, y compris après suppression manuelle de la sortie source ou création d’une copie supplémentaire. La provenance d’activité est conservée séparément du lien à la sortie. La déconnexion, la révocation ou un événement de suppression Strava continuent d’effacer les données Strava correspondantes, avec un verrou par compte pour coordonner création et révocation. Les sorties GPX et les dessins indépendants restent distincts de cette purge. L’export du compte inclut la provenance des itinéraires et des secteurs.
+
+La visite guidée comporte sept étapes et un lien vers la connexion Strava dans Mon compte. Ses descriptions courtes incluent les pictogrammes des boutons. Sur mobile, une carte compacte reste en bas et laisse la cible visible au-dessus ; le masque est plus léger et les actions restent disponibles lorsque le texte doit défiler. La visite peut toujours être relancée depuis « ? ». Les secteurs conservent leur trait fin au-dessus de l’itinéraire, avec un contour sombre discret pour mieux lire leurs couleurs sur les différents fonds.
+
+Après le `git pull` habituel, reconstruire et contrôler la migration sur le VPS :
+
+```bash
+sudo docker compose up -d --build --wait &&
+sudo docker compose exec app node server/check-db.js
+```
+
+Le contrôle vérifie PostGIS, les géométries et les index, puis les liens aux sorties des secteurs et itinéraires. La migration est transactionnelle et réexécutable ; elle conserve les données existantes. Aucun import OSM ni nouvelle clé. Recharger les modules `v=6.24.0`. Les tests couvrent les opérations de tracé, les copies et leur visibilité, les suppressions, les événements Strava et le cycle de migration sur adaptateurs SQL ; la validation native PostGIS et le rendu tactile restent à effectuer sur le VPS et dans le navigateur.

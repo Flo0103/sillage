@@ -1,9 +1,18 @@
-import {buildElevationModel} from './elevation.js?v=6.23.0';
-import {distance,routeLength} from './geo.js?v=6.23.0';
+import {buildElevationModel} from './elevation.js?v=6.24.0';
+import {distance,routeLength} from './geo.js?v=6.24.0';
 import {routePosition} from './route-edit.js';
 let serial=0;
 const point=p=>[...p];
 const leg=(mode,coordinates=null)=>({id:++serial,mode,coordinates,analysis:null});
+function reverseAnalysis(analysis,path){
+ if(!analysis)return null;const total=routeLength(path),result={...analysis};for(const key of ['surfaceRuns','accessRuns'])if(analysis[key])result[key]=analysis[key].slice().reverse().map(run=>({...run,coordinates:run.coordinates.slice().reverse().map(point)}));
+ if(analysis.elevation){const elevation=analysis.elevation;result.elevation={...elevation,ascent:elevation.descent,descent:elevation.ascent,profile:elevation.profile?.slice().reverse().map(sample=>({...sample,at:Math.max(0,total-sample.at)}))};}return result;
+}
+export function importedRideLegs(path){
+ const result=[],spacing=Math.max(1000,routeLength(path)/150);let start=0,meters=0;
+ for(let i=1;i<path.length;i++){meters+=distance(path[i-1],path[i]);if(meters>=spacing&&i<path.length-1&&result.length<198){result.push({mode:'manual',coordinates:path.slice(start,i+1).map(point),analysis:null});start=i;meters=0;}}
+ result.push({mode:'manual',coordinates:path.slice(start).map(point),analysis:null});return result;
+}
 // Edges are immutable: snapshots share their geometry, not mutable arrays.
 export class ItineraryDraft{
  constructor(){this.points=[];this.legs=[];this.past=[];this.future=[];this.context=null;}
@@ -18,6 +27,7 @@ export class ItineraryDraft{
  clear(context=null){this.remember();this.points=[];this.legs=[];this.context=context;}
  setIncomingMode(index,mode){if(index<=0||index>=this.points.length||!['manual','route'].includes(mode)||this.legs[index-1].mode===mode)return false;this.remember();this.legs[index-1]=leg(mode,mode==='manual'?[point(this.points[index-1]),point(this.points[index])]:null);return true;}
  remove(index){if(index<0||index>=this.points.length)return;this.remember();if(index===0)this.legs.shift();else if(index===this.points.length-1)this.legs.pop();else{const mode=this.legs[index-1].mode==='manual'||this.legs[index].mode==='manual'?'manual':'route';this.legs.splice(index-1,2,leg(mode,mode==='manual'?[point(this.points[index-1]),point(this.points[index+1])]:null));}this.points.splice(index,1);}
+ reverse(){if(this.points.length<2)return false;this.remember();this.points=this.points.slice().reverse().map(point);this.legs=this.legs.slice().reverse().map(old=>old.mode==='manual'?{...leg('manual',old.coordinates.slice().reverse().map(point)),analysis:reverseAnalysis(old.analysis,old.coordinates)}:leg('route'));return true;}
  resolve(id,result){const i=this.legs.findIndex(l=>l.id===id);if(i<0)return false;const old=this.legs[i];if(old.coordinates)return false;const path=result.coordinates.map(point);if(path.length<2)return false;
   // A completed neighbouring leg stays byte-for-byte intact when extending a route.
   if(!this.legs[i-1]?.coordinates)this.points[i]=point(path[0]);

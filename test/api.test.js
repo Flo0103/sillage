@@ -5,22 +5,22 @@ import {createApp} from '../server/app.js';
 import {tokenHash,hashPassword} from '../server/model.js';
 const tokens={alice:'a'.repeat(64),bob:'b'.repeat(64)};
 // In-memory SQL adapter: exercises HTTP routing and owner-scoped queries without a database daemon.
-function database(){const saved=[],rides=[],planned=[];return {saved,rides,planned,queries:[],async query(sql,args=[]){this.queries.push({sql,args});
+function database(){const saved=[],rides=[],planned=[];return {saved,rides,planned,queries:[],async connect(){return {query:this.query.bind(this),release(){}};},async query(sql,args=[]){this.queries.push({sql,args});
  if(sql.includes('FROM sessions s')){const name=Object.keys(tokens).find(k=>tokenHash(tokens[k])===args[0]);return {rows:name?[{id:name,username:name}]:[]};}
- if(sql.startsWith('INSERT INTO planned_routes')){planned.push({id:args[0],user:args[1],data:JSON.parse(args[2]),is_public:args[3]});return {rowCount:1,rows:[]};}
- if(sql.includes('FROM planned_routes p JOIN users')){const owner=args.length===2?args[1]:args[0];return {rows:planned.filter(p=>(args.length===1||p.id===args[0])&&(p.user===owner||p.is_public)).map(p=>({...p,username:p.user,is_mine:p.user===owner}))};}
- if(sql.startsWith('SELECT data,is_public FROM planned_routes'))return {rows:planned.filter(p=>p.id===args[0]&&p.user===args[1])};
+ if(sql.startsWith('INSERT INTO planned_routes')){planned.push({id:args[0],user:args[1],data:JSON.parse(args[2]),is_public:args[3],source_ride_id:args[4]||null,source_strava:args[5]===true,source_strava_activity_id:args[6]||null});return {rowCount:1,rows:[]};}
+ if(sql.includes('FROM planned_routes p JOIN users')){const owner=args.length===2?args[1]:args[0];return {rows:planned.filter(p=>(args.length===1||p.id===args[0])&&(p.user===owner||p.is_public&&!p.source_strava)).map(p=>({...p,username:p.user,is_mine:p.user===owner}))};}
+ if(sql.startsWith('SELECT data,is_public,source_ride_id,source_strava FROM planned_routes'))return {rows:planned.filter(p=>p.id===args[0]&&p.user===args[1])};
  if(sql.startsWith('UPDATE planned_routes SET data=')){const p=planned.find(p=>p.id===args[2]&&p.user===args[3]);if(!p)return {rowCount:0};p.data=JSON.parse(args[0]);p.is_public=args[1];return {rowCount:1,rows:[{id:p.id}]};}
  if(sql.startsWith('DELETE FROM planned_routes')){const i=planned.findIndex(p=>p.id===args[0]&&p.user===args[1]);if(i<0)return {rowCount:0};planned.splice(i,1);return {rowCount:1};}
  if(sql.startsWith('SELECT id,name,source_type,ST_AsGeoJSON'))return {rows:rides.filter(r=>r.user_id===args[0]).map(r=>({...r,geometry:{type:'LineString',coordinates:r.coordinates.map(p=>[p[1],p[0]])}}))};
- if(sql.startsWith('INSERT INTO portions')){saved.push({id:args[0],user:args[1],data:JSON.parse(args[2]),is_public:args[3],source_strava:args[5]});return {rowCount:1,rows:[]};}
+ if(sql.startsWith('INSERT INTO portions')){saved.push({id:args[0],user:args[1],data:JSON.parse(args[2]),is_public:args[3],source_ride_id:args[4]||null,source_strava:args[5]===true,source_strava_activity_id:args[6]||null});return {rowCount:1,rows:[]};}
  if(sql.includes('FROM portions p JOIN users'))return {rows:saved.filter(r=>r.user===args[0]||r.is_public&&!r.source_strava).map(r=>({id:r.id,data:r.data,is_public:r.is_public,source_strava:r.source_strava,username:r.user,is_mine:r.user===args[0],created_at:new Date()}))};
  if(sql.startsWith('SELECT data,is_public,source_strava FROM portions'))return {rows:saved.filter(r=>r.id===args[0]&&r.user===args[1])};
  if(sql.startsWith('UPDATE portions SET data=')){const r=saved.find(r=>r.id===args[2]&&r.user===args[3]);if(!r||r.source_strava&&args[1])return {rowCount:0};r.data=JSON.parse(args[0]);r.is_public=args[1];return {rowCount:1,rows:[{id:r.id}]};}
  if(sql.startsWith('SELECT id,data'))return {rows:saved.filter(r=>r.user===args[0]).map(r=>({id:r.id,data:r.data,is_public:r.is_public,created_at:new Date()}))};
  if(sql.startsWith('DELETE FROM portions')){const i=saved.findIndex(r=>r.id===args[0]&&r.user===args[1]);if(i<0)return {rowCount:0};saved.splice(i,1);return {rowCount:1};}
- if(sql.startsWith('DELETE FROM rides')){const i=rides.findIndex(r=>r.id===args[0]&&r.user_id===args[1]);if(i<0)return {rowCount:0};rides.splice(i,1);return {rowCount:1};}
- if(sql.startsWith('SELECT id,source_type FROM rides'))return {rows:rides.filter(r=>r.id===args[0]&&r.user_id===args[1])};
+ if(sql.startsWith('DELETE FROM rides')){const i=rides.findIndex(r=>r.id===args[0]&&r.user_id===args[1]);if(i<0)return {rowCount:0};const id=rides[i].id;rides.splice(i,1);for(const item of [...saved,...planned])if(item.source_ride_id===id)item.source_ride_id=null;return {rowCount:1};}
+ if(sql.startsWith('SELECT id,source_type,strava_activity_id FROM rides'))return {rows:rides.filter(r=>r.id===args[0]&&r.user_id===args[1])};
  if(sql.startsWith('INSERT INTO rides')){rides.push({id:args[0],user_id:args[1],name:args[2],coordinates:JSON.parse(args[3]),distance:args[4],gpx_xml:args[5],file_name:args[6]});return {rowCount:1,rows:[]};}
  if(sql.startsWith('SELECT id,name,distance'))return {rows:rides.filter(r=>r.user_id===args[0]).map(r=>({...r,gpx_available:r.gpx_xml!==null}))};
  if(sql.startsWith('SELECT id,name,coordinates')||sql.startsWith('SELECT name,coordinates,gpx_xml'))return {rows:rides.filter(r=>r.id===args[0]&&r.user_id===args[1])};
@@ -195,3 +195,20 @@ test('secteur : profil validé stocké et relu sans perte à l’édition des at
 });
 
 test('module de visite guidée servi uniquement après connexion',async()=>{const app=createApp(database(),{origin:'https://sillage.test'});const anonymous=await request(app,{url:'/onboarding.js'});assert.equal(anonymous.status,303);assert.equal(anonymous.headers.Location,'/login.html');const res=await request(app,{url:'/onboarding.js',user:'alice'});assert.equal(res.status,200);assert.match(res.headers['Content-Type'],/javascript/);assert.match(res.body,/export function createOnboarding/);});
+
+test('conversion d’une sortie : trace exacte, itinéraire privé indépendant, contrôle du propriétaire',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'}),id='00000000-0000-0000-0000-000000000777',coordinates=Array.from({length:100},(_,i)=>[50+i*.0002,5+Math.sin(i/10)*.001]);db.rides.push({id,user_id:'alice',name:'Spa · les crêtes',source_type:'gpx',coordinates});
+ assert.equal((await request(app,{url:'/api/plans/from-ride/'+id,method:'POST',body:{},user:'bob'})).status,404);assert.equal((await request(app,{url:'/api/plans/from-ride/'+id,method:'POST',body:{}})).status,401);
+ const res=await request(app,{url:'/api/plans/from-ride/'+id,method:'POST',body:{isPublic:true,coordinates:[[0,0],[1,1]]},user:'alice'});assert.equal(res.status,201);const p=JSON.parse(res.body);assert.equal(p.name,'Spa · les crêtes');assert.deepEqual(p.coordinates,coordinates);assert.equal(p.isPublic,false);assert.equal(p.fromStrava,false);assert.equal(p.snapped,false);assert.ok(p.legs.every(l=>l.mode==='manual'));assert.equal(db.rides.length,1);assert.equal(db.planned[0].source_ride_id,id);
+ assert.equal((await request(app,{url:'/api/rides/'+id,method:'DELETE',user:'alice'})).status,200);assert.equal(db.planned.length,1);assert.equal(db.planned[0].source_ride_id,null);assert.deepEqual(JSON.parse((await request(app,{url:'/api/plans/'+p.id,user:'alice'})).body).coordinates,coordinates);
+});
+test('suppression d’une sortie : secteurs conservés, liens détachés, attributs et géométries inchangés',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'}),id='00000000-0000-0000-0000-000000000778';db.rides.push({id,user_id:'alice',source_type:'gpx',coordinates:[[50,5],[50.01,5]]});const created=JSON.parse((await request(app,{url:'/api/portions',method:'POST',user:'alice',body:{rideId:id,name:'Secteur à garder',coordinates:[[50,5],[50.01,5]],rating:5,surface:'Chemin de terre',difficulty:'Facile'}})).body);const before=JSON.stringify(db.saved[0].data);assert.equal(db.saved[0].source_ride_id,id);
+ assert.equal((await request(app,{url:'/api/rides/'+id,method:'DELETE',user:'bob'})).status,404);assert.equal(db.saved[0].source_ride_id,id);await request(app,{url:'/api/rides/'+id,method:'DELETE',user:'alice'});assert.equal(db.saved.length,1);assert.equal(db.saved[0].id,created.id);assert.equal(db.saved[0].source_ride_id,null);assert.equal(JSON.stringify(db.saved[0].data),before);assert.ok(!db.queries.some(q=>q.sql.startsWith('DELETE FROM portions')));
+});
+test('conversion Strava : provenance conservée après suppression de la sortie, copies et modifications toujours privées',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'}),id='00000000-0000-0000-0000-000000000779';db.rides.push({id,user_id:'alice',name:'Ma sortie Strava',source_type:'strava',strava_activity_id:'12345',coordinates:[[50,5],[50.01,5]]});const converted=JSON.parse((await request(app,{url:'/api/plans/from-ride/'+id,method:'POST',user:'alice',body:{}})).body);assert.equal(converted.fromStrava,true);assert.equal(converted.isPublic,false);assert.equal(db.planned[0].source_strava_activity_id,'12345');
+ await request(app,{url:'/api/rides/'+id,method:'DELETE',user:'alice'});assert.equal(db.planned[0].source_ride_id,null);assert.equal(db.planned[0].source_strava_activity_id,'12345');assert.equal((await request(app,{url:'/api/plans/'+converted.id,method:'PATCH',user:'alice',body:{isPublic:true,fromStrava:false}})).status,404);
+ const copy=await request(app,{url:'/api/plans',method:'POST',user:'alice',body:{...converted,name:'Copie inversée',sourcePlanId:converted.id,isPublic:true,fromStrava:false}});assert.equal(copy.status,201);assert.equal(JSON.parse(copy.body).fromStrava,true);assert.equal(JSON.parse(copy.body).isPublic,false);assert.equal(db.planned[1].source_strava_activity_id,'12345');
+ assert.deepEqual(JSON.parse((await request(app,{url:'/api/plans',user:'bob'})).body),[]);assert.equal((await request(app,{url:'/api/plans/'+converted.id+'/gpx',user:'bob'})).status,404);assert.equal((await request(app,{url:'/api/plans',method:'POST',user:'bob',body:{...converted,sourcePlanId:converted.id}})).status,404);
+});
