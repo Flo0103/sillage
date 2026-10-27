@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS planned_routes(id uuid PRIMARY KEY,user_id uuid NOT N
 CREATE INDEX IF NOT EXISTS planned_routes_owner ON planned_routes(user_id,updated_at DESC);
 CREATE INDEX IF NOT EXISTS planned_routes_public ON planned_routes(is_public);
 CREATE TABLE IF NOT EXISTS strava_connections(user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,athlete_id bigint UNIQUE NOT NULL,tokens text NOT NULL);
+ALTER TABLE strava_connections ADD COLUMN IF NOT EXISTS revision uuid NOT NULL DEFAULT gen_random_uuid();
 CREATE TABLE IF NOT EXISTS strava_oauth_states(state_hash text PRIMARY KEY,nonce_hash text NOT NULL,user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,session_hash text NOT NULL,expires_at timestamptz NOT NULL);
 CREATE INDEX IF NOT EXISTS portions_public ON portions(is_public);
 CREATE INDEX IF NOT EXISTS portions_owner ON portions(user_id,created_at DESC);
@@ -40,3 +41,4 @@ await pool.query(spatialSQL);
 await pool.query(routingStorageSQL);
 await pool.query('SELECT PostGIS_Version()');
 }
+
