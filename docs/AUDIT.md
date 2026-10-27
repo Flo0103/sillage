@@ -1,5 +1,7 @@
 # Audit technique et proposition de déploiement
 
+État historique de l'audit initial. Les renforcements suivants (limites de requêtes, connexion, Leaflet local, CSP et dépendances verrouillées) et leur procédure de mise à jour sont décrits dans [Sécurité](SECURITE.md).
+
 Audit du 27 octobre 2026 sur `Flo0103/sillage`, base `7732126c49353b2b1780fc3396caf262fc588f21` (6.26.2). Examen du code, de la configuration et des tests ; aucun accès aux données ou aux mesures du VPS de production.
 
 ## Priorités
@@ -75,3 +77,4 @@ Mesurer les temps et tailles de réponses des bibliothèques, le temps SQL, la m
 ### Lot 3 : confiance avant publication
 
 Ajouter les parcours navigateur réels, tester régulièrement la restauration, surveiller la disponibilité depuis l’extérieur du VPS et verrouiller les versions des actions / images avec un processus de mise à jour. Activer la protection de branche et les contrôles requis une fois la CI confirmée.
+

@@ -38,7 +38,7 @@ export function createStrava({clientId=process.env.STRAVA_CLIENT_ID,clientSecret
   });}catch(e){if(e.stravaUnauthorized)await removeData(db,userId,{revision});throw e;}
  }
  const api=(path,token,options={})=>request('https://www.strava.com/api/v3'+path,{...options,headers:{Authorization:`Bearer ${token}`,...options.headers}});
- function callbackPage(res,ok){const message=ok?'Votre compte Strava est connecté.':'La connexion Strava a échoué ou a été refusée. Réessayez depuis Sillage.';res.writeHead(ok?200:400,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer'});res.end(`<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Strava — Sillage</title><p>${message}</p><p><a href="/?source=strava">Revenir à Sillage</a></p>${ok?'<script>location.replace("/?source=strava")</script>':''}</html>`);}
+ function callbackPage(res,ok){const message=ok?'Votre compte Strava est connecté.':'La connexion Strava a échoué ou a été refusée. Réessayez depuis Sillage.';res.writeHead(ok?200:400,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer'});res.end(`<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Strava — Sillage</title><p>${message}</p><p><a href="/?source=strava">Revenir à Sillage</a></p>${ok?'<script src="/strava-callback.js" defer></script>':''}</html>`);}
  const webhookPath=/^[a-f0-9]{64}$/.test(webhookSecret||'')?'/api/strava/webhook/'+webhookSecret:null;
  const handle=async function({db,req,res,path,query,method,user,sessionToken,origin,secure,body,json}){
   const reply=(status,data)=>{json(res,status,data);return true;};
@@ -131,4 +131,5 @@ export function decodePolyline(text){
  if(points.length<=400)return points;
  return Array.from({length:400},(_,j)=>points[Math.round(j*(points.length-1)/399)]);
 }
+
 
