@@ -240,8 +240,10 @@ if(typeof L!=='undefined'){
  if(map.attributionControl)map.attributionControl.addAttribution('Routage © OSM · <a href="https://routing.openstreetmap.de/about.html">FOSSGIS / OSRM vélo</a> · <a href="https://www.openstreetmap.org/fixthemap">Corriger la carte</a>');
  const notice=$('mapNotice');let failures=0;
  const showNotice=message=>{if(notice){notice.textContent=message;notice.hidden=false;}};
- let ignFailed=false;
- updateBaseCoverage=()=>{const outside=ignViewOutside(map.getBounds?.()),enabled=activeBaseLayer===ign,warning=enabled&&(outside||ignFailed);$('ignCoverageMessage').textContent=outside?'La vue déborde de la couverture IGN belge : des zones peuvent rester vides.':'Des tuiles IGN ne sont pas disponibles pour cette vue.';setHidden('ignCoverageNotice',!warning);};
+ let ignFailed=false,ignNoticeDismissed=false;
+ const ignNotice=$('ignCoverageNotice');L.DomEvent?.disableClickPropagation?.(ignNotice);L.DomEvent?.disableScrollPropagation?.(ignNotice);
+ $('closeIgnCoverage').onclick=()=>{ignNoticeDismissed=true;setHidden('ignCoverageNotice',true);};
+ updateBaseCoverage=()=>{const outside=ignViewOutside(map.getBounds?.()),enabled=activeBaseLayer===ign,warning=enabled&&(outside||ignFailed);if(!warning)ignNoticeDismissed=false;$('ignCoverageMessage').textContent=outside?'La vue déborde de la couverture IGN belge : des zones peuvent rester vides.':'Des tuiles IGN ne sont pas disponibles pour cette vue.';setHidden('ignCoverageNotice',!warning||ignNoticeDismissed);};
  ign.on('loading',()=>{ignFailed=false;});ign.on('tileerror',()=>{ignFailed=true;updateBaseCoverage();});ign.on('load',()=>{if(!ignFailed&&map.hasLayer(ign))setHidden('mapNotice',true);updateBaseCoverage();});
  osm.on('tileerror',()=>{if(!map.hasLayer(osm))return;if(++failures>=3)showNotice('Certaines tuiles OSM ne se chargent pas. Vous pouvez choisir Satellite dans « Carte et légendes ».');});
  osm.on('loading',()=>{failures=0;});
@@ -624,6 +626,7 @@ function updateFullscreen(){const expanded=!!document.fullscreenElement||documen
 $('fullscreenMap').onclick=async()=>{const workspace=$('workspace');try{if(document.fullscreenElement)await document.exitFullscreen();else if(document.body.classList.contains('map-expanded'))document.body.classList.remove('map-expanded');else if(workspace.requestFullscreen)await workspace.requestFullscreen();else document.body.classList.add('map-expanded');}catch{document.body.classList.toggle('map-expanded');}updateFullscreen();};
 document.addEventListener('fullscreenchange',updateFullscreen);document.addEventListener('keydown',e=>{if(e.key==='Escape')cancelRouteDrag();if(e.key==='Escape'&&document.body.classList.contains('map-expanded')){document.body.classList.remove('map-expanded');updateFullscreen();}});
 const header=document.querySelector('body.app-page>header');if(header&&typeof ResizeObserver!=='undefined'){new ResizeObserver(()=>{document.body.style.setProperty('--header-height',header.getBoundingClientRect().height+'px');resizeMap();}).observe(header);}
+
 
 
 
