@@ -193,3 +193,5 @@ test('secteur : profil validé stocké et relu sans perte à l’édition des at
  const edited=await request(app,{url:'/api/portions/'+id,method:'PATCH',user:'alice',body:{notes:'Profil conservé'}});assert.equal(edited.status,200);assert.deepEqual(JSON.parse(edited.body).legs[0].analysis.elevation.profile,elevation.profile);
  const invalid=await request(app,{url:'/api/portions',method:'POST',user:'alice',body:{...body,legs:[{mode:'route',coordinates:points,analysis:{elevation:{...elevation,profile:[{at:0,altitude:100},{at:99999,altitude:150}]}}}]}});assert.equal(invalid.status,400);
 });
+
+test('module de visite guidée servi uniquement après connexion',async()=>{const app=createApp(database(),{origin:'https://sillage.test'});const anonymous=await request(app,{url:'/onboarding.js'});assert.equal(anonymous.status,303);assert.equal(anonymous.headers.Location,'/login.html');const res=await request(app,{url:'/onboarding.js',user:'alice'});assert.equal(res.status,200);assert.match(res.headers['Content-Type'],/javascript/);assert.match(res.body,/export function createOnboarding/);});
