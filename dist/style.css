@@ -149,6 +149,9 @@ body.browsing-rides .library-search{padding-bottom:10px;margin-bottom:0;border-b
 #map>.leaflet-control-container>.leaflet-top.leaflet-left{top:46px}.drawing-help{left:166px}.leaflet-control-zoom.leaflet-bar.sillage-map-toolbar{max-height:calc(var(--mapcanvas-height,600px) - var(--map-attribution-height,0px) - 66px)}.mapnotice{top:56px}.segmentlegend{max-height:max(64px,calc(var(--mapcanvas-height,600px) - var(--map-toolbar-height,280px) - var(--map-attribution-height,0px) - 80px))}
 @media(max-width:850px){
  :root{--map-tool-size:44px}
+ /* Share one isolated stack so the map panel can cover both tool groups. */
+ .mapcanvas{isolation:isolate}#map{z-index:auto}
+ #map>.leaflet-control-container>.leaflet-top,#map>.leaflet-control-container>.leaflet-bottom{z-index:700}
  .library-map-toggle{height:40px;padding:8px;gap:6px;font-size:11px}.library-map-toggle .library-book{width:18px;height:18px}.library-map-toggle .library-state-chevron{width:10px;height:10px;transform:rotate(90deg)}.library-map-toggle.is-collapsed .library-state-chevron{transform:rotate(270deg)}
  .drawing-help{left:auto;right:10px}.drawing-help>summary{width:40px;height:40px}.drawing-help-content{position:absolute;top:48px;right:0;margin:0;width:min(290px,calc(100vw - 20px))}
  #map>.leaflet-control-container>.leaflet-top.leaflet-left{top:50px}

@@ -457,3 +457,11 @@ La dernière commande doit afficher `6.26.4`. Recharger ensuite la page sur mobi
 
 Validation : 378 tests réussis, aucun échec, un contrôle systemd ignoré pour la restriction SO_PASSCRED existante. Le nouveau cas vérifie les états et libellés de la bibliothèque avant la réponse de l’API, à 390, 850, 851 et 1200 px, ainsi que la conservation du choix manuel. Syntaxe JavaScript et diff vérifiés ; Chromium reste indisponible dans l’environnement pour la validation visuelle.
 
+## Panneau Carte au-dessus des outils mobiles (6.26.5)
+
+Sur mobile, le panneau Carte ouvert passe au-dessus du zoom et des outils de tracé. Les contrôles Leaflet et les boutons flottants partagent désormais le même contexte d’empilement, limité à la zone de carte. Le panneau conserve sa priorité d’affichage, ainsi que l’aide et les réglages de point. Les positions des boutons et la disposition sur ordinateur sont conservées. La feuille de style est actualisée en `v=6.26.5`.
+
+Déployer la même branche `codex/mobile-map-tools-profile` avec la commande habituelle, puis recharger la page. La version du conteneur doit afficher `6.26.5`. Aucune migration ni modification des données.
+
+Validation : 378 tests réussis, aucun échec, un contrôle systemd ignoré pour la restriction SO_PASSCRED existante. Diff vérifié. Le lancement de Chromium reste bloqué dans l’environnement ; la superposition visuelle reste à confirmer dans le navigateur après mise à jour.
+
