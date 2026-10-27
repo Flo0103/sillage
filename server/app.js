@@ -20,6 +20,8 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),r
   async function body(req,limit=12*1024*1024){let size=0,parts=[];for await(const chunk of req){size+=chunk.length;if(size>limit)throw Object.assign(Error('Fichier trop volumineux.'),{status:413});parts.push(chunk);}try{return JSON.parse(Buffer.concat(parts).toString('utf8'));}catch{throw Object.assign(Error('JSON invalide.'),{status:400});}}
   return createServer(async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');
+    res.setHeader('X-Frame-Options','DENY');
+    res.setHeader('Content-Security-Policy',"frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
     try{
       const url=new URL(req.url,'http://local'),path=url.pathname,query=url.searchParams,method=req.method;
       if(path==='/healthz'&&method==='GET'){await db.query('SELECT 1');return json(res,200,{ok:true});}
@@ -106,3 +108,4 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),r
     }catch(e){if(e.code||e.name==='TypeError'&&e.message==='fetch failed'){console.error('Request failed:',e.code||e.name);return json(res,503,{error:'Service temporairement indisponible.'});}return json(res,e.status||400,{error:e.name==='TimeoutError'?'OSM est trop lent. Utilisez le mode manuel.':e.message||'Requête invalide.'});}
   });
 }
+

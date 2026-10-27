@@ -1,4 +1,5 @@
 import {test} from 'node:test';
+import {randomUUID} from 'node:crypto';
 import assert from 'node:assert/strict';
 import {createStrava,tokenCipher,decodePolyline} from '../server/strava.js';
 import {tokenHash} from '../server/model.js';
@@ -6,18 +7,23 @@ import {spatialBounds,spatialSQL} from '../server/spatial.js';
 const user={id:'00000000-0000-0000-0000-000000000001'},key='12'.repeat(32),session='session-hash',secret='ab'.repeat(32);
 const cipher=tokenCipher(key);
 function fixture({expires=999999,fetcher}={}){
- const calls=[],rides=[];let state=null,connection={athlete_id:'77',tokens:cipher.seal({access_token:'ACCESS_PRIVATE',refresh_token:'REFRESH_PRIVATE',expires_at:expires},user.id)};
+ const calls=[],rides=[];let state=null,connection={athlete_id:'77',revision:randomUUID(),tokens:cipher.seal({access_token:'ACCESS_PRIVATE',refresh_token:'REFRESH_PRIVATE',expires_at:expires},user.id)};
  const db={calls,rides,async query(sql,args=[]){calls.push({sql,args});if(sql.startsWith('INSERT INTO strava_oauth_states'))state={state_hash:args[0],nonce_hash:args[1],user_id:args[2],session_hash:args[3]};
+  if(sql.startsWith('SELECT user_id,session_hash FROM strava_oauth_states'))return {rows:state&&state.state_hash===args[0]&&state.nonce_hash===args[1]?[state]:[]};
   if(sql.startsWith('DELETE FROM strava_oauth_states WHERE state_hash')){const found=state&&state.state_hash===args[0]&&state.nonce_hash===args[1]?state:null;state=null;return {rows:found?[found]:[]};}
+  if(sql.startsWith('DELETE FROM strava_oauth_states'))state=null;
   if(sql.startsWith('SELECT u.id FROM sessions'))return {rows:args[0]===session&&args[1]===user.id?[{id:user.id}]:[]};
-  if(sql.startsWith('INSERT INTO strava_connections'))connection={athlete_id:args[1],tokens:args[2]};
+  if(sql.startsWith('INSERT INTO strava_connections'))connection={athlete_id:args[1],tokens:args[2],revision:randomUUID()};
+  if(sql.startsWith('SELECT athlete_id,revision FROM'))return {rows:connection?[{athlete_id:connection.athlete_id,revision:connection.revision}]:[]};
   if(sql.startsWith('SELECT athlete_id,tokens'))return {rows:connection?[connection]:[]};
   if(sql.startsWith('SELECT athlete_id FROM'))return {rows:connection?[{athlete_id:connection.athlete_id}]:[]};
   if(sql.startsWith('SELECT user_id FROM strava_connections'))return {rows:connection&&args[0]===connection.athlete_id?[{user_id:user.id}]:[]};
-  if(sql.startsWith('UPDATE strava_connections'))connection.tokens=args[0];
+  if(sql.startsWith('UPDATE strava_connections SET tokens='))connection.tokens=args[0];
+  if(sql.startsWith('UPDATE strava_connections SET revision='))connection.revision=randomUUID();
   if(sql.startsWith('DELETE FROM strava_connections'))connection=null;
   if(sql.startsWith('SELECT id FROM rides'))return {rows:rides.filter(r=>r.user===args[0]&&r.activity===args[1]).map(r=>({id:r.id}))};
-  if(sql.startsWith('INSERT INTO rides')){rides.push({id:args[0],user:args[1],points:JSON.parse(args[3]),activity:args[5]});return {rows:[{id:args[0]}]};}
+  if(sql.startsWith('DELETE FROM rides')){for(let i=rides.length-1;i>=0;i--)if(rides[i].user===args[0]&&(!sql.includes('strava_activity_id=$2')||rides[i].activity===args[1]))rides.splice(i,1);}
+  if(sql.startsWith('INSERT INTO rides')){if(rides.some(r=>r.user===args[1]&&r.activity===args[5]))return {rows:[]};rides.push({id:args[0],user:args[1],points:JSON.parse(args[3]),activity:args[5]});return {rows:[{id:args[0]}]};}
   return {rows:[],rowCount:1};},async connect(){return {query:this.query.bind(this),release(){}};}};
  const network=[];
  const fetchMock=async(url,options={})=>{network.push({url,options});if(fetcher)return fetcher(url,options);let data;
@@ -59,3 +65,68 @@ test('polyline aperçu bornée et géométrie invalide ignorée',()=>{
 test('révocation d’activité : supprime seulement ses données dérivées, même après détachement de la sortie',async()=>{
  const f=fixture(),path='/api/strava/webhook/'+secret;const result=await f.run(path,'POST',{owner_id:77,object_type:'activity',aspect_type:'delete',object_id:12345},{anonymous:true});assert.equal(result.status,200);for(const table of ['planned_routes','portions']){const call=f.db.calls.find(c=>c.sql.startsWith('DELETE FROM '+table));assert.match(call.sql,/source_strava=true AND source_strava_activity_id=\$2/);assert.deepEqual(call.args,[user.id,'12345']);}const metadata=f.db.calls.find(c=>c.sql.startsWith('DELETE FROM strava_library_activities'));assert.deepEqual(metadata.args,[user.id,'12345']);assert.ok(f.db.calls.some(c=>c.sql.startsWith('UPDATE strava_library_state')));const lock=f.db.calls.findIndex(c=>c.sql.includes('pg_advisory_xact_lock')),deletion=f.db.calls.findIndex(c=>c.sql.startsWith('DELETE FROM planned_routes'));assert.ok(lock>=0&&lock<deletion);assert.equal(f.db.calls.at(-1).sql,'COMMIT');
 });
+
+test('import en vol : déconnexion, révocation et suppression empêchent la réinsertion',async()=>{
+ for(const action of ['disconnect','revoke','delete','reconnect']){
+  const reached=Promise.withResolvers(),resume=Promise.withResolvers();
+  const f=fixture({fetcher:async url=>{
+   if(url.includes('/streams')){reached.resolve();await resume.promise;return Response.json({latlng:{data:[[50,5],[50.001,5]]}});}
+   return Response.json(url.includes('/activities/')?{id:101,name:'Gravel',sport_type:'GravelRide',athlete:{id:77}}:{});
+  }});
+  const pending=assert.rejects(f.run('/api/strava/import','POST',{activityId:'101'}),e=>e.status===409);
+  await reached.promise;
+  if(action==='disconnect')await f.run('/api/strava/disconnect','POST');
+  else if(action==='reconnect')await f.db.query('INSERT INTO strava_connections(user_id,athlete_id,tokens) VALUES($1,$2,$3)',[user.id,'77',f.connection.tokens]);
+  else await f.run('/api/strava/webhook/'+secret,'POST',action==='revoke'?{owner_id:77,object_type:'athlete',aspect_type:'update',updates:{authorized:'false'}}:{owner_id:77,object_type:'activity',aspect_type:'delete',object_id:101},{anonymous:true});
+  resume.resolve();await pending;
+  assert.equal(f.db.rides.length,0,action);
+  assert.ok(!f.db.calls.some(call=>call.sql.startsWith('INSERT INTO rides')),action);
+ }
+});
+
+test('import en vol : un renouvellement des jetons conserve la connexion et autorise l’import',async()=>{
+ const reached=Promise.withResolvers(),resume=Promise.withResolvers();
+ const f=fixture({fetcher:async url=>{
+  if(url.includes('/streams')){reached.resolve();await resume.promise;return Response.json({latlng:{data:[[50,5],[50.001,5]]}});}
+  return Response.json({id:101,sport_type:'GravelRide',athlete:{id:77}});
+ }});
+ const pending=f.run('/api/strava/import','POST',{activityId:'101'});await reached.promise;
+ const revision=f.connection.revision;
+ await f.db.query('UPDATE strava_connections SET tokens=$1 WHERE user_id=$2',[cipher.seal({access_token:'RENEWED',refresh_token:'RENEWED',expires_at:999999},user.id),user.id]);
+ resume.resolve();assert.equal((await pending).status,201);assert.equal(f.connection.revision,revision);assert.equal(f.db.rides.length,1);
+});
+
+test('401 tardif : une ancienne requête ne purge pas une connexion remplacée',async()=>{
+ const reached=Promise.withResolvers(),resume=Promise.withResolvers();
+ const f=fixture({fetcher:async()=>{reached.resolve();await resume.promise;return new Response('{}',{status:401});}});
+ const pending=assert.rejects(f.run('/api/strava/activities'),e=>e.stravaUnauthorized===true);await reached.promise;
+ await f.db.query('INSERT INTO strava_connections(user_id,athlete_id,tokens) VALUES($1,$2,$3)',[user.id,'88',f.connection.tokens]);
+ const revision=f.connection.revision;resume.resolve();await pending;
+ assert.equal(f.connection.athlete_id,'88');assert.equal(f.connection.revision,revision);assert.ok(!f.db.calls.some(call=>call.sql.startsWith('DELETE FROM rides')));
+});
+
+test('callback en vol : déconnexion ou session révoquée pendant OAuth bloque la connexion',async()=>{
+ for(const action of ['disconnect','session']){
+  const reached=Promise.withResolvers(),resume=Promise.withResolvers();
+  const f=fixture({fetcher:async url=>{
+   if(url.endsWith('/oauth/token')){reached.resolve();await resume.promise;return Response.json({athlete:{id:77},access_token:'NEW',refresh_token:'NEW',expires_at:999999});}
+   return Response.json({});
+  }});
+  const begin=await f.run('/api/strava/connect'),state=new URL(begin.headers.Location).searchParams.get('state'),cookie=begin.headers['Set-Cookie'].split(';')[0];
+  const pending=f.run('/api/strava/callback','GET',{}, {anonymous:true,cookie,query:{state,code:'CODE',scope:'activity:read_all'}});await reached.promise;
+  if(action==='disconnect')await f.run('/api/strava/disconnect','POST');
+  else{const base=f.db.query.bind(f.db);f.db.query=(sql,args)=>sql.startsWith('SELECT u.id FROM sessions')?Promise.resolve({rows:[]}):base(sql,args);}
+  resume.resolve();assert.equal((await pending).status,400,action);
+  assert.ok(!f.db.calls.some(call=>call.sql.startsWith('INSERT INTO strava_connections')),action);
+ }
+});
+
+test('changement d’athlète : purge des anciennes données Strava avant la nouvelle connexion',async()=>{
+ const f=fixture({fetcher:async()=>Response.json({athlete:{id:88},access_token:'NEW',refresh_token:'NEW',expires_at:999999})});
+ const begin=await f.run('/api/strava/connect'),state=new URL(begin.headers.Location).searchParams.get('state'),cookie=begin.headers['Set-Cookie'].split(';')[0];
+ const result=await f.run('/api/strava/callback','GET',{}, {anonymous:true,cookie,query:{state,code:'CODE',scope:'activity:read_all'}});
+ assert.equal(result.status,200);assert.equal(f.connection.athlete_id,'88');
+ const purge=f.db.calls.findIndex(call=>call.sql.startsWith('DELETE FROM rides')),insert=f.db.calls.findIndex(call=>call.sql.startsWith('INSERT INTO strava_connections'));
+ assert.ok(purge>=0&&purge<insert);assert.match(f.db.calls[purge].sql,/source_type='strava'/);assert.equal(f.db.calls.at(-1).sql,'COMMIT');
+});
+

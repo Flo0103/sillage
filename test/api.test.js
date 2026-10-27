@@ -66,7 +66,7 @@ test('anciennes sorties sans original : téléchargement GPX reconstruit',async(
  assert.equal(res.status,200);assert.match(res.body,/Bois &amp; rivière/);assert.match(res.body,/<trkpt lat="50.001" lon="5"/);
 });
 
-test('la politique de Referer identifie le site auprès des services cartographiques',async()=>{const app=createApp(database(),{origin:'https://sillage.test'});const res=await request(app,{url:'/login.html'});assert.equal(res.status,200);assert.equal(res.headers['Referrer-Policy'],'strict-origin-when-cross-origin');});
+test('politiques du navigateur : Referer cartographique et protection contre l’intégration en iframe',async()=>{const app=createApp(database(),{origin:'https://sillage.test'});for(const url of ['/login.html','/api/me']){const res=await request(app,{url});assert.equal(res.headers['Referrer-Policy'],'strict-origin-when-cross-origin');assert.equal(res.headers['X-Frame-Options'],'DENY');assert.equal(res.headers['Content-Security-Policy'],"frame-ancestors 'none'; base-uri 'self'; object-src 'none'");}});
 
 test('catalogue public, segments privés et modifications réservées au propriétaire',async()=>{
  const db=database(),app=createApp(db,{origin:'https://sillage.test'}),body={coordinates:[[50,5],[50.001,5]],rating:4,surface:'Gravier fin',difficulty:'Facile',winter:'yes'};
@@ -221,3 +221,4 @@ test('vignettes GPX : géométrie bornée à 500 points, privée et distincte du
  assert.equal((await request(app,{url:'/api/rides/'+created.id+'/preview',user:'bob'})).status,404);assert.equal((await request(app,{url:'/api/rides/'+created.id+'/preview'})).status,401);
  const sql=db.queries.find(q=>q.sql.startsWith('SELECT id,name,ST_AsGeoJSON'));assert.match(sql.sql,/ST_Simplify/);assert.deepEqual(sql.args,[created.id,'alice']);
 });
+
