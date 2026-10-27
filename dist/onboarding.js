@@ -17,7 +17,7 @@ export function createOnboarding({document,viewport=globalThis,storage=()=>globa
  function persist(){if(!user)return;seenHere.add(user);try{storage()?.setItem(key(),'seen');}catch{/* Browsing still works with storage disabled. */}}
  function finish(){if(!active)return;active=false;version++;persist();viewport.removeEventListener?.('resize',position);viewport.removeEventListener?.('scroll',position,true);viewport.visualViewport?.removeEventListener?.('resize',position);viewport.visualViewport?.removeEventListener?.('scroll',position);$('introTourSpotlight').hidden=true;restore();focusBefore?.focus?.({preventScroll:true});}
  function close(){if(dialog?.open)dialog.close();finish();}
- function target(){if(steps[index].target==='accountLink')return $('accountLink')||$('mapCanvas');if(steps[index].target==='mapToolbar')return document.querySelector('.sillage-map-toolbar')||$('mapTools')||$('mapCanvas');return $(steps[index].target);}
+ function target(){if(steps[index].target==='accountLink')return $('accountLink')||$('mapCanvas');if(steps[index].target==='mapToolbar')return $('mapTools')||$('mapCanvas');return $(steps[index].target);}
  function position(){
   if(!active)return;const width=viewport.visualViewport?.width||viewport.innerWidth||390,height=viewport.visualViewport?.height||viewport.innerHeight||700,mobile=width<=850,offsetX=viewport.visualViewport?.offsetLeft||0,offsetY=viewport.visualViewport?.offsetTop||0,margin=14,gap=16,cardWidth=Math.min(350,width-2*margin),spot=$('introTourSpotlight');
   dialog.style.width=cardWidth+'px';const maxHeight=mobile?Math.min(height-2*margin,240,Math.max(180,height*.38)):height-2*margin;$('introTourCard').style.maxHeight=maxHeight+'px';
@@ -52,3 +52,4 @@ export function createOnboarding({document,viewport=globalThis,storage=()=>globa
  if(dialog){$('introTourStrava').onclick=close;dialog.onclose=()=>{if(!dialog.open)finish();};dialog.oncancel=()=>{persist();};$('introTourNext').onclick=()=>{if(index===steps.length-1)close();else{index++;void show();}};$('introTourPrevious').onclick=()=>{if(index){index--;void show();}};$('introTourSkip').onclick=close;}
  return {start,close,maybeStart(username){if(active)return false;user=String(username||'');return !!user&&!seen()&&start(user);}};
 }
+
