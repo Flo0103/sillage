@@ -428,3 +428,14 @@ Sur ordinateur, les deux groupes sont également distincts ; la légende reste e
 Validation : 377 tests réussis, aucun échec, un contrôle systemd ignoré pour la restriction SO_PASSCRED existante. Le démarrage de Chromium est bloqué par les restrictions système de cet environnement ; le rendu tactile reste à vérifier dans un navigateur après déploiement.
 
 Mise à jour habituelle avec `git pull` puis `sudo docker compose up -d --build --wait`, et rechargement de la page. Aucune migration ni import OSM.
+
+## Carte mobile et relief plus compacts (6.26.3)
+
+Sur téléphone, les commandes de tracé se placent en haut à droite, sous Carte et l’aide, à côté du groupe de navigation. La barre adapte sa largeur aux boutons visibles et passe à la ligne pendant le dessin, avec des cibles tactiles de 44 px. Elle ne réserve plus quatre colonnes ni un titre « Tracé » quand peu d’actions sont disponibles. Annuler et rétablir sont masqués pendant la simple consultation ; ils restent accessibles si une opération précédente peut être annulée ou rétablie.
+
+Le graphe de relief passe de 176 à 132 px lorsque sa largeur est inférieure à 500 px. Les espacements du panneau mobile sont réduits. Graduations, points haut et bas et curseur synchronisé avec la carte sont conservés, ainsi que la hauteur du graphe sur grand écran.
+
+Validation : 377 tests réussis, aucun échec, un contrôle systemd ignoré pour la restriction SO_PASSCRED de l’environnement. Le test de consultation vérifie aussi le masquage de l’historique vide et son retour après une annulation. Syntaxe JavaScript et diff vérifiés. Le lancement de Chromium reste bloqué par les restrictions système ; le placement tactile reste à contrôler dans un navigateur.
+
+Mise à jour habituelle, puis rechargement des ressources `v=6.26.3`. Aucune migration ni modification des données ou du routage.
+
