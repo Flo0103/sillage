@@ -28,7 +28,9 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Tests sans services externes
-        run: npm test
+        run: npm ci --ignore-scripts --no-audit --no-fund && npm test
+      - name: Vulnérabilités du pilote PostgreSQL et de Leaflet
+        run: npm audit --audit-level=high
 
   postgis:
     name: Migrations PostgreSQL 17 et PostGIS 3.6
@@ -60,8 +62,9 @@ jobs:
         with:
           node-version: 24
       - name: Installer le pilote PostgreSQL
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Migrations, géométries et confidentialité Strava
         run: npm run test:db
       - name: Vérifier le schéma avec la commande de production
         run: node server/check-db.js
+

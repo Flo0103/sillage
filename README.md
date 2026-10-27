@@ -23,6 +23,7 @@ Le [guide OVH](deploy/OVH.md) décrit l’installation complète, le domaine HTT
 | Export vers Garmin / COROS | [Transfert GPS](deploy/GPS.md) |
 | Confidentialité, PostGIS, services externes et limites | [Référence technique](docs/TECHNIQUE.md) |
 | Problèmes repérés, priorités et plan de déploiement proposé | [Audit technique](docs/AUDIT.md) |
+| Protections, limites et mise à jour de sécurité | [Sécurité](docs/SECURITE.md) |
 | Évolutions des versions précédentes | [Historique](CHANGELOG.md) |
 | Identité visuelle | [Guide graphique](design/IDENTITY.md) |
 
@@ -40,17 +41,19 @@ Les sauvegardes sont privées et ne portent leur nom final qu’après la réuss
 
 ## Développement et validation
 
-Node.js 22 ou 24. Les tests unitaires utilisent les modules natifs de Node et des adaptateurs SQL / DOM simulés ; ils ne nécessitent ni dépendance npm installée ni accès aux services cartographiques.
+Node.js 22 ou 24. Les tests utilisent des adaptateurs SQL / DOM simulés, un serveur HTTP local et les ressources Leaflet verrouillées ; ils ne nécessitent aucun accès aux services cartographiques.
 
 ```sh
+npm ci --ignore-scripts --no-audit --no-fund
 npm test
+npm audit --audit-level=high
 npm run bench:routing
 ```
 
 Le test d’intégration nécessite le pilote `pg` et une **base PostgreSQL / PostGIS jetable**. Il modifie temporairement une contrainte pour reproduire une ancienne migration ; ne pas le lancer sur la production.
 
 ```sh
-npm install --ignore-scripts --no-audit --no-fund
+npm ci --ignore-scripts --no-audit --no-fund
 # Définir PGHOST, PGPORT, PGUSER, PGDATABASE et PGPASSWORD pour la base de test.
 npm run test:db
 ```
@@ -65,5 +68,6 @@ GitHub Actions est configuré pour exécuter les tests sous Node 22 et 24 et les
 - `deploy/` : configuration Docker / Caddy, sauvegardes et exploitation du réseau OSM.
 - `docs/` : référence technique et audit ; `CHANGELOG.md` conserve l’historique.
 
-Le pilote PostgreSQL direct est fixé à une version précise. L’arbre des dépendances transitives n’est pas encore verrouillé : la création d’un `package-lock.json` validé et le passage à `npm ci` sont détaillés dans l’audit.
+Le pilote PostgreSQL et Leaflet sont fixés à des versions précises. `package-lock.json` verrouille leurs dépendances et leur intégrité ; Docker et la CI utilisent `npm ci`. Leaflet est servi localement, avec sa licence et ses ressources, et comparé au paquet npm dans les tests. Le contrôle npm inclut Leaflet, même s’il n’est pas installé dans les images de production.
+
 
