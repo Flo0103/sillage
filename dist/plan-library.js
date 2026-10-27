@@ -1,10 +1,10 @@
-import {buildElevationModel} from './elevation.js?v=6.24.0';
-import {routeLength} from './geo.js?v=6.24.0';
+import {buildElevationModel} from './elevation.js?v=6.25.0';
+import {routeLength} from './geo.js?v=6.25.0';
 const metrics=new WeakMap();
 const normalise=value=>String(value??'').normalize('NFD').replace(/\p{Diacritic}/gu,'').toLocaleLowerCase('fr');
 export function planLibraryStats(plan){
  const cached=metrics.get(plan);if(cached)return cached;
- const path=plan.coordinates||[],model=buildElevationModel(plan.legs||[]),value={distance:Number.isFinite(plan.distance)?plan.distance:routeLength(path),ascent:model.elevationLength>0?Math.round(model.ascent):null,start:path[0]||plan.start_point||plan.preview?.[0]||plan.legs?.[0]?.coordinates?.[0],end:path.at(-1)||plan.end_point||plan.preview?.at(-1)||plan.legs?.at(-1)?.coordinates?.at(-1),search:normalise([plan.name,plan.owner,plan.notes].join(' '))};metrics.set(plan,value);return value;
+ const path=plan.coordinates||[],model=buildElevationModel(plan.legs||[]),value={distance:Number.isFinite(plan.distance)?plan.distance:routeLength(path),ascent:model.elevationLength>0?Math.round(model.ascent):Number.isFinite(plan.ascent)?Math.round(plan.ascent):null,start:path[0]||plan.start_point||plan.preview?.[0]||plan.legs?.[0]?.coordinates?.[0],end:path.at(-1)||plan.end_point||plan.preview?.at(-1)||plan.legs?.at(-1)?.coordinates?.at(-1),search:normalise([plan.name,plan.owner,plan.notes].join(' '))};metrics.set(plan,value);return value;
 }
 const limit=value=>value===null||value===undefined||String(value).trim()===''?null:Number.isFinite(Number(value))?Math.max(0,Number(value)):null;
 export function filterPlans(plans,{scope='all',search='',distanceMin,distanceMax,ascentMin,ascentMax,mapFilter='all',bounds=null}={}){

@@ -40,11 +40,15 @@ La dernière commande abonne Strava aux événements de révocation et de suppre
 
 ## 3. Se connecter et choisir une sortie
 
-Dans Sillage → « Mes sorties » → menu « Retrouver une sortie » → « Mes sorties Strava » → « Connecter mon compte Strava ». Le même bouton reste accessible dans « Mon compte ». Le bouton ouvre la page officielle de connexion et d’autorisation Strava : utilisez vos identifiants habituels chez Strava. Sillage ne demande jamais votre mot de passe Strava. La configuration Client ID / Client Secret est réalisée une seule fois pour l’application sur le VPS, pas par chaque membre.
+Dans Sillage, ouvrez **Bibliothèque**, choisissez **Une sortie · GPX / Strava**, puis **Strava** et **Connecter mon compte Strava**. Le même lien est disponible dans **Mon compte**. Vous êtes redirigé vers la page officielle Strava pour vous connecter et autoriser Sillage. Le Client ID et le Client Secret sont configurés une seule fois sur le VPS ; les membres n’ont pas de clé à saisir.
 
-Après autorisation, le panneau « Mes sorties Strava » s’ouvre directement. Choisissez Gravel ou toutes les sorties vélo / VTT, puis une sortie dans le menu déroulant pour voir son aperçu ; « Ouvrir cette sortie » importe la trace dans la bibliothèque et l’affiche sur la carte. Les sorties plus anciennes se chargent à la demande. Le sélecteur séparé dans « Mon compte » reste disponible.
+Après autorisation, la liste Strava s’ouvre directement. La recherche par nom, les curseurs de distance et de dénivelé et le filtre de zone s’appliquent à cette liste. Dans les filtres, choisissez **Gravel** ou **Tous mes vélos / VTT**. Cliquez sur une vignette pour afficher la sortie sur la carte ; l’import n’est réalisé qu’à cette ouverture. Les résultats sont paginés par vingt.
 
-Autoriser la lecture des activités, y compris privées, pour obtenir la trace complète. Aucune permission d’écriture n’est demandée. Le filtre initial est `GravelRide` ; « Toutes mes sorties vélo » permet de retrouver une sortie enregistrée comme vélo ou VTT. Les pages suivent l’historique Strava, avec un bouton pour chercher plus loin : une page sans gravel ne signifie pas nécessairement qu’il n’y en a aucune dans l’historique.
+Au premier accès, Sillage parcourt progressivement l’historique Strava, y compris les pages sans gravel, par lots de 200 activités. L’index de métadonnées est privé et conservé en PostgreSQL par utilisateur : revenir dans la bibliothèque ne recommence pas le chargement. Tant que l’historique n’est pas complet, la progression et le caractère partiel des résultats sont indiqués. **Mettre en pause** arrête après le lot en cours ; **Reprendre l’historique** continue au curseur enregistré, y compris après un quota Strava atteint. Quitter cette liste suspend aussi le chargement. Aucune limite de 300 activités n’est appliquée.
+
+Les recherches lisent l’index en base et ne relancent pas le parcours de l’historique chez Strava. **Actualiser** vérifie les nouvelles activités ; cette vérification est aussi déclenchée lors d’un retour dans la liste après quinze minutes. Le quota de l’application Strava peut interrompre le premier chargement d’un historique très long ; le bouton de reprise reste disponible. Les aperçus de la liste viennent des polylignes résumées ; les traces complètes restent importées à la demande.
+
+Autorisez la lecture des activités, y compris privées, pour obtenir la trace complète. Aucune permission d’écriture n’est demandée. Le filtre initial est `GravelRide` ; élargissez aux vélos / VTT pour une sortie classée autrement dans Strava. Le sélecteur séparé de **Mon compte** reste disponible.
 
 Choisir une activité importe ses coordonnées GPS dans son compte Sillage et ouvre cette trace sur la carte. Une activité déjà importée n’est pas dupliquée. L’API fournit les coordonnées, pas le fichier GPX original : le téléchargement GPX correspondant est une reconstruction des coordonnées, sans altitude ni horodatage.
 
@@ -54,7 +58,7 @@ L’accord API Strava limite l’affichage de ces données à l’athlète qui l
 
 Les jetons sont chiffrés avec AES-256-GCM, liés à l’utilisateur, et renouvelés côté serveur. Ils ne sont jamais envoyés au navigateur. L’état OAuth est à usage unique et lié à la session d’origine et à un cookie nonce dédié, compatible avec la redirection externe tout en conservant le cookie principal SameSite=Strict.
 
-« Déconnecter et supprimer mes imports Strava » retire les connexions, sorties et portions issues de Strava de ce compte. Les autres GPX sont conservés. Les webhooks retirent également les données lors d’une révocation côté Strava ou de la suppression d’une activité. Une réponse Strava 401 lors d’une consultation provoque aussi cette suppression locale. Les sauvegardes privées ont leur propre cycle de rétention et doivent être gérées en conséquence.
+« Déconnecter et supprimer mes imports Strava » retire les connexions, l’index de recherche, les sorties et les dessins issus de Strava de ce compte. Les autres GPX sont conservés. Les webhooks retirent également les données lors d’une révocation côté Strava ou de la suppression d’une activité. Une réponse Strava 401 lors d’une consultation provoque aussi cette suppression locale. Les sauvegardes privées ont leur propre cycle de rétention et doivent être gérées en conséquence.
 
 La connexion réelle doit être testée avec votre application et vos autorisations après configuration. Les tests automatisés utilisent des réponses Strava simulées.
 

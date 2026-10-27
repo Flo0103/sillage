@@ -2,6 +2,7 @@ import pg from 'pg';
 import {spatialSQL} from './spatial.js';
 import {routingStorageSQL} from './routing-storage.js';
 import {migrateRideLinks} from './ride-links.js';
+import {stravaLibrarySQL} from './strava-library.js';
 export const pool=new pg.Pool({host:process.env.PGHOST||'db',port:Number(process.env.PGPORT||5432),user:process.env.PGUSER||'sillage',password:process.env.PGPASSWORD,database:process.env.PGDATABASE||'sillage',max:10});
 export async function migrate(){
 await pool.query(`
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS wms_layers(id uuid PRIMARY KEY,user_id uuid NOT NULL 
 CREATE TABLE IF NOT EXISTS login_limits(key text PRIMARY KEY, attempts integer NOT NULL, expires_at timestamptz NOT NULL);
 `);
 await migrateRideLinks(pool);
+await pool.query(stravaLibrarySQL);
 await pool.query(spatialSQL);
 await pool.query(routingStorageSQL);
 await pool.query('SELECT PostGIS_Version()');

@@ -1,11 +1,11 @@
 {
   "name": "sillage",
-  "version": "6.24.0",
+  "version": "6.25.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server/index.js",
-    "test": "node test/model.test.js && node test/api.test.js && node test/frontend.test.js && node test/gps-transfer.test.js && node test/onboarding.test.js && node test/ride-links.test.js && node test/features.test.js && node test/snapping.test.js && node test/routing.test.js && node test/local-routing.test.js && node test/guided-routing.test.js && node test/stored-routing.test.js && node test/osmium-reader.test.js && node test/routing-refresh.test.js && node test/osm-fallback.test.js && node test/planner.test.js && node test/elevation.test.js && node test/strava.test.js",
+    "test": "node test/model.test.js && node test/api.test.js && node test/frontend.test.js && node test/gps-transfer.test.js && node test/onboarding.test.js && node test/ride-links.test.js && node test/features.test.js && node test/snapping.test.js && node test/routing.test.js && node test/local-routing.test.js && node test/guided-routing.test.js && node test/stored-routing.test.js && node test/osmium-reader.test.js && node test/routing-refresh.test.js && node test/osm-fallback.test.js && node test/planner.test.js && node test/elevation.test.js && node test/strava.test.js && node test/strava-library.test.js && node test/ride-browser.test.js",
     "bench:routing": "node test/benchmark-routing.js",
     "user:add": "node server/users.js"
   },
