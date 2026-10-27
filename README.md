@@ -417,3 +417,14 @@ Les secteurs utilisent uniquement des points de passage numérotés, y compris l
 Mise à jour habituelle avec `git pull` puis `sudo docker compose up -d --build --wait` et rechargement de la page. Modules `v=6.26.0`, aucune migration supplémentaire ni import OSM. Les contrôles couvrent les fermetures sans changement ou avec retour à l’original, les corrections annulées, la conservation de l’historique, l’enregistrement en place et en fenêtre, les repères et les outils adaptatifs. DOM et Leaflet simulés : le rendu tactile reste à vérifier dans le navigateur après déploiement.
 
 Validation 6.26.0 : 377 tests réussis, aucun échec, un contrôle systemd ignoré pour la restriction SO_PASSCRED existante. Syntaxe JavaScript, structure et identifiants HTML, et graphe des modules vérifiés.
+
+
+## Disposition des outils mobiles (6.26.1)
+
+Sur téléphone, Bibliothèque, Carte et aide sont alignés sur une même rangée de 40 px. Le bouton Carte garde le nom accessible « Carte et légendes » et ouvre les fonds, les filtres et les palettes dans un panneau défilant. Le zoom, le recentrage et le plein écran forment un groupe de navigation compact en haut à gauche. Les commandes d’itinéraire et de secteur forment un groupe « Tracé » de quatre colonnes, centré en bas au-dessus de l’échelle et des crédits. Les boutons gardent une cible tactile de 44 px. La hauteur de ce groupe est prise en compte dans l’espace disponible pour la légende.
+
+Sur ordinateur, les deux groupes sont également distincts ; la légende reste en bas à gauche. Les outils de tracé restent accessibles par défilement sur une carte courte, y compris en plein écran. La visite guidée cible le groupe de dessin. Aucun changement des calculs, des données ni des formulaires d’enregistrement.
+
+Validation : 377 tests réussis, aucun échec, un contrôle systemd ignoré pour la restriction SO_PASSCRED existante. Le démarrage de Chromium est bloqué par les restrictions système de cet environnement ; le rendu tactile reste à vérifier dans un navigateur après déploiement.
+
+Mise à jour habituelle avec `git pull` puis `sudo docker compose up -d --build --wait`, et rechargement de la page. Aucune migration ni import OSM.
