@@ -156,3 +156,5 @@ sudo docker compose exec -T app node server/check-routing.js --online --from 50.
 Ces points publics à Maastricht servent au diagnostic ; ils ne proviennent pas d’un tracé privé enregistré. Les tests déterministes reproduisent également une rivière avec un pont hors des trois fenêtres locales, pour comparer le routage direct à celui avec points de passage.
 
 Le rayon du guide public peut atteindre 1 km si son réseau ne connaît pas le chemin choisi. Ce guide ne déplace pas les points : le calcul OSM conserve leur tolérance initiale et vérifie les accès et les sens uniques.
+
+En cas de panne des deux serveurs Overpass, les détours modestes disposent d’un secours par corridor OSM direct, limité à 24 petites zones de 0,01° avec un espacement d’une seconde et réutilisation du cache. Les grandes étapes restent soumises à la disponibilité des sources ; aucun guide non vérifié n’est affiché.
