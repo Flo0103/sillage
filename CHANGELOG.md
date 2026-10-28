@@ -127,7 +127,144 @@ Le test a été effectué avec les données OSM réelles récupérées le 23 oct
 
 Les appels Overpass ont expiré dans l’environnement de diagnostic, alors que la source OSM directe répondait. Pour les calculs locaux, un secours de **données** OSM (`api.openstreetmap.org/api/0.6/map.json`) permet désormais de conserver le graphe, ses surfaces et ses annotations d’accès, avant tout recours au moteur public. Il est limité aux petites emprises de 0,001 degré carré maximum (environ 8 km² à Spa), dédupliqué, espacé d’au moins une seconde et mis en cache une heure pour limiter les téléchargements. Une panne déclenche une pause d’une minute du fournisseur concerné. Une réponse 400 pour une zone trop dense ne pénalise que cette zone, pas toutes les autres demandes. L’accrochage initial se limite à environ 400 m de marge : l’ancienne marge de 1 200 m dépassait la limite de 50 000 nœuds de l’API directe à Spa, puis désactivait à tort le secours pour les requêtes plus petites. Les téléchargements sont bornés à 20 Mo et seules les voies routables avec tous leurs nœuds sont conservées ; aucune connexion n’est inventée. Pour une exploitation intensive, prévoir une source de données dédiée plutôt que multiplier les appels aux services publics.
 
-Dans ces petites emprises, Overpass dispose de huit secondes avant la tentative de secours OSM direct (dix secondes). Les emprises plus grandes restent sur Overpass et conservent les limites du moteur public décrites en 6.4. Cela ne prouve…7147 tokens truncated…00e9tats de création/consultation et le retour aux éléments personnels après réinitialisation.
+Dans ces petites emprises, Overpass dispose de huit secondes avant la tentative de secours OSM direct (dix secondes). Les emprises plus grandes restent sur Overpass et conservent les limites du moteur public décrites en 6.4. Cela ne prouve pas quel moteur a été utilisé sur le VPS : sa session privée et sa version déployée ne sont pas accessibles depuis le diagnostic.
+
+```sh
+sudo docker compose exec app node server/check-routing.js
+```
+
+Cette commande vérifie l’accrochage initial puis effectue trois calculs en lecture seule : les deux sens entre les extrémités, puis la rue entière avec un passage gravel. Elle affiche la version de Sillage, la source de données, le moteur, les distances, les surfaces et les avertissements éventuels. Elle ne consulte ni les comptes ni la base. Elle sort avec un code non nul si un calcul échoue ou utilise le secours public. L’enchaînement accrochage initial puis routage a aussi été vérifié en ligne avec ces deux fournisseurs : la source OSM directe a rendu 823 m dans les deux sens, avec 390 m de gravier. Les données minimales réelles utilisées dans les tests sont dans `test/fixtures/spa-jeu-de-paume.json` : © OpenStreetMap contributors, sous ODbL, avec source et licence incluses.
+
+## Planificateur et profil plus fluides (6.5)
+
+Le planificateur et les segments utilisent le même moteur. Les réseaux OSM préparés (graphe dirigé et index spatial des arêtes) sont désormais réutilisés au lieu d’être reconstruits pour chaque étape. Seules les arêtes contenant les nouveaux points sont divisées dans une surcouche propre à la requête ; le graphe partagé ne reçoit jamais de points virtuels. Le cache est borné à quatre réseaux et 250 000 arêtes ; les résultats récents sont également bornés. Les règles de sens unique, les restrictions annotées et le coût des pistes restent identiques.
+
+Avant de télécharger un nouveau cadre de 650 m de marge, le moteur essaie une zone déjà disponible avec au moins la marge d’accrochage nécessaire. Une recherche voisine peut aussi attendre le téléchargement d’accrochage initial en cours, si sa couverture suffit. Si le cache ne fournit pas de raccord ou propose un grand détour, le calcul reprend avec une zone plus large. L’expiration des données reste respectée. Les échecs Overpass sont espacés progressivement (1, 2, 4, 8 puis 15 minutes), sans prolonger la pause à chaque utilisation de la source de secours ; un succès réinitialise ce délai. Les limites et le débit des fournisseurs sont conservés.
+
+Le regroupement des clics passe de 250 à 100 ms et l’analyse différée de 900 à 300 ms. L’altitude reste indépendante du routage : une réponse d’altitude ne redessine plus la ligne simple ni ne relance le routage. Le rendu des couleurs est mis en cache, les calques inchangés sont conservés et la liste de passages n’est construite qu’à son ouverture. Les anciennes portions conservent leur géométrie et leurs analyses.
+
+Mesures locales du 23 octobre 2026 (Node 24, 80 couples de points distincts, hors HTTP et téléchargement) : sur le réseau réel de Spa utilisé pendant le diagnostic, médiane 4,86 → 0,69 ms et 95e percentile 10,32 → 1,27 ms. Sur une grille de 14 000 nœuds, médiane 86,18 → 0,70 ms, après préparation initiale. Ce sont des mesures CPU dans l’environnement de développement, pas une promesse de délai sur le VPS. La séquence accrochage + deux sens + passage gravel utilise deux téléchargements de zone au lieu de trois dans la comparaison simulée. Le diagnostic en ligne conserve 823 m dans chaque cas ; la variante avec passage a réutilisé la zone chargée au lieu d’en télécharger une autre.
+
+```sh
+npm run bench:routing
+# Option : instantané JSON OSM local, contenant le réseau de Spa
+node test/benchmark-routing.js /chemin/vers/spa-map.json
+```
+
+Ces commandes se lancent dans le checkout de développement ; les tests et benchmarks ne sont pas copiés dans l’image Docker de production. Le premier calcul d’une nouvelle zone dépend toujours des services OSM et peut nécessiter leur délai de secours.
+
+Le profil sous la carte adopte la largeur réelle de son conteneur pour préserver la taille de la police, avec redimensionnement sans perdre le curseur. Ses graduations d’altitude sont des multiples réguliers arrondis (par exemple 100, 200, 300 m), adaptés à l’amplitude ; elles ne sont plus les seuls minima/maxima exacts. Des lignes de grille, des repères de distance et un léger dégradé lié à l’altitude facilitent la lecture. « Points haut et bas » affiche facultativement les extrema lissés, sans modifier les données enregistrées. Les lacunes d’altitude restent visibles et les miniatures utilisent le même rendu.
+
+La palette de pente est divergente : bleu foncé pour les fortes descentes, bleu pâle puis blanc autour de zéro (±0,5 %), rose puis rouge vif pour les fortes montées. La légende indique explicitement « Descente », « Plat » et « Montée » avec les signes. Un liseré neutre maintient les portions blanches lisibles sur le fond de carte. Les valeurs restent issues du profil estimé et lissé existant ; aucune nouvelle source d’altitude ni migration de base n’est introduite.
+
+Validation : tests fonctionnels de cache, concurrence, expiration, arêtes longues, graphe dirigé comparé à un Dijkstra indépendant, rendu réutilisé, axes, palettes et redimensionnement. Vérification Chromium réelle sur desktop et mobile avec données de démonstration et tuiles simulées : police non étirée, absence de débordement horizontal, options d’extrema et curseur synchronisé avec la carte. Le diagnostic de routage utilise les services OSM réels ; le VPS reste à mettre à jour séparément.
+
+
+## Affichage et bibliothèque des itinéraires (6.7.0)
+
+Le relief s’active sans slider, à 0 % de transparence (opacité 1), avec composition multiply conservant le fond. Le plaisir retrouve cinq couleurs du rouge au vert. Les single tracks sont indiqués par des pointillés dans tous les modes de couleur ; leur ancien filtre et leur palette dédiée sont retirés de l’interface. Les cases Mes segments / Segments publiques pilotent seules l’affichage des segments, sans interrupteur général redondant. Le survol montre les attributs, échappés avant affichage ; un clic pendant le dessin ajoute un point au lieu de sélectionner le segment. Le remplissage des profils principal et miniature est plus transparent.
+
+La bibliothèque du planificateur propose une recherche sans distinction d’accents ou de casse et des bornes min/max de distance (km) et de dénivelé positif (m). Les valeurs D+ proviennent du profil enregistré, avec le même lissage que le graphe, et restent en cache pendant la consultation. Si un filtre D+ est utilisé, les itinéraires sans altitude sont exclus. Le filtre géographique porte sur les extrémités effectives de la trace, avec départ, arrivée, l’un ou l’autre, ou les deux dans l’emprise visible ; un itinéraire qui traverse seulement la carte ne suffit pas. Ces filtres changent la bibliothèque sans modifier le tracé en cours. Le panneau se replie depuis la bibliothèque ou la barre de carte.
+
+
+## Éditeur, export du compte et curseurs (6.8.0)
+
+Le formulaire nom / notes / visibilité / enregistrement est placé au début de l’éditeur d’itinéraire. Le bouton « Créer un nouvel itinéraire » démarre un brouillon vierge sans supprimer un parcours enregistré ; cette opération reste annulable, y compris lorsque seul le nom ou les notes ont été saisis. Un bouton à icône de panneau et chevron remplace les deux commandes textuelles de repli. Il reste au bord de la carte pour replier ou déplier la bibliothèque, avec nom accessible et état aria-expanded ; il est masqué en plein écran où la bibliothèque est extérieure à la carte.
+
+Les filtres de distance et D+ prennent la forme de curseurs à deux poignées, accessibles à la souris, au tactile et au clavier. Les bornes s’adaptent aux itinéraires de la bibliothèque, les poignées ne se croisent pas, la plage choisie est lisible et la réinitialisation remet tous les parcours, y compris ceux sans altitude. Ces filtres ne modifient pas le brouillon ni ses analyses.
+
+Le bouton Exporter quitte le bandeau : Mon compte → Mes données → « Exporter toutes ses données » télécharge un JSON (`format: sillage-account-export`, `version: 1`). Il comprend le profil du compte, les sorties avec coordonnées et GPX originaux disponibles, les segments dans une FeatureCollection GeoJSON, les itinéraires avec toutes leurs portions et analyses, les configurations WMS et l’identifiant de l’athlète Strava. Les coordonnées des sorties et itinéraires restent latitude/longitude ; celles des géométries GeoJSON sont longitude/latitude. Les lectures utilisent un instantané PostgreSQL cohérent, en lecture seule, limité à l’utilisateur connecté, sans exporter les données publiques d’autres membres ni les éléments d’authentification. L’export ne contacte pas Strava ou un service cartographique. Le fichier décrit les données conservées ; il ne modifie rien et ne propose pas d’import automatique.
+
+
+## Carte directe et dénivelé filtré (6.9.0)
+
+L’ombrage et les points haut/bas du profil sont activés au chargement ; les cases restent disponibles pour les désactiver pendant la session. Le bandeau au-dessus de la carte est supprimé. Recentrer et plein écran sont des pictogrammes dans la barre du zoom, avec intitulés accessibles et boutons utilisables au clavier. Repli de bibliothèque et dessin utilisent la même barre ; le contexte de sortie est affiché dans la bibliothèque. La carte occupe directement l’espace sous la navigation, y compris en plein écran.
+
+La pente utilise une fenêtre de 300 m sur le profil déjà lissé. Elle conserve cette largeur près des extrémités quand les données le permettent, et ne franchit jamais une lacune d’altitude. Le dénivelé utilise un suivi des extrema avec seuil de retournement de 5 m : de petites baisses pendant une montée ne deviennent plus des descentes et remontées répétées. Les grandes montées et descentes restent mesurées ; le point de fin conserve la différence nette d’altitude. Le calcul est linéaire et partagé entre analyses serveur, profil, statistiques et filtres de bibliothèque. Les itinéraires enregistrés profitent du nouveau calcul à partir des profils conservés, sans téléchargement ni migration.
+
+La source reste Copernicus GLO-90 via Open-Meteo. Ce calcul filtre le bruit sans appliquer de coefficient de réduction aux totaux. Il peut restituer davantage d’une véritable montée que l’ancien compteur à ancre mobile ; il ne garantit pas une baisse de tous les totaux ni une égalité avec Strava ou Garmin, qui peuvent employer des altitudes corrigées ou barométriques et d’autres filtres. Une comparaison quantitative exige les mêmes tracés et des profils d’altitude connus.
+
+
+## Dessin commun et correction des points (6.10.0)
+
+Démarrer, copier ou modifier un itinéraire replie la bibliothèque pour libérer la carte ; son bouton permet de la rouvrir. Le détail des surfaces est replié à l’ouverture. La synthèse affiche le pourcentage non asphalté, calculé depuis les portions OSM connues, également dans l’aperçu ; un signe ≥ indique que des surfaces restent inconnues. Les profils anciens sans géométrie de surfaces réutilisent les longueurs par type déjà enregistrées.
+
+En routage de segment comme d’itinéraire, chaque clic prolonge le dessin : le troisième point devient l’arrivée, le deuxième devient un passage. Le même modèle de portions conserve les parties précédentes et recalcule seulement les jonctions touchées. Un clic sur un point fait apparaître un menu ancré dans la carte et un anneau de sélection. Le menu permet de supprimer le point (départ, passage ou arrivée), ou de relier directement depuis le précédent. Cette dernière option est désactivée pour le départ. Fermer ou supprimer dans le menu ne déclenche pas un clic de tracé sur la carte.
+
+Les segments enregistrent leurs portions routées / manuelles dans leur JSON existant, jusqu’à 200 points ; les segments anciens restent éditables. La provenance Strava et les permissions restent attachées à l’enregistrement. Annuler / rétablir sont des pictogrammes dans les outils de carte et fonctionnent aussi en plein écran. Les aides générales sont disponibles derrière l’icône ?. Les informations de calcul et les erreurs restent visibles dans l’éditeur.
+
+## Identité visuelle gravel (6.11.0)
+
+L’interface utilise une palette olive, toile écrue, sable et argile, avec Barlow pour les contrôles et Barlow Condensed pour les titres. Le bandeau, les bibliothèques, les éditeurs, les outils et légendes de carte, le profil d’altitude et les pages de compte partagent cette identité. La connexion présente un dessin topographique décoratif en SVG intégré, sans téléchargement d’image ou de carte. Les polices Google Fonts utilisent `display=swap` avec des polices système de secours. Les couleurs cartographiques de plaisir (rouge à vert), surface, pente et altitude restent dédiées aux données.
+
+Les panneaux conservent leur défilement indépendant sur ordinateur et les formulaires passent sous la carte sur mobile. Les boutons à pictogramme gardent leurs noms accessibles et le clavier reste utilisable. Mise à jour habituelle, sans modification de base ni nouvelle configuration.
+
+## Atlas de terrain — identité Sillage (6.12.0)
+
+La signature et le signe à double trace, la planche de relief originale, les repères des aperçus et le profil annoté forment une identité commune à la carte, aux éditeurs et aux pages de compte. Hanken Grotesk, Bricolage Grotesque et IBM Plex Mono sont désormais hébergées avec l’application, sous SIL Open Font License ; les pages ne contactent plus Google Fonts. La feuille de styles a été réorganisée par composants et états. Voir [la charte Sillage](design/IDENTITY.md) pour les règles, couleurs et sources des actifs. Aucun changement de calcul, de visibilité ou de base de données.
+
+## Légendes mobiles et création dans la carte (6.12.1)
+
+Sur téléphone, le panneau « Carte et légendes » est ancré en haut à droite, face aux outils. Sa hauteur tient compte des crédits cartographiques réels pour garder les commandes visibles avec les différents fonds et WMS. Sur ordinateur, la légende reste en bas à gauche, au-dessus des crédits. Les dimensions sont mises à jour au redimensionnement et lors des changements de texte et d’outils.
+
+La commande de nouveau segment ou nouvel itinéraire quitte l’éditeur et rejoint les outils de carte, juste après Annuler/Rétablir. Son nom accessible et son infobulle suivent l’onglet. La création d’un nouvel itinéraire conserve l’historique existant et reste annulable ; elle ne supprime aucun itinéraire enregistré.
+
+## Tracé unique, défilement mobile et surfaces (6.13.0)
+
+Le dessin des segments suit le même modèle incrémental que les itinéraires : routage OSM à 150 m par défaut, points successifs, corrections locales sans routage, déplacement et annuler/rétablir. Les trois boutons de mode sont retirés ; les GPX et sorties Strava restent des repères sur la carte. Les segments historiques restent éditables, y compris leurs géométries manuelles, sans routage imposé au chargement. Les règles de confidentialité et de provenance restent appliquées côté serveur.
+
+Sur mobile, le profil déplié laisse le geste vertical défiler vers le formulaire. Le panneau n’intercepte plus le dépassement de défilement ; les événements tactiles du graphe sont passifs et ne forcent pas de capture du pointeur.
+
+Une réponse de routage avec des surfaces inconnues peut désormais être enrichie par une analyse de corridor, sans déplacer les points. Les revêtements déjà connus sont conservés sur leurs intervalles ; les données d’altitude enregistrées sont conservées. Une analyse OSM manquante ou inconnue dispose d’une seule nouvelle tentative automatique, après 65 secondes, pour respecter les délais de reprise des fournisseurs. Les réponses arrivées pour une ancienne géométrie sont ignorées. Les secteurs réellement non renseignés dans OSM restent inconnus.
+
+Les réponses de surface inconnues sont mises en cache une minute, au lieu d’une heure. Une actualisation explicite réinterroge le fournisseur même si la précédente réponse inconnue ne contenait pas d’erreur. Le cache long des surfaces complètes et le cache des altitudes restent conservés. La suggestion de revêtement des nouveaux segments utilise les analyses par portion et respecte les corrections manuelles du formulaire ; l’enregistrement attend la première analyse en cours et vérifie que la géométrie n’a pas changé.
+
+
+## Secteurs gravel et accès restreints (6.14.0)
+
+« Secteur gravel » remplace portion/segment dans l’interface, dans l’onglet Sorties & secteurs. Les noms personnels existants sont conservés ; un nouveau secteur sans nom reçoit un nom automatique. La marque associe un vélo gravel à un chemin sinueux, avec des SVG couleur et monochrome. Les pictogrammes secteur et itinéraire partagent deux bornes ouvertes et un trait distinct. Voir la charte et les fichiers SVG dans `dist`.
+
+Le routage OSM commence par une emprise plus serrée et ne l’élargit qu’en cas de déconnexion ou de détour important. Un chemin local déjà calculé est conservé si l’élargissement échoue. Quand Overpass est indisponible, une emprise de routage peut être assemblée depuis au maximum neuf petites zones OSM, téléchargées en série, espacées d’une seconde et mises en cache une heure. L’assemblage conserve les identifiants des nœuds, les restrictions et les sens vélo ; aucun raccord artificiel n’est créé. Les cases valides sans route sont acceptées.
+
+Les accès restreints restent routables avec un repère « ! », désormais aussi pendant le dessin d’un secteur et dans sa légende. Les sens uniques vélo restent appliqués, y compris si le réseau est déconnecté. Les grandes étapes dépassant les limites locales ou les pannes des deux sources peuvent encore utiliser le moteur vélo de secours, avec un message persistant dans l’éditeur : ce fournisseur peut éviter les accès restreints. Ajouter un point de passage rapproche alors les calculs locaux. La limite locale de 15 km et le budget de neuf zones restent bornés ; il ne s’agit pas d’un téléchargement régional.
+
+Les tests couvrent une longue liaison synthétique comprenant un chemin privé, la conservation d’un résultat local en cas de panne, les sens uniques, le nombre de zones, le cache et les repères dans les deux éditeurs. Cette régression reproduit le motif « petite étape réussie / grande étape en détour » ; elle ne remplace pas la vérification terrain du tracé exact de la Fagne wallonne après déploiement. Mise à jour habituelle, sans migration ni nouveau secret.
+
+
+## Logo gravel (6.14.1)
+
+Roues agrandies de 14 % et deux bornes ouvertes aux changements de direction du cadre. Les versions couleur, monochrome, le bandeau et les icônes utilisent la même géométrie. Les centres des bornes sont transparents, pour les fonds clairs et sombres. Les actifs `v3` remplacent les références `v2` ; les anciens fichiers restent servis pour le cache. Mise à jour habituelle sans migration ni modification du routage.
+
+
+## Profil de relief des secteurs (6.15.0)
+
+Le panneau repliable « Le relief » sous la carte accompagne aussi les secteurs, pendant le dessin et lors de l’ouverture d’un secteur personnel ou public. Il reprend le graphe coloré, les extrema, les graduations, le dénivelé filtré et le curseur lié à un repère sur la carte des itinéraires. Le défilement mobile vers le formulaire reste celui du panneau existant.
+
+Les altitudes sont demandées par lots, seulement pour les étapes manquantes ; les profils existants sont réutilisés sans requête et sans nouveau routage. Les nouvelles analyses d’altitude sont enregistrées avec les étapes du secteur dans son JSONB, avec la même validation que les itinéraires. Les anciens secteurs peuvent recevoir un profil à l’ouverture ; il est conservé au prochain enregistrement par leur propriétaire. La consultation d’un secteur public n’écrit rien dans le compte de son auteur. Les réponses devenues obsolètes sont ignorées. Si la source d’altitude échoue, une commande « Compléter le profil d’altitude » permet une nouvelle tentative explicite.
+
+Aucune migration ni nouvelle clé. Mettre à jour normalement puis recharger le navigateur pour les modules `v=6.15.0`. Vérifier un secteur en création, un secteur enregistré avec profil et un ancien secteur, personnel et public : replier le panneau, déplacer le curseur, enregistrer puis rouvrir. Les tests couvrent la conservation des profils à l’édition, les altitudes invalides, l’absence de recalcul d’un profil stocké, le curseur et les réponses obsolètes.
+
+
+## Carte et bibliothèque uniques (6.16.0)
+
+L’application conserve une seule entrée « Itinéraires ». Les outils de carte proposent deux commandes permanentes, « Créer un nouvel itinéraire » et « Créer un secteur », à côté d’Annuler/Rétablir. Le même panneau de tracé montre le formulaire approprié, avec les attributs et la note du secteur ou le nom obligatoire et les notes de l’itinéraire. Les outils de dessin, le profil de relief et les fonds de carte restent communs. Créer un nouvel itinéraire dans le planificateur reste annulable. Les deux commandes restent accessibles pendant la consultation et la création. La barre d’outils peut défiler sur les petits écrans.
+
+La bibliothèque possède un choix Itinéraire / Secteur / Sortie, un champ de recherche commun et les filtres distance, dénivelé connu et départ/arrivée dans la zone visible. Les visibilités personnelles/publiques restent disponibles pour les secteurs et itinéraires ; les sorties GPX et Strava restent personnelles. Changer de catégorie ou de recherche ne change pas le tracé en cours. Une sortie chargée s’affiche en consultation et n’ouvre plus automatiquement la création d’un secteur. Elle peut rester comme repère pendant un nouveau dessin, y compris un itinéraire ; son affichage reste désactivable dans la légende. Les règles de provenance et de confidentialité Strava restent inchangées.
+
+Les sorties importées utilisent des métadonnées légères de départ/arrivée issues de PostGIS pour le filtre de zone, sans charger chaque trace entière. La recherche dans les activités Strava utilise les activités déjà chargées et leurs aperçus ; les sorties plus anciennes restent accessibles avec la pagination existante. Les éléments sans profil enregistré sont exclus d’un filtre D+ actif. Aucune nouvelle donnée d’altitude n’est demandée pour faire une recherche. Les chargements devenus obsolètes ne remplacent pas un secteur ouvert ensuite.
+
+Mise à jour habituelle, sans migration ni nouvelle clé. Recharger le navigateur pour les modules `v=6.16.0`. Vérifier les trois catégories, leurs filtres et aperçus, la création de chaque type, une sortie conservée comme repère, les profils sous la carte et les deux commandes de création sur mobile et en plein écran.
+
+
+## En-tête compact et atlas gravel (6.17.0)
+
+L’onglet unique et le grand bandeau d’introduction de la bibliothèque sont retirés. L’en-tête reprend des lignes de niveau discrètes et un dessin vectoriel de chemins reliés par des bornes ouvertes. Le décor de connexion est également redessiné avec ce langage, en remplacement de la ligne sinueuse. Les libellés visibles utilisent « atlas » : signature, recherche, connexion et pied de page. Les nouveaux actifs `sillage-header-v1.svg` et `sillage-terrain-v2.svg` sont versionnés ; l’ancien reste disponible pour les caches.
+
+Le bouton de secteur possède le même signe + que celui d’itinéraire. Les commandes de zoom et les boutons utilisent une même dimension, avec centrage par flex et sans marge verticale du pictogramme SVG. La couleur verte et l’état accessible `aria-pressed` des commandes de création ne s’activent que pour le type d’un nouveau tracé en cours. Ils restent neutres lors de la consultation, après enregistrement et pendant l’édition d’un élément existant.
+
+La bibliothèque utilise par défaut les éléments personnels et revient à ce choix après réinitialisation des filtres. Le libellé est « Mes secteurs » ou « Mes itinéraires » selon la catégorie. Les autres éléments publics restent accessibles par un choix explicite ; la recherche reste indépendante des couches visibles sur la carte. « Zone de recherche » propose Partout, Départ, Arrivée ou Départ et arrivée ; l’option Départ ou arrivée est supprimée de l’interface.
+
+Mettre à jour normalement puis recharger les modules `v=6.17.0`. Aucune migration ni nouvelle variable. Vérifier l’en-tête compact sur téléphone et ordinateur, les tailles des outils, les états de création/consultation et le retour aux éléments personnels après réinitialisation.
 
 
 ## Routage explicite, file de calcul et mobile (6.18.0)
