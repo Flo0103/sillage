@@ -1,0 +1,70 @@
+name: Validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Tests Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Tests sans services externes
+        run: npm ci --ignore-scripts --no-audit --no-fund && npm test
+      - name: Vulnérabilités du pilote PostgreSQL et de Leaflet
+        run: npm audit --audit-level=high
+
+  postgis:
+    name: Migrations PostgreSQL 17 et PostGIS 3.6
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      db:
+        image: postgis/postgis:17-3.6-alpine
+        env:
+          POSTGRES_USER: sillage
+          POSTGRES_DB: sillage
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sillage -d sillage"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: sillage
+      PGDATABASE: sillage
+      PGPASSWORD: ci-only-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Installer le pilote PostgreSQL
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Migrations, géométries et confidentialité Strava
+        run: npm run test:db
+      - name: Vérifier le schéma avec la commande de production
+        run: node server/check-db.js
+

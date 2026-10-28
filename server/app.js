@@ -1,4 +1,5 @@
 import { createStrava } from './strava.js';
+import {contentSecurityPolicy,createAdmissionController} from './security.js';
 import {withRideOrigins} from './ride-links.js';
 import { createRoutingService } from './routing.js';
 import { createOSMService } from './osm.js';
@@ -11,33 +12,41 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { coordinates, portion, routeLength, verifyPassword, tokenHash, hashPassword } from './model.js';
 const root=fileURLToPath(new URL('../dist/',import.meta.url));
-export function createApp(db,{origin,secure=true,osmService=createOSMService(),routingService=createRoutingService(),planMetrics=createPlanMetrics(),stravaService=createStrava()}={}){
+export function createApp(db,{origin,secure=true,osmService=createOSMService(),routingService=createRoutingService(),planMetrics=createPlanMetrics(),stravaService=createStrava(),admission=createAdmissionController()}={}){
   if(!origin)throw Error('APP_ORIGIN doit être renseigné.');
   const sessionCookie='sillage_session';
   const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
   const cookie=(value,age)=>`${sessionCookie}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secure?'; Secure':''}`;
   let dummy;
-  async function body(req,limit=12*1024*1024){let size=0,parts=[];for await(const chunk of req){size+=chunk.length;if(size>limit)throw Object.assign(Error('Fichier trop volumineux.'),{status:413});parts.push(chunk);}try{return JSON.parse(Buffer.concat(parts).toString('utf8'));}catch{throw Object.assign(Error('JSON invalide.'),{status:400});}}
-  return createServer(async(req,res)=>{
+  async function body(req,limit=["/api/invitation-info","/api/accept-invitation","/api/account/password","/api/admin/invitations"].includes(req.url?.split("?")[0])?16*1024:12*1024*1024){let size=0,parts=[];for await(const chunk of req){size+=chunk.length;if(size>limit)throw Object.assign(Error('Fichier trop volumineux.'),{status:413});parts.push(chunk);}try{return JSON.parse(Buffer.concat(parts).toString('utf8'));}catch{throw Object.assign(Error('JSON invalide.'),{status:400});}}
+  return createServer({headersTimeout:15000,requestTimeout:60000},async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');
+    res.setHeader('X-Frame-Options','DENY');
+    res.setHeader('Content-Security-Policy',contentSecurityPolicy);
+    let release=()=>{};
     try{
       const url=new URL(req.url,'http://local'),path=url.pathname,query=url.searchParams,method=req.method;
       if(path==='/healthz'&&method==='GET'){await db.query('SELECT 1');return json(res,200,{ok:true});}
       if(!['GET','HEAD'].includes(method)&&req.headers.origin!==origin&&!stravaService.isWebhook?.(path))return json(res,403,{error:'Origine non autorisée.'});
+      // Caddy replaces X-Real-IP; app:3000 must remain unpublished.
+      const ip=String(req.headers['x-real-ip']||req.socket.remoteAddress);
+      release=admission.enter(path,method,ip);
       if(path==='/api/login'&&method==='POST'){
-        const b=await body(req);if(typeof b.username!=='string'||typeof b.password!=='string'||b.password.length>256)return json(res,400,{error:'Identifiants invalides.'});
+        const b=await body(req,16*1024);if(typeof b?.username!=='string'||typeof b?.password!=='string'||b.password.length>256)return json(res,400,{error:'Identifiants invalides.'});
         const username=b.username.trim().toLowerCase().slice(0,80);
-        // Caddy overwrites this header. The app has no published port.
-        const ip=req.headers['x-real-ip']||req.socket.remoteAddress;
-        const keys=[tokenHash(`ip:${ip}`),tokenHash(`user:${username}`)];
+        // Guessing an identifier must not lock its owner out on another IP.
+        const keys=[tokenHash(`ip:${ip}`)];
         await db.query('DELETE FROM login_limits WHERE expires_at<now()');
-        for(const key of keys){const q=await db.query(`INSERT INTO login_limits(key,attempts,expires_at) VALUES($1,1,now()+interval '15 minutes') ON CONFLICT(key) DO UPDATE SET attempts=login_limits.attempts+1 RETURNING attempts`,[key]);if(q.rows[0].attempts>20)return json(res,429,{error:'Trop de tentatives. Réessayez dans 15 minutes.'});}
+        for(const key of keys){const q=await db.query(`INSERT INTO login_limits(key,attempts,expires_at) VALUES($1,1,now()+interval '15 minutes') ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN login_limits.expires_at<now() THEN 1 ELSE login_limits.attempts+1 END,expires_at=CASE WHEN login_limits.expires_at<now() THEN now()+interval '15 minutes' ELSE login_limits.expires_at END RETURNING attempts`,[key]);if(q.rows[0].attempts>20){res.setHeader('Retry-After','900');return json(res,429,{error:'Trop de tentatives. Réessayez dans 15 minutes.'});}}
         const q=await db.query('SELECT id,username,password_hash FROM users WHERE username=$1 AND active=true',[username]);const user=q.rows[0];dummy??=await hashPassword(randomBytes(24).toString('hex'));
         if(!await verifyPassword(b.password,user?.password_hash||dummy)||!user)return json(res,401,{error:'Identifiant ou mot de passe incorrect.'});
         const token=randomBytes(32).toString('hex');await db.query('DELETE FROM sessions WHERE expires_at<now()');await db.query(`INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '7 days')`,[tokenHash(token),user.id]);res.setHeader('Set-Cookie',cookie(token,604800));return json(res,200,{username:user.username});
       }
       const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(sessionCookie+'='))?.slice(sessionCookie.length+1);
       let user;if(token&&/^[a-f0-9]{64}$/.test(token)){const q=await db.query('SELECT u.id,u.username,u.is_admin FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active=true',[tokenHash(token)]);user=q.rows[0];}
+      if(path==='/strava-callback.js'&&method==='GET'){res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-store'});return res.end(await readFile(root+'strava-callback.js'));}
+      const vendorAssets={'/vendor/leaflet-1.9.4/leaflet.js':'text/javascript; charset=utf-8','/vendor/leaflet-1.9.4/leaflet.css':'text/css; charset=utf-8',...Object.fromEntries(['layers.png','layers-2x.png','marker-icon.png','marker-icon-2x.png','marker-shadow.png'].map(name=>['/vendor/leaflet-1.9.4/images/'+name,'image/png']))};
+      if(method==='GET'&&Object.hasOwn(vendorAssets,path)&&user){res.writeHead(200,{'Content-Type':vendorAssets[path],'Cache-Control':'private, max-age=86400'});return res.end(await readFile(root+path.slice(1)));}
       const identityAssets={
         '/fonts/hanken-v1-latin.woff2':'font/woff2',
         '/fonts/bricolage-v1-latin.woff2':'font/woff2',
@@ -103,6 +112,8 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),r
       if(path==='/api/osm'&&method==='POST'){const b=await body(req);return json(res,200,await osmService(b.bbox));}
       if(method==='GET'&&['/','/index.html','/app.js','/geo.js','/osm-tags.js','/preview.js','/route-edit.js','/planner.js','/plan-library.js','/gps-transfer.js','/onboarding.js','/ride-browser.js','/elevation.js','/elevation-data.js','/osm-worker.js','/catalog.js','/account.html','/account.js','/admin.html','/admin.js','/common.js','/strava.html','/strava-client.js'].includes(path)){if((path==='/admin.html'||path==='/admin.js')&&!user.is_admin)return json(res,403,{error:'Accès réservé à l’administrateur.'});const file=path==='/'?'index.html':path.slice(1);res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript; charset=utf-8':'text/html; charset=utf-8');return res.end(await readFile(root+file));}
       return json(res,404,{error:'Ressource introuvable.'});
-    }catch(e){if(e.code||e.name==='TypeError'&&e.message==='fetch failed'){console.error('Request failed:',e.code||e.name);return json(res,503,{error:'Service temporairement indisponible.'});}return json(res,e.status||400,{error:e.name==='TimeoutError'?'OSM est trop lent. Utilisez le mode manuel.':e.message||'Requête invalide.'});}
+    }catch(e){if(e.retryAfter)res.setHeader('Retry-After',String(e.retryAfter));if(e.code||e.name==='TypeError'&&e.message==='fetch failed'){console.error('Request failed:',e.code||e.name);return json(res,503,{error:'Service temporairement indisponible.'});}return json(res,e.status||400,{error:e.name==='TimeoutError'?'OSM est trop lent. Utilisez le mode manuel.':e.message||'Requête invalide.'});}finally{release();}
   });
 }
+
+
