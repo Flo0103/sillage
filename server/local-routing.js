@@ -51,7 +51,7 @@ function closest(point,data,tolerance,accessMode='explicit'){
  for(const edge of candidates){const p=project(point,data.nodes.get(edge.a),data.nodes.get(edge.b),sx);if(p.offset>tolerance)continue;if(!edge.forward&&!edge.backward){if(p.offset<=5)forbidden=true;continue;}
   const delta=best?p.offset-best.offset:-Infinity,prefer=best&&(Number(edge.restricted)<Number(best.edge.restricted)||edge.restricted===best.edge.restricted&&edge.index<best.edge.index);if(!best||delta< -1e-7||Math.abs(delta)<=1e-7&&prefer)best={...p,edge};
  }
- if(forbidden&&(!best||best.offset>5))throw Object.assign(Error('Ce point est sur un chemin interdit aux vélos. Déplacez-le ou utilisez une correction manuelle.'),{status:422,localNoPath:true});
+ if(forbidden&&(!best||best.offset>5))throw Object.assign(Error('Ce point est sur un chemin interdit aux vélos. Déplacez-le ou utilisez une correction manuelle.'),{status:422,localNoPath:true,bicycleForbidden:true});
  if(!best)throw Object.assign(Error('Point trop éloigné du réseau OSM. Déplacez-le.'),{status:422,localNoPath:true});return best;
 }
 // Split only edges containing controls. The rest of the directed graph is shared read-only.
@@ -106,6 +106,6 @@ export function createLocalRouting({osmService=createOSMService({mapFallback:tru
  };
  service.nearest=async input=>{
   const tolerance=input.tolerance??150,required=routingBox([input.point],tolerance+25);let cached=null;try{cached=await osmService.peek?.(required,{inFlight:true});}catch{}const data=cached||await osmService(routingBox([input.point],Math.max(400,tolerance+100))),anchor=closest(input.point,prepareOSM(data.elements),tolerance,input.accessMode);
-  return {point:anchor.point,offset:Math.round(anchor.offset),cached:data.cached===true,engine:'OSM local'};
+  return {point:anchor.point,offset:Math.round(anchor.offset),cached:data.cached===true,engine:data.offline?'OSM local':'OSM en ligne',osmSource:data.source||'Overpass',timings:{offline:data.offline===true}};
  };return service;
 }

@@ -117,3 +117,14 @@ Le code `null` signifiait que le processus avait été interrompu par un signal,
 Après récupération de 6.20.1, reconstruire et relancer `routing-import` avec les commandes d’installation ci-dessus. Le PBF déjà téléchargé est réutilisé. L’ancien fichier de filtrage partiel est supprimé. L’ancien réseau actif reste conservé jusqu’à validation et publication complète du nouvel import.
 
 La construction de l’image lance `node server/check-osmium.js` avec le vrai binaire Osmium, un index temporaire et un petit réseau utilisant de grands identifiants OSM. Elle vérifie les géométries, les raccords, les surfaces et les sens uniques avant tout import national. Le succès est indiqué par `OSMIUM_CHECK_OK`. Ce test ne mesure pas la mémoire nécessaire à l’extrait national. Les tests locaux de supervision simulent également les interruptions, le compteur OOM, l’absence du binaire et l’arrêt du lecteur.
+
+
+## Continuer hors des régions téléchargées (6.26.13)
+
+L’import par défaut couvre la **Belgique**, donc aussi la Flandre et Bruxelles. Aachen est en Allemagne : ses chemins ne font pas partie de cet extrait. Les limites d’un extrait servent à choisir la source rapide, elles ne limitent pas les lieux où un membre peut tracer. Il n’est pas nécessaire d’importer un nouveau pays pour y continuer un itinéraire.
+
+Au premier point comme aux étapes suivantes, le moteur utilise les données PostGIS quand les chemins sont présents près des points choisis. Sinon il utilise directement les données OSM en ligne. Cela évite de charger une fenêtre belge partielle pour un clic à Aachen, même si cette ville est comprise dans le rectangle de l’extrait. Le statut `/api/routing/status` indique aussi `bounds` pour chaque extrait, dans l’ordre sud, ouest, nord, est ; ce rectangle ne prouve pas la couverture réelle de ses routes.
+
+Une liaison manquante dans le graphe installé peut aussi être recalculée sur les données OSM distantes. Un guide public dont certains nœuds manquent dans le couloir stocké est vérifié à partir des chemins en ligne. Les cadres PostGIS vides disposent du même secours. Le moteur ne retourne jamais le seul dessin OSRM comme résultat vérifié : il reconstruit le graphe dirigé et garde la politique des accès explicites, l’interdiction `bicycle=no`, les exceptions vélo et les sens uniques. Un point sur une interdiction vélo explicite n’est pas déplacé automatiquement pour la contourner.
+
+Les calculs en zone installée conservent leur chemin rapide, leurs caches et leur fonctionnement sans Internet. Hors zone, le réseau et la disponibilité / les quotas des services publics restent nécessaires. Aucun téléchargement national, migration ou réimport OSM n’est déclenché par cette correction. La réponse et les journaux distinguent les données PostGIS des données Overpass / OSM API via `osmSource` et `timings.offline`, y compris à l’accrochage initial.

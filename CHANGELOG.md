@@ -2,6 +2,14 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Routage hors des régions téléchargées (6.26.13)
+
+Corriger la sélection de source pour l’accrochage et le routage. Aachen, pourtant située dans le rectangle géographique de l’extrait Belgique, utilise les chemins OSM en ligne lorsque ses routes ne sont pas installées. La Flandre et Bruxelles restent couvertes par l’import Belgique. Un point hors zone, un passage entre régions ou une liaison locale manquante ne restent plus bloqués sur un graphe PostGIS partiel.
+
+Vérifier les nœuds réels des trajets guidés avant de réutiliser un couloir stocké. Ajouter le secours des cadres locaux vides et conserver l’emprise commune lors de lectures dédupliquées. Le calcul distant reconstruit le même graphe dirigé : interdictions vélo, sens uniques et accès privés autorisés uniquement par un point explicite restent appliqués. Le chemin local rapide et les caches sont conservés. Le statut expose les emprises installées ; l’accrochage initial indique aussi sa source et son caractère local ou distant.
+
+Validation : cas synthétiques situés à Aachen, hors de toutes les emprises, en Flandre et à travers une limite d’extrait ; étapes longues, caches, fenêtres vides dédupliquées et contrôles des accès / sens. Les changements de sécurité et d’interface déjà présents sur main sont conservés. Aucun import national ni migration supplémentaire.
+
 ## Secteurs plus fins et transparents (6.26.12)
 
 Les secteurs passent à 2,5 px et 45 % d’opacité, avec un contour gris foncé de 4,5 px à 35 % d’opacité. L’itinéraire sous-jacent reste ainsi plus visible. Le survol est également allégé (contour de 5,5 px à 50 %, couleur de 3,2 px à 60 %). Les échantillons de légende suivent ce trait plus fin et transparent.

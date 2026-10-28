@@ -8,7 +8,7 @@ export function routeRequest(body){
  if(points.slice(1).some((p,i)=>distance(points[i],p)<(body.allowRestricted===true ? .5 : 2))||routeLength(points)<(body.allowRestricted===true ? .5 : 5)||routeLength(points)>maxDistance)throw Error(`Choisissez des points distincts pour ${planning?'un itinéraire de moins de 500 km':'un secteur de moins de 15 km'}.`);
  return {points,tolerance:body.tolerance??150,maxDistance,planning};
 }
-export function createRoutingService({fetcher=(...args)=>fetch(...args),now=Date.now,wait=ms=>new Promise(r=>setTimeout(r,ms)),base=process.env.BIKE_ROUTING_URL||endpoint,localRouting=createLocalRouting()}={}){
+export function createRoutingService({fetcher=(...args)=>fetch(...args),now=Date.now,wait=ms=>new Promise(r=>setTimeout(r,ms)),base=process.env.BIKE_ROUTING_URL||endpoint,localRouting=createLocalRouting(),onlineRouting}={}){
  const cache=new Map(),pending=new Map();let lastStart=-Infinity,queue=Promise.resolve(),queued=0,cacheBytes=0;
  const verifiedCache=new Map(),verifiedPending=new Map();let verifiedBytes=0;
  const urlBase=new URL(base);if(urlBase.protocol!=='https:')throw Error('Le service de routage doit utiliser HTTPS.');
@@ -42,37 +42,53 @@ export function createRoutingService({fetcher=(...args)=>fetch(...args),now=Date
    return result;
   });
  };
- const guided=async args=>{
-  const key=JSON.stringify(args);for(const[k,item]of verifiedCache)if(now()-item.time>600000){verifiedCache.delete(k);verifiedBytes-=item.bytes;}
+ const guided=async(args,router)=>{
+  const key=JSON.stringify({...args,online:router===onlineRouting});for(const[k,item]of verifiedCache)if(now()-item.time>600000){verifiedCache.delete(k);verifiedBytes-=item.bytes;}
   if(verifiedCache.has(key))return {...verifiedCache.get(key).result,cached:true};if(verifiedPending.has(key))return verifiedPending.get(key);
   // Release the provider's rate-limited queue before OSM verification. One
   // user's slow data source must not hold up every other user's bike router.
-  const job=(async()=>{const guide=await provider(args,true),result=await localRouting.guided({...args,accessMode:'explicit'},guide),bytes=Buffer.byteLength(JSON.stringify(result)),limit=16*1024*1024;
+  const job=(async()=>{const guide=await provider(args,true),result=await router.guided({...args,accessMode:'explicit'},guide),bytes=Buffer.byteLength(JSON.stringify(result)),limit=16*1024*1024;
    if(bytes<=limit){while(verifiedCache.size&&(verifiedCache.size>=64||verifiedBytes+bytes>limit)){const first=verifiedCache.keys().next().value;verifiedBytes-=verifiedCache.get(first).bytes;verifiedCache.delete(first);}verifiedCache.set(key,{result,bytes,time:now()});verifiedBytes+=bytes;}return result;
   })();verifiedPending.set(key,job);try{return await job;}finally{verifiedPending.delete(key);}
+ };
+ const calculate=async(args,router)=>{
+  const {points,tolerance,maxDistance}=args,localInput={points,tolerance,maxDistance,accessMode:'explicit'},cached=router.cached?.(localInput);if(cached)return cached;
+  const long=routeLength(points)>2000&&!!router.guided;let guideError;
+  if(long)try{return await guided(args,router);}catch(e){guideError=e;}
+  try{return await router(localInput);}catch(e){
+   // Short local calculations keep working when the public router is offline.
+   // For larger steps, a guided graph removes the old 15 km / rectangle limit.
+   if(!long&&router.guided&&!e.localNoPath)try{return await guided(args,router);}catch(f){guideError=f;}
+   const error=e.code==='LOCAL_TOO_LARGE'&&guideError?guideError:e;
+   throw Object.assign(error,{status:error.status||(error.code==='LOCAL_TOO_LARGE'?422:503)});
+  }
  };
  const route=async input=>{
   const args=routeRequest(input),{points,tolerance,maxDistance}=args;
   if(input.allowRestricted!==true&&input.accessMode!=='explicit')return provider(args);
   const localInput={points,tolerance,maxDistance,accessMode:'explicit'},cached=localRouting.cached?.(localInput);if(cached)return cached;
-  // A preinstalled PostGIS network can route the common editing steps without
-  // calling OSRM or Overpass at all. Do not send these through the public queue.
-  if(localRouting.offline&&await localRouting.offline(localInput)){
-   try{return await localRouting(localInput);}catch(e){if(e.code!=='LOCAL_TOO_LARGE')throw Object.assign(e,{status:e.status||503});}
+  // Coverage uses roads near the controls, never just an extract's rectangle.
+  // Keep ordinary editing entirely offline; an uncovered control uses the
+  // online graph directly instead of warming an incomplete PostGIS window.
+  if(localRouting.offline){
+   if(!await localRouting.offline(localInput))return calculate(args,onlineRouting||localRouting);
+   try{return await localRouting(localInput);}catch(e){
+    // A border crossing can leave the extract even with both controls inside.
+    // Rebuild from online OSM and reapply access and direction rules; never
+    // return an unchecked OSRM candidate or bypass an explicit bicycle ban.
+    if(onlineRouting&&e.localNoPath&&!e.bicycleForbidden)return calculate(args,onlineRouting);
+    if(e.code!=='LOCAL_TOO_LARGE')throw Object.assign(e,{status:e.status||503});
+   }
   }
-  const long=routeLength(points)>2000&&!!localRouting.guided;let guideError;
-  if(long)try{return await guided(args);}catch(e){guideError=e;}
-  try{return await localRouting(localInput);}catch(e){
-   // Short local calculations keep working when the public router is offline.
-   // For larger steps, a guided graph removes the old 15 km / rectangle limit.
-   if(!long&&localRouting.guided&&!e.localNoPath)try{return await guided(args);}catch(f){guideError=f;}
-   const error=e.code==='LOCAL_TOO_LARGE'&&guideError?guideError:e;
-   throw Object.assign(error,{status:error.status||(error.code==='LOCAL_TOO_LARGE'?422:503)});
-  }
+  return calculate(args,localRouting);
  };
  if(localRouting.status)route.status=()=>localRouting.status();
  route.nearest=async input=>{if(input.accessMode!==undefined&&input.accessMode!=='explicit')throw Error('Politique d’accès invalide.');const point=coordinates([input.point,input.point])[0],tolerance=input.tolerance??150;if(![75,150,250].includes(tolerance))throw Error('Tolérance invalide.');
-  if(input.allowRestricted===true||input.accessMode==='explicit'){try{return await localRouting.nearest({point,tolerance,accessMode:'explicit'});}catch(e){throw Object.assign(e,{status:e.status||503});}}
+  if(input.allowRestricted===true||input.accessMode==='explicit'){
+   try{const args={point,tolerance,accessMode:'explicit'},covered=!onlineRouting||!localRouting.offline||await localRouting.offline({points:[point],tolerance}),router=covered?localRouting:onlineRouting;
+    try{return await router.nearest(args);}catch(e){if(router===localRouting&&onlineRouting&&e.localNoPath&&!e.bicycleForbidden)return await onlineRouting.nearest(args);throw e;}
+   }catch(e){throw Object.assign(e,{status:e.status||503});}
+  }
   return enqueue(JSON.stringify({nearest:point,tolerance}),async()=>{
    if(!urlBase.pathname.includes('/route/v1/'))throw Error('Le fournisseur de routage ne propose pas l’accrochage des points.');
    const url=new URL(urlBase.href.replace('/route/v1/','/nearest/v1/'));url.pathname=url.pathname.replace(/\/?$/,`/${point[1]},${point[0]}`);url.search=new URLSearchParams({number:'1',radiuses:String(tolerance)});

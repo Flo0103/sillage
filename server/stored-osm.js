@@ -22,6 +22,9 @@ export function createStoredOSM({db,remote,now=Date.now}={}){
    const began=performance.now();
    const q=await read({text:'SELECT DISTINCT ON (osm_id) data FROM routing_ways WHERE revision=ANY($1::uuid[]) AND geom && ST_MakeEnvelope($2,$3,$4,$5,4326) ORDER BY osm_id,revision LIMIT 25001',values:[revisions,frame[1],frame[0],frame[3],frame[2]],query_timeout:5000});
    if(q.rows.length>25000)throw unavailable('Zone routable trop détaillée. Ajoutez un point de passage.');
+   // A country's bounds include neighbouring countries and holes in its data.
+   // An empty indexed window is not proof that no road exists there.
+   if(!q.rows.length&&remote)return routing&&remote.forRouting?remote.forRouting(frame):remote(frame);
    return remember(key,{elements:q.rows.map(r=>r.data),bbox:frame,source:'PostGIS · '+rows.map(n=>n.dataset).join(' + '),revision:stamp,offline:true,cached:false,readMs:Math.round((performance.now()-began)*100)/100});
   })();pending.set(key,job);try{return await job;}finally{pending.delete(key);}
  };
@@ -33,7 +36,7 @@ export function createStoredOSM({db,remote,now=Date.now}={}){
   // rectangular bounding box as complete coverage of neighbouring countries.
   const revisions=rows.map(n=>n.revision),q=await read({text:'SELECT count(*)::integer AS found FROM jsonb_array_elements($2::jsonb) p WHERE EXISTS (SELECT 1 FROM routing_ways w WHERE w.revision=ANY($1::uuid[]) AND w.geom && ST_Expand(ST_SetSRID(ST_MakePoint((p->>1)::float,(p->>0)::float),4326),0.004) AND ST_DWithin(w.geom::geography,ST_SetSRID(ST_MakePoint((p->>1)::float,(p->>0)::float),4326)::geography,300))',values:[revisions,JSON.stringify(points)],query_timeout:5000});return q.rows[0]?.found===points.length;
  };
- service.status=async()=>({mode:(await networks()).length?'stored':'public',networks:(await networks()).map(({dataset,way_count,imported_at})=>({dataset,ways:way_count,importedAt:imported_at}))});
+ service.status=async()=>({mode:(await networks()).length?'stored':'public',networks:(await networks()).map(({dataset,way_count,imported_at,bounds})=>({dataset,ways:way_count,importedAt:imported_at,bounds}))});
  service.forRoute=async guide=>{
   const rows=await networks();if(!rows.length){if(remote?.forRoute)return remote.forRoute(guide);throw unavailable('Aucun réseau OSM installé.');}
   if(!await service.covers(guide.points)&&remote?.forRoute)return remote.forRoute(guide);
@@ -43,6 +46,10 @@ export function createStoredOSM({db,remote,now=Date.now}={}){
   const points=guide.coordinates.concat(guide.points),coordinates=JSON.stringify(points.map(p=>[p[1],p[0]]));
   const q=await read({text:"SELECT DISTINCT ON (osm_id) data FROM routing_ways WHERE revision=ANY($1::uuid[]) AND geom && ST_Expand(ST_Envelope(ST_SetSRID(ST_GeomFromGeoJSON($2),4326)),0.004) AND ST_DWithin(geom::geography,ST_SetSRID(ST_GeomFromGeoJSON($2),4326)::geography,350) ORDER BY osm_id,revision LIMIT 25001",values:[rows.map(n=>n.revision),JSON.stringify({type:'LineString',coordinates:JSON.parse(coordinates)})],query_timeout:5000});
   if(q.rows.length>25000)throw unavailable('Guide OSM trop détaillé.');
+  // Both endpoints can be covered while the public candidate crosses a border.
+  // Check the candidate's actual OSM nodes before trusting the stored corridor.
+  const missing=new Set(ids);for(const row of q.rows){for(const id of row.data.nodes||[])missing.delete(id);if(!missing.size)break;}
+  if(missing.size){if(remote?.forRoute)return remote.forRoute(guide);throw unavailable('Le trajet sort du réseau OSM installé.');}
   return {elements:q.rows.map(r=>r.data),source:'PostGIS · trajet guidé',offline:true};
  };
  return service;

@@ -99,3 +99,58 @@ test('gros import : petits lots bornés et statistiques avant activation',async(
 test('erreur du flux : révision partielle retirée sans activer des données incomplètes',async()=>{
  const db=importDB(),stream=new Readable({read(){this.destroy(Error('flux interrompu'));}});await assert.rejects(importRoutingWays({client:db,stream,dataset:'belgium',source:'x'}),/flux interrompu/);assert.equal(db.networks.length,1);assert.equal(db.networks[0].active,true);
 });
+
+// Aachen lies inside the rectangle of a Belgian extract, but not in its roads.
+// Coordinates are in Aachen; the small test ways below are synthetic.
+const aachen=[[50.7785,6.0806],[50.7790,6.0820],[50.7795,6.0834]],belgiumBounds=[49.4,2.5,51.6,6.5];
+const testWay=(id,nodes,points,tags={})=>({type:'way',id,nodes,geometry:points.map(([lat,lon])=>({lat,lon})),tags:{highway:'track',surface:'gravel',...tags}});
+test('Aachen : accrochage et routage en ligne malgré le rectangle de l’extrait Belgique',async()=>{
+ const db=stored();db.networks[0].bounds=belgiumBounds;let calls=0;const elements=[testWay(901,[901,902,903],aachen)],{routingService}=createRuntimeRouting(db,{wait:async()=>{},fetcher:async url=>{calls++;assert.match(String(url),/overpass/);return Response.json({elements});}});
+ const nearest=await routingService.nearest({point:aachen[0],accessMode:'explicit'});assert.deepEqual(nearest.point,aachen[0]);assert.equal(nearest.timings.offline,false);assert.match(nearest.osmSource,/Overpass/);
+ const result=await routingService({points:[aachen[0],aachen.at(-1)],purpose:'itinerary',accessMode:'explicit'});assert.deepEqual(result.coordinates,aachen);assert.equal(result.timings.offline,false);assert.equal(result.accessPolicy,'explicit');assert.ok(result.analysis.surfaceRuns.every(r=>r.unpaved));assert.ok(calls>0);assert.equal(db.calls.filter(c=>c.text.startsWith('SELECT DISTINCT')).length,0,'ne pas lire de chemins belges pour un clic non couvert');
+ const before=calls;assert.equal((await routingService({points:[aachen[0],aachen.at(-1)],purpose:'itinerary',accessMode:'explicit'})).cached,true);assert.equal(calls,before);assert.deepEqual((await routingService.status()).networks[0].bounds,belgiumBounds);
+});
+test('hors de toute emprise installée : le même secours fonctionne sans import supplémentaire',async()=>{
+ const db=stored(),points=[[52.09,5.12],[52.091,5.121]],elements=[testWay(902,[1,2],points)];let external=0;const {routingService}=createRuntimeRouting(db,{wait:async()=>{},fetcher:async()=>{external++;return Response.json({elements});}});
+ await routingService.nearest({point:points[0],allowRestricted:true});const result=await routingService({points,purpose:'itinerary',allowRestricted:true});assert.deepEqual(result.coordinates,points);assert.equal(result.timings.offline,false);assert.ok(external>0);
+});
+test('Flandre : des chemins installés restent entièrement locaux, sans préférence pour la Wallonie',async()=>{
+ const points=[[51.05,3.72],[51.051,3.721]],db=stored([testWay(903,[1,2],points)]),base=db.query.bind(db);db.networks[0].bounds=belgiumBounds;db.query=async(sql,args)=>typeof sql==='object'&&sql.text.startsWith('SELECT count')?{rows:[{found:JSON.parse(sql.values[1]).length}]}:base(sql,args);
+ const {routingService}=createRuntimeRouting(db,{fetcher:async()=>{assert.fail('Le routage local ne doit pas consulter Internet');}});assert.equal((await routingService.nearest({point:points[0],accessMode:'explicit'})).timings.offline,true);const result=await routingService({points,purpose:'itinerary',accessMode:'explicit'});assert.deepEqual(result.coordinates,points);assert.equal(result.timings.offline,true);
+});
+test('liaison manquante au bord de l’extrait : deux points locaux peuvent retrouver un passage OSM en ligne',async()=>{
+ const a=[50.49,5.85],x=[50.49,5.852],y=[50.49,5.855],b=[50.49,5.857],local=[testWay(1,[1,2],[a,x]),testWay(3,[3,4],[y,b])],all=[...local,testWay(2,[2,3],[x,y])],db=stored(local);let external=0;
+ const {routingService}=createRuntimeRouting(db,{wait:async()=>{},fetcher:async()=>{external++;return Response.json({elements:all});}});const result=await routingService({points:[a,b],purpose:'itinerary',accessMode:'explicit'});assert.deepEqual(result.coordinates,[a,x,y,b]);assert.equal(result.timings.offline,false);assert.ok(external>0);
+});
+test('trajet guidé : points locaux mais nœud hors extrait, les chemins du guide viennent d’OSM en ligne',async()=>{
+ const a=[50.49,5.85],x=[50.49,5.852],m=[50.491,5.8535],y=[50.49,5.855],b=[50.49,5.857],local=[testWay(1,[1,2],[a,x]),testWay(3,[3,4],[y,b])],all=[...local,testWay(2,[2,5,3],[x,m,y])],db=stored(local);let external=0;const remote=async()=>{assert.fail('attend la lecture des chemins du guide');};remote.forRoute=async guide=>{external++;assert.deepEqual(guide.nodes,[1,2,5,3,4]);return {elements:all,source:'Overpass · chemins du trajet'};};const osm=createStoredOSM({db,remote});
+ const data=await osm.forRoute({nodes:[1,2,5,3,4],points:[a,b],coordinates:[a,x,m,y,b]});assert.equal(data.source,'Overpass · chemins du trajet');assert.equal(external,1);assert.deepEqual(routeOnOSM([a,b],data.elements).coordinates,[a,x,m,y,b]);
+});
+test('trajet guidé entièrement présent : aucune requête en ligne supplémentaire',async()=>{
+ const a=[50.49,5.85],b=[50.49,5.857],db=stored([testWay(1,[1,2],[a,b])]),remote=async()=>{assert.fail('Tous les nœuds sont présents');};remote.forRoute=remote;const data=await createStoredOSM({db,remote}).forRoute({nodes:[1,2],points:[a,b],coordinates:[a,b]});assert.equal(data.offline,true);assert.match(data.source,/PostGIS/);
+});
+test('fenêtre vide dans l’emprise belge : données OSM distantes aussi disponibles aux autres consommateurs',async()=>{
+ const db=stored([]);db.networks[0].bounds=belgiumBounds;let direct=0,tiled=0;const elements=[testWay(1,[1,2],aachen.slice(0,2))],remote=async()=>{direct++;return {elements,source:'Overpass'};};remote.forRouting=async()=>{tiled++;return {elements,source:'Overpass'};};const osm=createStoredOSM({db,remote}),box=[50.778,6.080,50.780,6.084];assert.equal((await osm(box)).source,'Overpass');assert.equal((await osm.forRouting(box)).source,'Overpass');assert.equal(direct,1);assert.equal(tiled,1);
+});
+test('secours à Aachen : interdiction vélo, raccourci privé et sens unique restent appliqués',async()=>{
+ const a=[50.7785,6.0806],b=[50.7785,6.0816],c=[50.7795,6.0811];for(const tags of [{bicycle:'no'},{access:'private'},{oneway:'-1'}]){
+  const db=stored(),all=[testWay(1,[1,2],[a,b],tags),testWay(2,[1,3,2],[a,c,b])];db.networks[0].bounds=belgiumBounds;const {routingService}=createRuntimeRouting(db,{wait:async()=>{},fetcher:async()=>Response.json({elements:all})});const result=await routingService({points:[a,b],purpose:'itinerary',accessMode:'explicit'});assert.deepEqual(result.coordinates,[a,c,b]);assert.equal(result.analysis.accessRuns.length,0);
+ }
+ const db=stored();db.networks[0].bounds=belgiumBounds;const {routingService}=createRuntimeRouting(db,{fetcher:async()=>Response.json({elements:[testWay(1,[1,2],[a,b],{access:'private'})]})});const restricted=await routingService({points:[a,b],purpose:'itinerary',accessMode:'explicit'});assert.equal(restricted.analysis.accessRuns.length,1,'accès privé autorisé seulement par le point explicite');
+});
+test('interdiction vélo locale explicite : aucun secours ne déplace le point pour la contourner',async()=>{
+ const points=[[50.49,5.85],[50.491,5.851]],db=stored([testWay(1,[1,2],points,{bicycle:'no'})]),{routingService}=createRuntimeRouting(db,{fetcher:async()=>{assert.fail('Ne pas contourner bicycle=no');}});
+ await assert.rejects(routingService.nearest({point:points[0],accessMode:'explicit'}),e=>e.bicycleForbidden&&e.status===422);await assert.rejects(routingService({points,accessMode:'explicit'}),e=>e.bicycleForbidden&&e.status===422);
+});
+test('direction impossible, même avec le secours : aucun résultat OSRM non vérifié',async()=>{
+ const a=[50.49,5.85],b=[50.491,5.851],all=[testWay(1,[1,2],[a,b],{oneway:'yes'})],db=stored(all);let online=0;const {routingService}=createRuntimeRouting(db,{wait:async()=>{},fetcher:async url=>{online++;assert.match(String(url),/overpass/);return Response.json({elements:all});}});await assert.rejects(routingService({points:[b,a],accessMode:'explicit'}),e=>e.localNoPath&&e.status===422);assert.ok(online>0);
+});
+
+test('étape longue ou transfrontalière vers Aachen : guide public, puis accès et sens vérifiés sur OSM en ligne',async()=>{
+ const points=[fixture.endpoints[0],[50.64,5.99],aachen[0]],all=[testWay(907,[701,702,703],points)],db=stored(),calls=[];db.networks[0].bounds=belgiumBounds;
+ const {routingService}=createRuntimeRouting(db,{wait:async()=>{},fetcher:async(url,options)=>{calls.push({url:String(url),query:options?.body?.get('data')});if(String(url).includes('/routed-bike/'))return Response.json({code:'Ok',routes:[{geometry:{type:'LineString',coordinates:points.map(p=>[p[1],p[0]])},legs:[{annotation:{nodes:[701,702,703]},steps:[{mode:'cycling'}]}]}],waypoints:[points[0],points.at(-1)].map(p=>({location:[p[1],p[0]]}))});return Response.json({elements:all});}});
+ const result=await routingService({points:[points[0],points.at(-1)],purpose:'itinerary',accessMode:'explicit'});assert.deepEqual(result.coordinates,points);assert.equal(result.timings.offline,false);assert.equal(result.accessPolicy,'explicit');assert.equal(calls.length,2);assert.match(calls[0].url,/annotations=nodes/);assert.match(calls[1].query,/node\(id:701,702,703\)/);assert.equal(db.calls.some(c=>c.text.startsWith('SELECT DISTINCT')),false);
+});
+test('fenêtres voisines dédupliquées : le secours couvre toute l’emprise commune',async()=>{
+ const db=stored([]),query=db.query.bind(db);db.networks[0].bounds=belgiumBounds;let release;db.query=(sql,args)=>typeof sql==='object'&&sql.text.startsWith('SELECT DISTINCT')?new Promise(resolve=>release=()=>resolve({rows:[]})):query(sql,args);const remote=async box=>({elements:[],bbox:box,source:'Overpass'}),osm=createStoredOSM({db,remote}),one=[50.778,6.080,50.779,6.081],two=[50.782,6.085,50.783,6.086],a=osm(one),b=osm(two);await new Promise(r=>setImmediate(r));release();const results=await Promise.all([a,b]);for(const result of results)for(const box of [one,two])assert.ok(result.bbox[0]<=box[0]&&result.bbox[1]<=box[1]&&result.bbox[2]>=box[2]&&result.bbox[3]>=box[3]);
+});
