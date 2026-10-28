@@ -2,7 +2,7 @@ import {distance,routeLength} from './model.js';
 import {createOSMService,validateBox} from './osm.js';
 import {bicycleDirections,bicycleAccess,bicycleForbidden,surfaceInfo} from '../dist/osm-tags.js';
 const tooLarge=()=>Object.assign(Error('Étape trop étendue pour le calcul OSM local. Ajoutez un point de passage.'),{code:'LOCAL_TOO_LARGE'});
-const noPath=()=>Object.assign(Error('Aucun passage dans le sens autorisé entre ces points OSM. Ajoutez un point de passage ou vérifiez la connexion des chemins.'),{status:422,localNoPath:true});
+const noPath=()=>Object.assign(Error('Aucune liaison vélo trouvée dans les chemins OSM chargés. Vérifiez les accès ou ajoutez un point de passage.'),{status:422,localNoPath:true});
 export function routingBox(points,margin=650){const lat=points.reduce((n,p)=>n+p[0],0)/points.length,dy=margin/111320,dx=dy/Math.max(.01,Math.cos(lat*Math.PI/180)),box=[Math.min(...points.map(p=>p[0]))-dy,Math.min(...points.map(p=>p[1]))-dx,Math.max(...points.map(p=>p[0]))+dy,Math.max(...points.map(p=>p[1]))+dx];try{return validateBox(box);}catch{throw tooLarge();}}
 // OSM snapshots are immutable. Prepared networks are bounded independently of the raw-data cache.
 const networks=new Map();let preparedEdges=0;
@@ -89,7 +89,8 @@ export function createLocalRouting({osmService=createOSMService({mapFallback:tru
    try{const data=await (osmService.forRouting?osmService.forRouting(box):osmService(box)),result=consider(data);if(result)return result;}catch(e){lastError=e;break;}
   }
   if(best)return best;
-  // A network/direction failure must never be bypassed by a different provider.
+  // Keep this failure distinct from an upstream outage. A caller may request a
+  // wider guide, but must verify it on OSM rather than accept an unchecked path.
   if(noPathError)throw noPathError;
   throw lastError||noPath();
  };

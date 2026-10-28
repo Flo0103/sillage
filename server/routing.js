@@ -56,10 +56,11 @@ export function createRoutingService({fetcher=(...args)=>fetch(...args),now=Date
   const long=routeLength(points)>2000&&!!router.guided;let guideError;
   if(long)try{return await guided(args,router);}catch(e){guideError=e;}
   try{return await router(localInput);}catch(e){
-   // Short local calculations keep working when the public router is offline.
-   // For larger steps, a guided graph removes the old 15 km / rectangle limit.
-   if(!long&&router.guided&&!e.localNoPath)try{return await guided(args,router);}catch(f){guideError=f;}
-   const error=e.code==='LOCAL_TOO_LARGE'&&guideError?guideError:e;
+   // Nearby controls can require a long detour to reach a bridge or an opening.
+   // No path in a bounded snapshot is not proof that no legal path exists.
+   // The candidate is still rebuilt on OSM with the same access/direction rules.
+   if(!long&&router.guided&&!e.bicycleForbidden)try{return await guided(args,router);}catch(f){guideError=f;}
+   const error=!e.bicycleForbidden&&guideError&&(e.code==='LOCAL_TOO_LARGE'||e.localNoPath)?guideError:e;
    throw Object.assign(error,{status:error.status||(error.code==='LOCAL_TOO_LARGE'?422:503)});
   }
  };

@@ -6,13 +6,26 @@ on:
     paths:
       - .github/workflows/routing-live.yml
       - server/check-routing.js
+      - server/routing.js
+      - server/local-routing.js
+      - server/stored-osm.js
 
 permissions:
   contents: read
 
 jobs:
-  aachen:
-    name: Aachen avec les fournisseurs publics (facultatif)
+  villes:
+    name: ${{ matrix.place }} avec les fournisseurs publics (facultatif)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - place: Aachen
+            from: 50.7715,6.075
+            to: 50.7715,6.087
+          - place: Maastricht
+            from: 50.825,5.685
+            to: 50.823,5.711
     runs-on: ubuntu-latest
     timeout-minutes: 3
     continue-on-error: true
@@ -22,5 +35,5 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Accrochage, aller et retour à Aachen, sans base ni compte
-        run: node server/check-routing.js --online --from 50.7715,6.075 --to 50.7715,6.087
+      - name: Accrochage, aller et retour, sans base ni compte
+        run: node server/check-routing.js --online --from '${{ matrix.from }}' --to '${{ matrix.to }}'
