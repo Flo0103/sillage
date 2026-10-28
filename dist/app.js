@@ -16,6 +16,7 @@ let trace=[],selected=[],gpsSelection=[],records=[],rides=[],first=null,last=nul
 let planDraft=new ItineraryDraft(),planRoutingRunning=false,planRoutingTask=null,planRouteRequested=false,planRouteJob=null,planMetricsRunning=false,planAnalysisTask=null,planSaving=false,segmentSaving=false,planRouteController=null,planMetricsController=null,planStartController=null,routeClickSuppressed=0,planViewing=false,selectedPlanPoint=null,profileCache=null,mainChartModel=null,previewChartModel=null,previewChartNode=null,previewPercentNode=null,profileCursor=null,kilometreLayer=null,planAnalysisAllowed=new Set(),planKnownLegs=new Set(),planAnalysisTimer=null,accessLayer=null,sidebarCollapsed=innerWidth<=850,segmentDraftActive=false,viewedSegment=null;
 let rideSourceMode='saved',localRidePage=0,remoteRidePage=0,stravaTotal=0,stravaIndexStatus=null,stravaQueryTimer=null,lastStravaQuery='',lastStravaFilter='',localRideStamp=null,remoteRideStamp=null,lastLocalFilter='';
 const baseLayers=new Map();let planPreviewRecord=null,sectorLibraryStamp=null,planLibraryStamp=null;
+let searchMapActive=false,searchMapItems=[],searchMapKind='plans',searchMapRemote=false,searchMapLayer=null,searchMapStamp=null,searchMapController=null,searchMapVersion=0,searchMapFit=false;
 let tourUser='',tourLayout=null,rideConverting=false,planFromStrava=false,planSourcePlanId=null,draftBaseline=null;
 const onboarding=createOnboarding({document,viewport:globalThis,storage:()=>globalThis.localStorage,prepare:step=>{
  if(!tourLayout)tourLayout={sidebarCollapsed,legend:$('segmentLegend').open};
@@ -256,6 +257,7 @@ if(typeof L!=='undefined'){
  const legendElement=$('segmentLegend');if(legendElement&&typeof L.control==='function'){const legendControl=L.control({position:'bottomleft'});legendControl.onAdd=()=>{L.DomEvent.disableClickPropagation(legendElement);L.DomEvent.disableScrollPropagation(legendElement);return legendElement;};legendControl.addTo(map);if(innerWidth<=850)legendElement.open=false;}if(L.control.scale)L.control.scale({position:'bottomright',imperial:false}).addTo(map);
  updateMapControlLayout();
  const help=$('drawingHelp');L.DomEvent?.disableClickPropagation?.(help);L.DomEvent?.disableScrollPropagation?.(help);
+ map.createPane('searchPane');map.getPane('searchPane').style.zIndex=420;searchMapLayer=L.layerGroup().addTo(map);
  importedLayer=L.layerGroup().addTo(map);catalogLayer=L.layerGroup().addTo(map);routeLayer=L.layerGroup().addTo(map);selectionLayer=L.layerGroup().addTo(map);marks=L.layerGroup().addTo(map);kilometreLayer=L.layerGroup().addTo(map);accessLayer=L.layerGroup().addTo(map);map.on('zoomend moveend',()=>{updateBaseCoverage();positionPointSettings();if(draftActive())drawAccessWarnings();if(view==='planner'&&planViewing)drawKilometres();if(($('planMapFilter').value||'all')!=='all')renderLibrary();});map.on('click',e=>{closePointSettings(false);choose(e.latlng);});updateBaseCoverage();$('mapFallback').remove();
 }else $('mapFallback').textContent='Carte indisponible : vérifiez votre connexion Internet puis rechargez.';
 function jumpToMap(){if(innerWidth<=850)$('workspace').scrollIntoView?.({behavior:globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches?'instant':'smooth',block:'start'});}
@@ -273,7 +275,7 @@ function renderRides(){
 function renderStravaLibrary(){
  if(remoteRideStamp&&remoteRideStamp.current===currentRide?.id&&remoteRideStamp.busy===stravaBusy&&remoteRideStamp.items.length===stravaActivities.length&&stravaActivities.every((item,i)=>item===remoteRideStamp.items[i]))return;remoteRideStamp={current:currentRide?.id,busy:stravaBusy,items:stravaActivities.slice()};rideCards.render($('stravaRideList'),stravaActivities,{remote:true,busy:stravaBusy,currentId:currentRide?.id});
 }
-function updateRidePagination(){const remote=rideSourceMode==='strava',total=remote?stravaTotal:localRides().length,page=remote?remoteRidePage:localRidePage;$('ridePageStatus').textContent=total?`${page*20+1}–${Math.min(total,(page+1)*20)} / ${total}`:'Aucun résultat';$('ridePrevious').disabled=page===0;$('rideNext').disabled=(page+1)*20>=total;if(($('libraryType').value||'plans')==='rides')$('planFilterStatus').textContent=`${total} sortie(s) trouvée(s)${remote&&!stravaIndexStatus?.complete?' · historique en cours':''}`;}
+function updateRidePagination(){const remote=rideSourceMode==='strava',total=remote?stravaTotal:localRides().length,page=remote?remoteRidePage:localRidePage;$('ridePageStatus').textContent=total?`${page*20+1}–${Math.min(total,(page+1)*20)} / ${total}`:'Aucun résultat';$('ridePrevious').disabled=page===0;$('rideNext').disabled=(page+1)*20>=total;if(($('libraryType').value||'plans')==='rides')$('planFilterStatus').textContent=`${total} sortie(s) trouvée(s)${remote&&!stravaIndexStatus?.complete?' · historique en cours':''}`;void syncSearchMap();}
 function stravaParams(){const options=libraryFilters(),params=new URLSearchParams({q:options.search||'',kind:$('stravaKind').value||'gravel'});for(const key of ['distanceMin','distanceMax','ascentMin','ascentMax'])if(options[key]!==undefined)params.set(key,options[key]);if(options.mapFilter!=='all'&&options.bounds?.getWest){const b=options.bounds,w=Math.max(-180,b.getWest()),e=Math.min(180,b.getEast());if(w<e){params.set('mapFilter',options.mapFilter);params.set('bbox',[w,Math.max(-90,b.getSouth()),e,Math.min(90,b.getNorth())].join(','));}}return params;}
 function scheduleStravaQuery(){if($('libraryType').value!=='rides'||rideSourceMode!=='strava'||!stravaState.connected)return;const params=stravaParams(),filter=params.toString();if(filter!==lastStravaFilter){lastStravaFilter=filter;remoteRidePage=0;}params.set('offset',remoteRidePage*20);const query=params.toString();if(query===lastStravaQuery)return;lastStravaQuery=query;clearTimeout(stravaQueryTimer);stravaQueryTimer=setTimeout(()=>{stravaQueryTimer=null;void stravaSearch.search(query);},300);}
 $('convertRide').onclick=async()=>{
@@ -325,7 +327,7 @@ function segmentTooltip(segment){
  return `<strong>${escapeHTML(segment.name||'Secteur')}</strong>${segment.difficulty==='Très technique'?'<p class="technical-tooltip">⚠ Secteur très technique · reconnaissance conseillée</p>':''}<dl>${rows.map(([label,value])=>`<div><dt>${label}</dt><dd>${escapeHTML(value)}</dd></div>`).join('')}</dl>${segment.notes?`<p>${escapeHTML(segment.notes)}</p>`:''}`;
 }
 function drawCatalog({recenter=false}={}){
- if(catalogLayer)catalogLayer.clearLayers();const items=filtered(),colorMode=$('colorMode')?.value||'rating';
+ if(catalogLayer)catalogLayer.clearLayers();const items=searchMapActive?(searchMapKind==='segments'?searchMapItems:[]):filtered(),colorMode=$('colorMode')?.value||'rating';
  for(const r of items){if(!catalogLayer)continue;const color=segmentColor(r,colorMode),dashArray=r.singleTrack==='yes'?'5 6':null;
   const casing=L.polyline(r.coordinates,{pane:'sectorPane',color:'#263b2e',weight:4.8,opacity:.32,dashArray,interactive:false,lineCap:'round'}).addTo(catalogLayer);
   const edge=L.polyline(r.coordinates,{pane:'sectorPane',color,weight:3.2,opacity:.82,dashArray,interactive:false,lineCap:'round'}).addTo(catalogLayer);
@@ -369,17 +371,17 @@ $('undo').onclick=()=>{geometryChanged=true;selected.pop();viaPoints=[];routeLeg
 $('finishDrawing').onclick=()=>{if(planSaving||segmentSaving)return;if(hasUnsavedDrawing()&&!confirm('Arrêter le tracé ? Les points et modifications non enregistrés seront perdus.'))return;closeSavePanel();planLoadVersion++;planReadOnly=false;rideLoadVersion++;reset();setView('saved');};
 $('drawSegment').onclick=()=>{sidebarCollapsed=true;planLoadVersion++;rideLoadVersion++;planReadOnly=false;editingPlan=null;reset();mode='route';setView('explore');drawRoute(false);};
 $('hideRide').onclick=()=>{rideLoadVersion++;currentRide=null;trace=[];drawRoute(false);if(mode==='snap')reset();update();};
-for(const id of ['showMine','showOthers','winterFilter','colorMode'])$(id).onchange=()=>{if(view==='saved'){viewedSegment=null;selected=[];drawSelection();}drawCatalog();renderList();};$('fit').onclick=()=>{if(view==='saved'&&!trace.length)drawCatalog({recenter:true});else fit(selected.length>1?selected:trace);};
+for(const id of ['showMine','showOthers','winterFilter','colorMode'])$(id).onchange=()=>{if(view==='saved'){viewedSegment=null;selected=[];drawSelection();}drawCatalog();renderList();void syncSearchMap();};$('fit').onclick=()=>{if(searchMapActive)fitSearchMap();else if(view==='saved'&&!trace.length)drawCatalog({recenter:true});else fit(selected.length>1?selected:trace);};
 
 $('logout').onclick=async()=>{try{await post('/api/logout',{});location.replace('/login.html');}catch(e){toast(e.message);}};
 function drawImportedTraces(){
- renderMapLegend();importedLayer?.clearLayers();if(!$('showImportedTraces').checked||!importedTraces||!importedLayer)return;
+ renderMapLegend();importedLayer?.clearLayers();if(searchMapActive||!$('showImportedTraces').checked||!importedTraces||!importedLayer)return;
  for(const ride of importedTraces)L.polyline(ride.coordinates,{pane:'importsPane',color:'#71848b',weight:3,opacity:.55,interactive:!canDraw()}).bindTooltip(escapeHTML(ride.name)).on('click',e=>{L.DomEvent.stopPropagation(e);toast(ride.name);}).addTo(importedLayer);
 }
 async function loadImportedTraces(){
  const version=++overlayVersion;drawImportedTraces();if(!$('showImportedTraces').checked){$('importedTracesStatus').textContent='';return;}
  $('importedTracesStatus').textContent='Chargement de vos traces…';
- try{const items=importedTraces||await api('/api/rides/overlay');if(version!==overlayVersion||!$('showImportedTraces').checked)return;importedTraces=items;drawImportedTraces();$('importedTracesStatus').textContent=`${items.length} trace(s) personnelle(s) affichée(s)`;if(view==='saved')drawCatalog({recenter:true});}
+ try{const items=importedTraces||await api('/api/rides/overlay');if(version!==overlayVersion||!$('showImportedTraces').checked)return;importedTraces=items;drawImportedTraces();$('importedTracesStatus').textContent=`${items.length} trace(s) personnelle(s) affichée(s)`;if(view==='saved'&&!searchMapActive)drawCatalog({recenter:true});}
  catch(e){if(version===overlayVersion)$('importedTracesStatus').textContent=e.message;}
 }
 $('showImportedTraces').onchange=loadImportedTraces;
@@ -529,10 +531,51 @@ function renderPlanLibrary(){
  previewPlan();
 }
 function libraryFilters(){return {scope:$('planScope').value||'mine',search:$('planSearch').value,...planRangeFilters(),mapFilter:$('planMapFilter').value||'all',bounds:map?.getBounds?.()};}
+function fitSearchMap(){
+ if(!map||!searchMapItems.length)return;let south=90,north=-90,west=180,east=-180;
+ for(const item of searchMapItems)for(const [lat,lon]of item.coordinates){south=Math.min(south,lat);north=Math.max(north,lat);west=Math.min(west,lon);east=Math.max(east,lon);}
+ fit([[south,west],[north,east]]);
+}
+function drawSearchMap(){
+ searchMapLayer?.clearLayers();
+ if(searchMapActive&&searchMapKind!=='segments'&&searchMapLayer)for(const item of searchMapItems){
+  L.polyline(item.coordinates,{pane:'searchPane',color:searchMapKind==='plans'?'#b5654c':'#607d88',weight:4,opacity:.8}).bindTooltip(escapeHTML(item.name||'Tracé')).on('click',e=>{
+   L.DomEvent.stopPropagation(e);if(canDraw()){choose(e.latlng);return;}
+   if(searchMapKind==='plans')void loadPlan(item.id).catch(e=>toast(e.message));else if(searchMapRemote)void openStravaActivity(item);else void loadRide(item.id).catch(e=>toast(e.message));
+  }).addTo(searchMapLayer);
+ }
+ drawCatalog();drawImportedTraces();
+}
+async function syncSearchMap(force=false){
+ const button=$('showSearchResults');button.disabled=!map||!!searchMapController;button.setAttribute('aria-pressed',String(searchMapActive));setHidden('hideSearchResults',!searchMapActive);
+ if(!searchMapActive||!map)return;
+ const kind=$('libraryType').value||'plans',remote=kind==='rides'&&rideSourceMode==='strava',filters=libraryFilters(),source=kind==='plans'?planRecords:kind==='segments'?catalog:remote?null:rides;
+ const key=JSON.stringify({kind,remote,filters:{...filters,bounds:filters.mapFilter==='all'?null:filters.bounds?.toBBoxString?.()||null},rideKind:$('rideLibraryKind').value,stravaKind:$('stravaKind').value,connected:stravaState.connected,cursor:remote?stravaIndexStatus?.cursor:null,complete:remote?stravaIndexStatus?.complete:null,headPending:remote?stravaIndexStatus?.headPending:null,mine:$('showMine').checked,others:$('showOthers').checked,winter:$('winterFilter').value,color:$('colorMode').value});
+ if(!force&&searchMapStamp?.key===key&&searchMapStamp.source===source)return;
+ searchMapController?.abort();const controller=new AbortController(),version=++searchMapVersion;searchMapController=controller;searchMapStamp={key,source};searchMapKind=kind;searchMapRemote=remote;searchMapItems=[];drawSearchMap();
+ button.disabled=true;button.setAttribute('aria-busy','true');$('searchMapStatus').textContent='Chargement de tous les résultats sur la carte…';
+ try{
+  let items=[],total=0,partial=false;
+  if(remote){
+   if(!stravaState.connected)throw Error('Connectez votre compte Strava pour afficher ses résultats.');
+   const params=stravaParams();params.set('view','map');const result=await api('/api/strava/library?'+params,{signal:controller.signal});if(!result.connected)throw Error('Reconnectez votre compte Strava.');items=result.items;total=result.total;partial=!result.status?.complete||result.status?.headPending===true;
+  }else if(kind==='rides'){
+   const matches=localRides(),ids=new Set(matches.map(r=>r.id));total=matches.length;
+   const overlays=importedTraces||await api('/api/rides/overlay',{signal:controller.signal});items=overlays.filter(r=>ids.has(r.id));
+  }else{items=filterPlans(kind==='segments'?filtered():planRecords,filters);total=items.length;}
+  if(version!==searchMapVersion||!searchMapActive)return;
+  searchMapItems=items.map(item=>{const path=item.coordinates||item.preview||[],coordinates=path.filter(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite));return {...item,coordinates:kind!=='segments'&&coordinates.length>500?Array.from({length:500},(_,i)=>coordinates[Math.round(i*(coordinates.length-1)/499)]):coordinates};}).filter(item=>item.coordinates.length>=2);
+  const shown=searchMapItems.length,missing=Math.max(0,total-shown);$('searchMapStatus').textContent=(total?`${shown} tracé(s) affiché(s) sur ${total} résultat(s)${missing?` · ${missing} sans aperçu cartographique`:''}`:'Aucun résultat avec ces filtres.')+(partial?' · historique Strava partiel':'');
+  drawSearchMap();if(searchMapFit){searchMapFit=false;if(shown){if(innerWidth<=850){sidebarCollapsed=true;applySidebarState();jumpToMap();}fitSearchMap();}}
+ }catch(e){if(version===searchMapVersion&&e.name!=='AbortError'){searchMapStamp=null;$('searchMapStatus').textContent=e.message;}}
+ finally{if(version===searchMapVersion){searchMapController=null;button.disabled=!map;button.setAttribute('aria-busy','false');}}
+}
+$('showSearchResults').onclick=()=>{searchMapActive=true;searchMapFit=true;return syncSearchMap(true);};
+$('hideSearchResults').onclick=()=>{searchMapActive=false;searchMapFit=false;searchMapVersion++;searchMapController?.abort();searchMapController=null;searchMapStamp=null;searchMapItems=[];$('searchMapStatus').textContent='';$('showSearchResults').setAttribute('aria-busy','false');void syncSearchMap();drawSearchMap();};
 function renderLibrary(){
  const kind=$('libraryType').value||'plans',showRides=kind==='rides',remote=rideSourceMode==='strava';document.body.classList.toggle('browsing-rides',showRides);$('scopeMineOption').textContent=kind==='segments'?'Mes secteurs':'Mes itinéraires';setHidden('rideChooser',!showRides);setHidden('rideSourceControls',!showRides);setHidden('rideKindControl',!showRides||remote);setHidden('stravaKindControl',!showRides||!remote);setHidden('segmentBrowser',kind!=='segments');setHidden('planLibrary',kind!=='plans');setHidden('planScope',showRides);setHidden('planScopeLabel',showRides);setHidden('savedRideLibrary',remote);setHidden('stravaSidebar',!remote);$('rideSourceSaved').setAttribute('aria-pressed',String(!remote));$('rideSourceStrava').setAttribute('aria-pressed',String(remote));$('planSearchLabel').textContent=showRides?'Rechercher une sortie':'Rechercher dans l’atlas';$('planSearch').placeholder=showRides?'Nom d’une sortie…':'Nom, auteur, notes…';
  renderRides();renderList();renderPlanLibrary();if(showRides&&remote){renderStravaLibrary();scheduleStravaQuery();}else if(!showRides||!remote){stravaSearch.stop();clearTimeout(stravaQueryTimer);}
- if(showRides)updateRidePagination();else{const count=kind==='segments'?filterPlans(filtered(),libraryFilters()).length:filterPlans(planRecords,libraryFilters()).length;$('planFilterStatus').textContent=`${count} ${kind==='segments'?'secteur(s)':'itinéraire(s)'} trouvé(s)`;}
+ if(showRides)updateRidePagination();else{const count=kind==='segments'?filterPlans(filtered(),libraryFilters()).length:filterPlans(planRecords,libraryFilters()).length;$('planFilterStatus').textContent=`${count} ${kind==='segments'?'secteur(s)':'itinéraire(s)'} trouvé(s)`;}void syncSearchMap();
 }
 $('planScope').value='mine';$('libraryType').value='plans';$('libraryType').onchange=()=>{localRidePage=0;remoteRidePage=0;renderLibrary();if($('libraryType').value==='rides'&&rideSourceMode==='strava')void changeRideSource('strava');if($('libraryType').value==='segments')$('segmentBrowser').open=true;};
 function previewPlan(){
@@ -593,8 +636,9 @@ function surfacePercentages(summary){const surfaces={...summary.surfaces},knownT
 function renderMapLegend(){
  const legend=$('legendContent');if(!legend)return;legend.replaceChildren();const title=text=>{const el=document.createElement('strong');el.textContent=text;legend.append(el);},entry=(label,color,dashed=false)=>{const el=document.createElement('span'),swatch=document.createElement('i');swatch.style.background=color;if(dashed){swatch.style.background='none';swatch.style.borderTop='3px dashed '+color;}el.append(swatch,document.createTextNode(label));legend.append(el);};
  if(view==='planner'&&planDraft.legs.length){const style=$('planColorMode').value||'simple',model=currentProfile();title('Itinéraire · '+({simple:'Ligne simple',surface:'Surface',slope:'Pente estimée',altitude:'Altitude'}[style]));if(style==='surface')for(const [label,color]of surfacePercentages(planSummary(planDraft.legs)))entry(label,color);else if(style==='slope')for(const [,,label,color]of slopeBins)entry(label,color);else if(style==='altitude'&&model.min!==null)for(let i=0;i<elevationColors.length;i++){const a=model.min+(model.max-model.min)*i/elevationColors.length,b=model.min+(model.max-model.min)*(i+1)/elevationColors.length;entry(`${Math.round(a)}–${Math.round(b)} m`,elevationColors[i]);}else entry(style==='simple'?'Itinéraire':'Altitudes inconnues',style==='simple'?'#b5654c':'#9b9b91');entry('Non asphalté renseigné','#b5654c',true);if(planDraft.legs.some(l=>l.analysis?.accessRuns?.some(limitedAccess)))entry('! Accès limité · vérifier les conditions','#a86932');}
- if(trace.length&&$('showLoadedRide').checked!==false){title('Sortie chargée');entry(currentRide?.name||'GPX','#607d88');}if($('showImportedTraces').checked){title('Sorties importées');entry('Mes traces personnelles','#71848b');}if(view!=='planner'&&selected.length>1){title('Secteur sélectionné');entry(editingSegment?.name||(view==='saved'?'Secteur consulté':'Dessin en cours'),'#b5654c');}
+ if(trace.length&&$('showLoadedRide').checked!==false){title('Sortie chargée');entry(currentRide?.name||'GPX','#607d88');}if($('showImportedTraces').checked&&!searchMapActive){title('Sorties importées');entry('Mes traces personnelles','#71848b');}if(view!=='planner'&&selected.length>1){title('Secteur sélectionné');entry(editingSegment?.name||(view==='saved'?'Secteur consulté':'Dessin en cours'),'#b5654c');}
  if(view!=='planner'&&draftActive()&&planDraft.legs.some(l=>l.analysis?.accessRuns?.some(limitedAccess)))entry('! Accès limité · vérifier les conditions','#a86932');
+ if(searchMapActive){title('Résultats de recherche');entry(`${searchMapItems.length} ${searchMapKind==='plans'?'itinéraire(s)':searchMapKind==='segments'?'secteur(s)':'sortie(s)'}`,searchMapKind==='plans'?'#b5654c':'#607d88');if(searchMapKind!=='segments')return;}
  const colorMode=$('colorMode')?.value||'rating';title('Secteurs · '+(colorMode==='rating'?'Plaisir de rouler':colorMode==='difficulty'?'Technicité':'Revêtement'));const entries=colorMode==='rating'?ratingColors.map((color,i)=>[`${i+1}/5 · ${ratingLabels[i]}`,color]):Object.entries(colorMode==='difficulty'?difficultyColors:surfaceColors);for(const[label,color]of entries)entry(label,color);entry('Single track','#58655c',true);const warning=document.createElement('span');warning.className='technical-legend';warning.innerHTML='<i class="technical-legend-symbol" aria-hidden="true">!</i>';warning.append(document.createTextNode('Très technique · prudence'));legend.append(warning);
 
 }

@@ -18,7 +18,7 @@ function fixture(){
    let result=[...activities.values()].filter(r=>r.user===user&&r.cycling);if(sql.includes("a.data->>'sportType'='GravelRide'"))result=result.filter(r=>r.data.sportType==='GravelRide');
    for(const match of sql.matchAll(/strpos\(a.search_text,\$(\d+)\)>0/g))result=result.filter(r=>r.search_text.includes(args[Number(match[1])-1]));
    result.sort((a,b)=>String(b.started_at).localeCompare(String(a.started_at))||Number(b.activity_id)-Number(a.activity_id));
-   rows=sql.startsWith('SELECT count')?[{total:result.length}]:result.slice(args.at(-1),args.at(-1)+args.at(-2)).map(r=>({data:r.data,ride_id:null}));
+   rows=sql.startsWith('SELECT count')?[{total:result.length}]:(sql.includes(' LIMIT ')?result.slice(args.at(-1),args.at(-1)+args.at(-2)):result).map(r=>({data:r.data,ride_id:null}));
   }else throw Error('SQL non simulé : '+sql);
   return {rows};
  };
@@ -35,6 +35,13 @@ test('historique > 300 : les pages non gravel n’arrêtent pas la recherche des
  const result=await f.library.read(f.db,'alice','77',new URLSearchParams({q:'fagnes ete'}));assert.equal(result.items.length,1);assert.equal(result.items[0].id,'451');assert.equal(result.status.checked,451);assert.equal(result.status.indexed,51);assert.equal(result.status.complete,true);assert.equal(new Set(requests.map(r=>r.before)).size,1);assert.ok(requests.every(r=>r.perPage===200));
  const page=await f.library.read(f.db,'alice','77',new URLSearchParams({offset:'20'}));assert.equal(page.total,51);assert.equal(page.items.length,20);assert.equal(page.offset,20);
  const clamped=await f.library.read(f.db,'alice','77',new URLSearchParams({q:'fagnes',offset:'40'}));assert.equal(clamped.offset,0);assert.equal(clamped.items.length,1);
+});
+test('carte Strava : tous les résultats filtrés au-delà de vingt, privés et sans appel à l’API Strava',async()=>{
+ const f=fixture();let requests=0;await f.library.sync(f.db,'alice','77',async()=>{requests++;return Array.from({length:65},(_,i)=>activity(i+1,{name:i<55?'Fagnes '+i:'Autre',sport_type:i===0?'Run':'GravelRide'}));});await f.library.sync(f.db,'bob','88',async()=>{requests++;return [activity(99,{name:'Fagnes privées Bob'})];});
+ const page=await f.library.read(f.db,'alice','77',new URLSearchParams({q:'fagnes'}));assert.equal(page.items.length,20);assert.equal(page.total,54);
+ const result=await f.library.read(f.db,'alice','77',new URLSearchParams({q:'fagnes',view:'map',offset:'40',distanceMin:'10',ascentMax:'500',mapFilter:'both',bbox:'5,50,6,51'}));assert.equal(result.items.length,54);assert.equal(result.total,54);assert.equal(requests,2);assert.ok(result.items.every(r=>r.name.startsWith('Fagnes ')&&r.preview.length===2));assert.ok(!result.items.some(r=>r.id==='99'));assert.deepEqual(Object.keys(result.items[0]).sort(),['id','name','preview','rideId']);
+ const sql=f.calls.findLast(c=>c.sql.startsWith('SELECT a.data'));assert.doesNotMatch(sql.sql,/LIMIT|OFFSET/);assert.match(sql.sql,/a.user_id=\$1/);assert.match(sql.sql,/start_point/);assert.match(sql.sql,/end_point/);assert.ok(sql.args.includes(10000));assert.ok(sql.args.includes(500));assert.equal(result.status.complete,true);
+ f.connections.delete('alice');await assert.rejects(f.library.read(f.db,'alice','77',new URLSearchParams({view:'map'})),e=>e.status===409);
 });
 test('quota : cache et curseur conservés, reprise à la page interrompue',async()=>{
  const f=fixture(),batch=Array.from({length:200},(_,i)=>activity(i+1));await f.library.sync(f.db,'alice','77',async()=>batch);const before=structuredClone(f.states.get('alice').data);

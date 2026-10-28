@@ -143,6 +143,7 @@ body.app-page.sidebar-collapsed>main{grid-template-columns:minmax(0,1fr)}body.ap
 .intro-tour-strava{display:inline-block;margin:0 0 12px;color:var(--pine);font-size:12px;font-weight:600;text-underline-offset:3px}
 
 /* Bound the mobile library so long result lists leave the map within reach. */
+.search-map-actions{display:flex;flex-direction:column;gap:6px;margin-top:16px}.search-map-actions>.outline{width:100%;min-height:44px;font-size:12px;line-height:1.5}.search-map-actions>[aria-pressed=true]{border-color:var(--olive);background:#e5e7d9}.search-map-actions>.textbutton{align-self:center;font-size:11px;min-height:36px}#searchMapStatus:empty{display:none}
 .library-mobile-bar{display:none}
 @media(max-width:850px){
  body.app-page #appSidebar{max-height:65dvh;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scroll-padding-top:76px}
