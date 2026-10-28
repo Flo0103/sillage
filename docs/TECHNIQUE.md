@@ -48,3 +48,8 @@ Ouvrir un itinéraire, même incomplet, n’appelle plus aucun service d’altit
 
 L’enregistrement attend l’analyse engagée pour conserver les résultats disponibles. Une panne d’altitude ou de revêtement laisse l’autre résultat utilisable, indique la couverture partielle et permet quand même l’enregistrement. Les appels identifiés sont limités à une requête par seconde **par fournisseur**, avec files séparées, quatre analyses simultanées maximum, déduplication et cache de résultats (32 Mo / 128 entrées, une heure, une minute pour un résultat incomplet). Les altitudes individuelles ont un cache mémoire borné à 32768 coordonnées pendant 24 heures, réutilisable entre découpages différents d’un parcours ; il est vidé au redémarrage du serveur, contrairement aux profils enregistrés en base. Après une panne, une minute de pause évite de réinterroger le service pour chaque portion. Aucune clé supplémentaire n’est requise pour cet usage non commercial des services publics ; leurs limites s’appliquent.
 
+
+
+## Couverture du routage local et secours en ligne
+
+L’extrait installé par défaut est la Belgique ; la Wallonie n’est pas une limite du moteur. La présence de chemins est vérifiée autour des points, indépendamment du rectangle de l’extrait, qui peut englober des villes étrangères comme Aachen. Un point non couvert utilise le graphe OSM en ligne pour son accrochage et son routage. Une étape qui quitte l’extrait ou rencontre un graphe local incomplet peut être vérifiée sur les chemins distants, sans utiliser un trajet public non contrôlé. Les mêmes règles vélo, d’accès explicites et de sens unique s’appliquent aux deux sources. Voir les détails et limites dans [le guide de routage](../deploy/ROUTING.md#continuer-hors-des-régions-téléchargées-62613).
