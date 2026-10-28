@@ -2,6 +2,14 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Symboles des secteurs et fonds de carte (6.26.10)
+
+Le triangle des secteurs très techniques apparaît au-dessus du trait, sur fond papier clair. La légende reprend exactement le même symbole. Les secteurs qui contiennent un passage à accès limité utilisent le cercle d’avertissement des itinéraires, avec les mêmes libellés et règles d’affichage. Les restrictions analysées sont désormais conservées lors de l’enregistrement et de la modification d’un secteur ; celles qui avaient déjà été supprimées par les anciennes versions nécessitent une nouvelle analyse en édition, puis un enregistrement.
+
+Le panneau « Carte et légendes » propose « Aucun fond de carte ». L’ombrage reste indépendant et peut être conservé seul. La transparence du fond satellite et la valeur initiale de son curseur passent à 50 %.
+
+Validation : tests d’interface pour les symboles, les filtres, les déplacements et les changements de fond sans modification du dessin ; tests du modèle et de l’API pour la conservation et la validation des restrictions d’accès.
+
 ## Consultation des secteurs, suppression latérale et analyse des conversions (6.26.9)
 
 Le panneau de droite propose désormais la suppression du secteur, de la sortie ou de l’itinéraire personnel affiché, en plus des actions des miniatures. Il utilise les mêmes confirmations et les mêmes contrôles de propriété. Sur mobile, ces actions restent accessibles dans le panneau de détails ; supprimer l’élément consulté referme ce panneau.
