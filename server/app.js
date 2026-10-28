@@ -3,7 +3,7 @@ import {contentSecurityPolicy,createAdmissionController} from './security.js';
 import {withRideOrigins} from './ride-links.js';
 import { createRoutingService } from './routing.js';
 import { createOSMService } from './osm.js';
-import { plans } from './plans.js';
+import { plans,createPlanEnrichment } from './plans.js';
 import { createPlanMetrics } from './plan-metrics.js';
 import { features } from './features.js';
 import { createServer } from 'node:http';
@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { coordinates, portion, routeLength, verifyPassword, tokenHash, hashPassword } from './model.js';
 const root=fileURLToPath(new URL('../dist/',import.meta.url));
 export function createApp(db,{origin,secure=true,osmService=createOSMService(),routingService=createRoutingService(),planMetrics=createPlanMetrics(),stravaService=createStrava(),admission=createAdmissionController()}={}){
+  const enrichPlan=createPlanEnrichment({db,metrics:planMetrics});
   if(!origin)throw Error('APP_ORIGIN doit être renseigné.');
   const sessionCookie='sillage_session';
   const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
@@ -74,7 +75,7 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),r
       if(await stravaService({db,req,res,path,query,method,user,body,json,origin,secure,sessionToken:token?tokenHash(token):null}))return;
       if(await features({db,req,res,path,query,method,user,body,json,origin,sessionToken:token?tokenHash(token):null}))return;
       if(!user){if(path.startsWith('/api/'))return json(res,401,{error:'Connectez-vous pour continuer.'});res.writeHead(303,{Location:'/login.html','Cache-Control':'no-store'});return res.end();}
-      if(await plans({db,path,method,user,req,res,body,json}))return;
+      if(await plans({db,path,method,user,req,res,body,json,enrichPlan}))return;
       if(path==='/api/rides/overlay'&&method==='GET'){const q=await db.query('SELECT id,name,source_type,ST_AsGeoJSON(ST_Simplify(geom,0.00005))::jsonb AS geometry FROM rides WHERE user_id=$1 ORDER BY created_at DESC',[user.id]);return json(res,200,q.rows.map(r=>{const coords=r.geometry?.coordinates;if(!Array.isArray(coords)||coords.length<2)return null;const points=coords.length>2000?Array.from({length:2000},(_,i)=>coords[Math.round(i*(coords.length-1)/1999)]):coords;return {id:r.id,name:r.name,source_type:r.source_type,coordinates:points.map(p=>[p[1],p[0]])};}).filter(Boolean));}
       if(path==='/api/me'&&method==='GET')return json(res,200,{id:user.id,username:user.username,isAdmin:user.is_admin===true});
       if(path==='/api/logout'&&method==='POST'){await db.query('DELETE FROM sessions WHERE token_hash=$1',[tokenHash(token)]);res.setHeader('Set-Cookie',cookie('',0));return json(res,200,{ok:true});}

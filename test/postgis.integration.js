@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {pool, migrate} from '../server/db.js';
 import {createStrava, tokenCipher} from '../server/strava.js';
+import {createPlanEnrichment,planData} from '../server/plans.js';
 
 test('PostGIS natif : migrations réexécutables, géométries, conservation et révocation',async t=>{
  t.after(()=>pool.end());
@@ -33,6 +34,14 @@ test('PostGIS natif : migrations réexécutables, géométries, conservation et 
    const result=await pool.query('SELECT data,source_ride_id FROM '+table+' WHERE id=$1',[id]);
    assert.deepEqual(result.rows[0].data,data);assert.equal(result.rows[0].source_ride_id,null);
   }
+  // The background analysis must update only analyses, preserving concurrent metadata edits.
+  const convertedId=randomUUID(),converted={...planData({name:'Converti',coordinates:points,legs:[{mode:'manual',coordinates:points}]}),id:convertedId,analysisStatus:'pending'};
+  await pool.query('INSERT INTO planned_routes(id,user_id,data,is_public) VALUES($1,$2,$3,false)',[convertedId,userId,JSON.stringify(converted)]);
+  const analysis={elevation:{ascent:10,descent:0,profile:[{at:0,altitude:100},{at:converted.distance,altitude:110}]},surfaces:[{type:'Sable',distance:converted.distance}],surfaceRuns:[{type:'Sable',unpaved:true,coordinates:points}],surfaceVersion:2,errors:[]};
+  let finish;const enrich=createPlanEnrichment({db:pool,metrics:()=>new Promise(resolve=>{finish=()=>resolve(analysis);})}),analysisJob=enrich(converted,userId);
+  await pool.query("UPDATE planned_routes SET data=jsonb_set(data,'{name}','\"Renommé pendant l’analyse\"'::jsonb) WHERE id=$1",[convertedId]);finish();await analysisJob;
+  const enriched=(await pool.query('SELECT data,is_public,ST_AsGeoJSON(geom)::json AS geometry FROM planned_routes WHERE id=$1',[convertedId])).rows[0];assert.equal(enriched.data.analysisStatus,'complete');assert.equal(enriched.data.name,'Renommé pendant l’analyse');assert.equal(enriched.data.legs[0].analysis.elevation.ascent,10);assert.equal(enriched.data.legs[0].analysis.surfaces[0].type,'Sable');assert.equal(enriched.is_public,false);assert.deepEqual(enriched.geometry.coordinates,points.map(([lat,lon])=>[lon,lat]));
+  await pool.query('UPDATE planned_routes SET data=$1 WHERE id=$2',[JSON.stringify(converted),convertedId]);const discarded=enrich(converted,userId);await pool.query('DELETE FROM planned_routes WHERE id=$1',[convertedId]);finish();await discarded;assert.equal((await pool.query('SELECT count(*)::int AS count FROM planned_routes WHERE id=$1',[convertedId])).rows[0].count,0);
   const reached=Promise.withResolvers(),resume=Promise.withResolvers();
   const service=createStrava({clientId:'123',clientSecret:'CI_ONLY',key,webhookSecret,fetcher:async url=>{
    if(url.includes('/streams')){reached.resolve();await resume.promise;return Response.json({latlng:{data:points}});}

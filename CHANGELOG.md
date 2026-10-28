@@ -2,6 +2,16 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Consultation des secteurs, suppression latérale et analyse des conversions (6.26.9)
+
+Le panneau de droite propose désormais la suppression du secteur, de la sortie ou de l’itinéraire personnel affiché, en plus des actions des miniatures. Il utilise les mêmes confirmations et les mêmes contrôles de propriété. Sur mobile, ces actions restent accessibles dans le panneau de détails ; supprimer l’élément consulté referme ce panneau.
+
+Sélectionner un secteur personnel sur la carte ou dans la bibliothèque ouvre sa consultation, comme pour un itinéraire. Les extrémités sont fixes, les points intermédiaires et l’édition de la ligne restent désactivés. « Modifier le secteur » active explicitement la correction de la géométrie et des attributs. Les secteurs publics d’un autre membre restent en consultation, sans modification ni suppression.
+
+La conversion d’une sortie en itinéraire lance immédiatement une analyse du relief et des surfaces côté serveur, sans bloquer l’affichage ni recalculer le routage. Les résultats sont enregistrés et apparaissent automatiquement pendant la consultation. Le calcul continue si le navigateur change de sélection ou ferme la page ; une analyse interrompue par un redémarrage du serveur est relancée à la prochaine ouverture. L’écriture porte seulement sur les analyses, avec vérification de la géométrie d’origine : elle ne recrée pas un itinéraire supprimé et ne remplace pas des modifications plus récentes. La provenance et la confidentialité sont conservées.
+
+Validation : tests d’interface, API, analyse et conservation des liens, plus contrôle PostgreSQL / PostGIS de l’enregistrement asynchrone. Les nouveaux cas couvrent les droits de suppression, l’édition explicite, les résultats tardifs, les pannes d’analyse et les modifications concurrentes. Aucune migration de données.
+
 ## Tous les résultats filtrés sur la carte (6.26.8)
 
 Le bouton « Afficher tous les résultats sur la carte » affiche et cadre les itinéraires, secteurs ou sorties correspondant aux filtres actifs, y compris les sorties des pages suivantes. Sur mobile, la bibliothèque se replie pour rendre la carte accessible. L’affichage suit ensuite les changements de recherche, de type, de visibilité, de distance, de dénivelé et de zone sans recadrage automatique répété. « Masquer les résultats » restaure les secteurs et traces habituellement affichés ; le tracé en cours est conservé.

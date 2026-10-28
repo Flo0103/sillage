@@ -34,16 +34,33 @@ async function insertPlan(db,user,data,isPublic,source={}){
  const id=randomUUID(),fromStrava=source.source_strava===true,visibility=!fromStrava&&isPublic===true;
  await db.query('INSERT INTO planned_routes(id,user_id,data,is_public,source_ride_id,source_strava,source_strava_activity_id) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,user.id,JSON.stringify(data),visibility,source.source_ride_id||null,fromStrava,source.source_strava_activity_id||null]);return {...data,id,isPublic:visibility,isMine:true,owner:user.username,...provenance(source)};
 }
-export async function plans({db,path,method,user,req,res,body,json}){
+// Enrich converted traces independently of the browser. Never replace later edits.
+export function createPlanEnrichment({db,metrics}){
+ const jobs=new Map(),queue=[];let running=false;
+ async function save(plan,userId,legs,state){
+  await db.query("UPDATE planned_routes SET data=data || jsonb_build_object('legs',$1::jsonb,'analysisStatus',$2::text),updated_at=now() WHERE id=$3 AND user_id=$4 AND data->'legs'=$5::jsonb AND data->'coordinates'=$6::jsonb AND data->>'analysisStatus'='pending'",[JSON.stringify(legs),state,plan.id,userId,JSON.stringify(plan.legs),JSON.stringify(plan.coordinates)]);
+ }
+ async function run(plan,userId){
+  const legs=[];for(const edge of plan.legs){let analysis;try{analysis=analysisData(await metrics({coordinates:edge.coordinates,kind:'all'}),edge.coordinates);if(!analysis)throw Error('Analyse invalide.');}catch{analysis={elevation:null,surfaces:[],surfaceRuns:[],errors:['Analyse indisponible. Utilisez « Compléter les données » pour réessayer.']};}legs.push({...edge,analysis});}
+  const checked=planData({...plan,legs}).legs;await save(plan,userId,checked,checked.some(l=>l.analysis?.errors?.length)?'partial':'complete');
+ }
+ function drain(){if(running||!queue.length)return;running=true;const job=queue.shift();run(job.plan,job.userId).catch(()=>{}).finally(()=>{running=false;jobs.delete(job.plan.id);job.done();drain();});}
+ return (value,userId)=>{
+  if(jobs.has(value.id))return jobs.get(value.id);const plan=structuredClone(value);
+  if(queue.length>=16)return save(plan,userId,plan.legs,'partial').catch(()=>{});
+  let done;const promise=new Promise(resolve=>{done=resolve;});jobs.set(plan.id,promise);queue.push({plan,userId,done});drain();return promise;
+ };
+}
+export async function plans({db,path,method,user,req,res,body,json,enrichPlan}){
  if(!user||!path.startsWith('/api/plans'))return false;const reply=(status,data)=>{json(res,status,data);return true;};
  const format=r=>({...r.data,id:r.id,isPublic:!r.source_strava&&r.is_public,isMine:r.is_mine,owner:r.username,createdAt:r.created_at,...provenance(r)});
  const convert=path.match(/^\/api\/plans\/from-ride\/([a-f0-9-]{36})$/);
  if(convert&&method==='POST'){
   const result=await withRideOrigins(db,user.id,async client=>{
    const q=await client.query('SELECT id,name,coordinates,source_type,strava_activity_id FROM rides WHERE id=$1 AND user_id=$2',[convert[1],user.id]),ride=q.rows[0];if(!ride)return null;
-   const points=coordinates(ride.coordinates),data=planData({name:ride.name,coordinates:points,legs:importedRideLegs(points),mode:'manual',snapped:false});
+   const points=coordinates(ride.coordinates),data={...planData({name:ride.name,coordinates:points,legs:importedRideLegs(points),mode:'manual',snapped:false}),...(enrichPlan?{analysisStatus:'pending'}:{})};
    return insertPlan(client,user,data,false,{source_ride_id:ride.id,source_strava:ride.source_type==='strava',source_strava_activity_id:ride.strava_activity_id});
-  });return reply(result?201:404,result||{error:'Sortie introuvable.'});
+  });if(result&&enrichPlan)void enrichPlan(result,user.id);return reply(result?201:404,result||{error:'Sortie introuvable.'});
  }
  if(path==='/api/plans'&&method==='GET'){const q=await db.query('SELECT p.id,p.data,p.is_public,p.source_ride_id,p.source_strava,p.created_at,u.username,(p.user_id=$1) AS is_mine FROM planned_routes p JOIN users u ON u.id=p.user_id WHERE (p.user_id=$1 OR (p.is_public=true AND p.source_strava=false AND u.active=true)) ORDER BY p.updated_at DESC',[user.id]);return reply(200,q.rows.map(format));}
  if(path==='/api/plans'&&method==='POST'){
@@ -56,6 +73,7 @@ export async function plans({db,path,method,user,req,res,body,json}){
  const item=path.match(/^\/api\/plans\/([a-f0-9-]{36})(\/gpx)?$/);if(!item)return false;
  if(method==='GET'){
   const q=await db.query('SELECT p.id,p.data,p.is_public,p.source_ride_id,p.source_strava,p.created_at,u.username,(p.user_id=$2) AS is_mine FROM planned_routes p JOIN users u ON u.id=p.user_id WHERE p.id=$1 AND (p.user_id=$2 OR (p.is_public=true AND p.source_strava=false AND u.active=true))',[item[1],user.id]),row=q.rows[0];if(!row)return reply(404,{error:'Itinéraire introuvable.'});
+  if(row.is_mine&&row.data.analysisStatus==='pending'&&enrichPlan)void enrichPlan(format(row),user.id);
   if(item[2]){res.writeHead(200,{'Content-Type':'application/gpx+xml; charset=utf-8','Content-Disposition':planFilename(row.data.name),'Cache-Control':'no-store'});res.end(planGPX(row.data));return true;}return reply(200,format(row));
  }
  if(item[2])return false;
