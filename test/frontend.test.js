@@ -1,4 +1,6 @@
 import {test} from 'node:test';
+import {createAdmissionController} from '../server/security.js';
+import {createRoutingRequests,isRoutingRequest} from '../dist/routing-requests.js';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
@@ -26,7 +28,7 @@ function context({optionalMissing=false}={}){
  const document={body:element(),addEventListener(){},getElementById:id=>elements.get(id)||null,createElement:()=>element(),createTextNode:text=>({textContent:text}),querySelector:()=>null};
  const fetch=async(path,options={})=>{calls.push({path,options});const data=path==='/api/plan-elevations'?JSON.parse(options.body).paths.map(()=>({elevation:null,error:'Altitudes indisponibles.'})):path==='/api/route/nearest'?{point:JSON.parse(options.body).point}:path==='/api/me'?{username:'alice'}:['/api/portions','/api/catalog','/api/wms','/api/plans','/api/rides/overlay'].includes(path)?[]:path==='/api/rides'?options.method==='POST'?{id:ride.id}:[ride]:ride;return {ok:true,status:200,json:async()=>data};};
  const xml={querySelector:()=>null,getElementsByTagNameNS:(ns,tag)=>tag==='trkpt'?points.map(p=>({hasAttribute:()=>true,getAttribute:n=>n==='lat'?String(p[0]):String(p[1])})):[]};
- const ctx={filterPlans,planLibraryStats,createGpsTransfer,createOnboarding,createRideCards,createStravaSearch,...Elevation,smoothElevation,elevationGain,document,fetch,ItineraryDraft,planSummary,insertionIndex,distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds,visibleSegments,segmentColor,ratingColors,ratingLabels,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML,location:{replace(){}},localStorage:{getItem:()=>null},AbortController,console,setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),innerWidth:1200,Blob,URL,URLSearchParams,confirm:()=>true,DOMParser:class{parseFromString(){return xml;}}};
+ const ctx={filterPlans,planLibraryStats,createGpsTransfer,createOnboarding,createRideCards,createStravaSearch,createRoutingRequests,isRoutingRequest,...Elevation,smoothElevation,elevationGain,document,fetch,ItineraryDraft,planSummary,insertionIndex,distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds,visibleSegments,segmentColor,ratingColors,ratingLabels,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML,location:{replace(){}},localStorage:{getItem:()=>null},AbortController,console,setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),innerWidth:1200,Blob,URL,URLSearchParams,confirm:()=>true,DOMParser:class{parseFromString(){return xml;}}};
  return {elements,calls,ctx,flushTimers(max=350){for(const[id,t]of [...timers])if(t.delay<=max){timers.delete(id);t.fn();}}};
 }
 test('choix d’une sortie sauvegardée sans dépendre des contrôles facultatifs',async()=>{
@@ -189,11 +191,11 @@ test('glissement réel de marqueur et de ligne ajoute un passage, recalcul à la
  elements.get('surface').value='Sable';elements.get('difficulty').value='Facile';elements.get('winter').value='yes';elements.get('singleTrack').value='yes';await elements.get('ratingForm').onsubmit({preventDefault(){}});const saved=JSON.parse(calls.find(c=>c.path==='/api/portions'&&c.options.method==='POST').options.body);assert.equal(saved.routePoints.length,3);
 });
 
-test('départ accroché seul à OSM et réponse ancienne ignorée après choix de l’arrivée',async()=>{
+test('départ déplacé pendant l’accrochage : la réponse ancienne ne remplace pas le nouveau routage',async()=>{
  const {ctx,flushTimers}=context(),base=ctx.fetch;let finishNearest;
  let nearestCalls=0;ctx.fetch=async(path,options)=>path==='/api/route/nearest'?(++nearestCalls===1?new Promise(r=>finishNearest=r):{ok:true,status:200,json:async()=>({point:JSON.parse(options.body).point})}):path==='/api/route'?{ok:true,status:200,json:async()=>({coordinates:[[50.0001,5],[50.0011,5]],snappedPoints:[[50.0001,5],[50.0011,5]],stats:{maxOffset:20,ignoredAnchors:0}})}:path==='/api/osm'?{ok:false,status:503,json:async()=>({error:'Indisponible'})}:base(path,options);
- const access=await vm.runInNewContext(`(async()=>{${script}\nsetView('explore');choose({lat:50,lng:5.0002});choose({lat:50.001,lng:5.0002});return {points:()=>JSON.stringify(endpoints)};})()`,ctx);
- flushTimers(150);await new Promise(r=>setImmediate(r));assert.deepEqual(JSON.parse(access.points()),[[50.0001,5],[50.0011,5]]);finishNearest({ok:true,status:200,json:async()=>({point:[49,4]})});flushTimers(150);await new Promise(r=>setImmediate(r));assert.deepEqual(JSON.parse(access.points()),[[50.0001,5],[50.0011,5]]);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nsetView('explore');choose({lat:50,lng:5.0002});choose({lat:50.001,lng:5.0002});return {moveRouteControl,points:()=>JSON.stringify(endpoints)};})()`,ctx);
+ await access.moveRouteControl(0,[50.0002,5.0003]);flushTimers(150);await new Promise(r=>setImmediate(r));assert.deepEqual(JSON.parse(access.points()),[[50.0001,5],[50.0011,5]]);finishNearest({ok:true,status:200,json:async()=>({point:[49,4]})});flushTimers(150);await new Promise(r=>setImmediate(r));assert.deepEqual(JSON.parse(access.points()),[[50.0001,5],[50.0011,5]]);
 });
 test('planificateur prolonge un itinéraire long, enregistre sans note de segment et propose son GPX',async()=>{
  const {ctx,elements,calls,flushTimers}=context(),base=ctx.fetch;let saved=[];
@@ -678,7 +680,7 @@ test('étape impossible : les suivantes sont calculées, puis seule celle en éc
 test('modification pendant le calcul : la requête périmée est abandonnée et remplacée sans attendre son résultat',async()=>{
  const {ctx}=context(),base=ctx.fetch,jobs=[];
  ctx.fetch=(path,options)=>path==='/api/route'?new Promise((resolve,reject)=>{const job={points:JSON.parse(options.body).points,signal:options.signal,finish:()=>resolve({ok:true,status:200,json:async()=>({coordinates:JSON.parse(options.body).points})})};jobs.push(job);options.signal.addEventListener('abort',()=>reject(Object.assign(Error('annulé'),{name:'AbortError'})));}):base(path,options);
- const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();choose({lat:50,lng:5});choose({lat:50.01,lng:5});return {choose,calculatePlanLegs,removeDraftPoint,state:()=>JSON.stringify(planDraft.coordinates())};})()`,ctx);const task=access.calculatePlanLegs();await new Promise(r=>setImmediate(r));access.choose({lat:50.02,lng:5});access.removeDraftPoint(1);await new Promise(r=>setImmediate(r));assert.equal(jobs[0].signal.aborted,true);assert.equal(jobs.length,2);assert.deepEqual(jobs[1].points,[[50,5],[50.02,5]]);jobs[1].finish();await task;jobs[0].finish();await new Promise(r=>setImmediate(r));assert.equal(access.state(),'[[50,5],[50.02,5]]');
+ const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();choose({lat:50,lng:5});choose({lat:50.01,lng:5});return {choose,calculatePlanLegs,removeDraftPoint,state:()=>JSON.stringify(planDraft.coordinates())};})()`,ctx);const task=access.calculatePlanLegs();await new Promise(r=>setImmediate(r));access.choose({lat:50.02,lng:5});access.removeDraftPoint(1);await new Promise(r=>setImmediate(r));assert.equal(jobs[0].signal.aborted,false,'le calcul distant garde son créneau jusqu’à sa réponse');assert.equal(jobs.length,2);assert.deepEqual(jobs[1].points,[[50,5],[50.02,5]]);jobs[1].finish();await task;jobs[0].finish();await new Promise(r=>setImmediate(r));assert.equal(access.state(),'[[50,5],[50.02,5]]');
 });
 
 test('panne temporaire : points conservés et pause sans rafale, puis reprise explicite de toute la file',async()=>{
@@ -980,3 +982,23 @@ test('accès limité : cercle identique à la carte dans les légendes des secte
 });
 
 
+
+
+test('Aachen à froid : deux clics avant la fin de l’accrochage respectent la limite réelle de deux calculs',async()=>{
+ const {ctx,elements}=context(),base=ctx.fetch,admission=createAdmissionController(),jobs=[];let rejected=0;
+ ctx.fetch=async(path,options={})=>{if(path==='/api/route/nearest'){
+  let release;try{release=admission.enter(path,'POST','test-ip');}catch(e){rejected++;return {ok:false,status:e.status,json:async()=>({error:e.message})};}
+  return new Promise(resolve=>jobs.push({point:JSON.parse(options.body).point,finish(){release();resolve({ok:true,status:200,json:async()=>({point:this.point})});}}));
+ }if(path==='/api/route'){const release=admission.enter(path,'POST','test-ip');try{return {ok:true,status:200,json:async()=>({coordinates:JSON.parse(options.body).points})};}finally{release();}}return base(path,options);};
+ const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();choose({lat:50.7715,lng:6.075});return {choose,calculatePlanLegs,state:()=>({complete:planDraft.complete(),paused:routingPaused.has(planDraft)})};})()`,ctx);await new Promise(r=>setImmediate(r));access.choose({lat:50.7715,lng:6.087});const work=access.calculatePlanLegs();await new Promise(r=>setImmediate(r));const collisions=rejected;
+ for(const job of jobs.slice())job.finish();await work;assert.equal(collisions,0);assert.equal(jobs.length,2,'un seul appel HTTP par point');assert.equal(access.state().paused,false);assert.equal(access.state().complete,true);assert.doesNotMatch(elements.get('status').textContent,/indisponible/);
+});
+
+test('routage mobile : erreur visible sur la carte et reprise sans ouvrir le formulaire',async()=>{
+ const {ctx,elements}=context(),base=ctx.fetch;ctx.innerWidth=390;let fail=true;ctx.fetch=async(path,options)=>path==='/api/route'?{ok:!fail,status:fail?503:200,json:async()=>fail?{error:'Source OSM temporairement indisponible'}:{coordinates:JSON.parse(options.body).points}}:base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();choose({lat:50.7715,lng:6.075});choose({lat:50.7715,lng:6.087});await calculatePlanLegs();return {complete:()=>planDraft.complete()};})()`,ctx);assert.equal(elements.get('routingMapStatus').hidden,false);assert.match(elements.get('routingMapMessage').textContent,/Source OSM temporairement indisponible/);assert.equal(elements.get('retryRoutingMap').hidden,false);fail=false;await elements.get('retryRoutingMap').onclick();assert.equal(access.complete(),true);assert.equal(elements.get('routingMapStatus').hidden,true);
+});
+test('premier point : accrochage en cours, erreur visible et reprise locale au point choisi',async()=>{
+ const {ctx,elements}=context(),base=ctx.fetch;let release;ctx.fetch=(path,options)=>path==='/api/route/nearest'?new Promise(resolve=>release=value=>resolve({ok:value,status:value?200:503,json:async()=>value?{point:JSON.parse(options.body).point}:{error:'Accrochage OSM indisponible'}})):base(path,options);
+ await vm.runInNewContext(`(async()=>{${script}\nnewPlan();choose({lat:50.7715,lng:6.075});})()`,ctx);assert.equal(elements.get('routingMapStatus').hidden,false);assert.match(elements.get('routingMapMessage').textContent,/Accrochage/);release(false);await new Promise(r=>setImmediate(r));assert.match(elements.get('routingMapMessage').textContent,/Accrochage OSM indisponible/);assert.equal(elements.get('retryRoutingMap').hidden,false);const retry=elements.get('retryRoutingMap').onclick();release(true);await retry;assert.equal(elements.get('routingMapStatus').hidden,true);
+});
