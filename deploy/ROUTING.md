@@ -128,3 +128,16 @@ Au premier point comme aux étapes suivantes, le moteur utilise les données Pos
 Une liaison manquante dans le graphe installé peut aussi être recalculée sur les données OSM distantes. Un guide public dont certains nœuds manquent dans le couloir stocké est vérifié à partir des chemins en ligne. Les cadres PostGIS vides disposent du même secours. Le moteur ne retourne jamais le seul dessin OSRM comme résultat vérifié : il reconstruit le graphe dirigé et garde la politique des accès explicites, l’interdiction `bicycle=no`, les exceptions vélo et les sens uniques. Un point sur une interdiction vélo explicite n’est pas déplacé automatiquement pour la contourner.
 
 Les calculs en zone installée conservent leur chemin rapide, leurs caches et leur fonctionnement sans Internet. Hors zone, le réseau et la disponibilité / les quotas des services publics restent nécessaires. Aucun téléchargement national, migration ou réimport OSM n’est déclenché par cette correction. La réponse et les journaux distinguent les données PostGIS des données Overpass / OSM API via `osmSource` et `timings.offline`, y compris à l’accrochage initial.
+
+
+## Diagnostic d’un tracé à froid (6.26.14)
+
+Les calculs du navigateur sont limités à deux requêtes simultanées, comme l’admission serveur ; les demandes identiques d’accrochage partagent la même requête. Les calculs d’altitude ou de surface ne peuvent occuper tous les créneaux. Les réponses devenues obsolètes gardent leur créneau jusqu’à la fin réelle du calcul distant, sans modifier le tracé courant. Le message d’état et Réessayer sont visibles sur la carte.
+
+Pour tester les fournisseurs à Aachen sans lire les comptes ni le réseau stocké :
+
+```bash
+sudo docker compose exec -T app node server/check-routing.js --online --from 50.7715,6.075 --to 50.7715,6.087
+```
+
+Sans `--online`, les mêmes points testent le choix de source de la production. Sans coordonnées personnalisées, le diagnostic historique à Spa reste disponible. Les journaux du diagnostic indiquent hôte amont, statut HTTP, durée, source du tracé et résultat aller / retour. Le workflow **Diagnostic OSM en ligne** effectue aussi ce test sur GitHub avec des points publics à Aachen. Il est facultatif, car la disponibilité des fournisseurs publics ne doit pas bloquer les tests déterministes.

@@ -2,6 +2,14 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Routage à froid et requêtes simultanées (6.26.14)
+
+Corriger un blocage reproduit sous la limite réelle du serveur : poser l’arrivée pendant l’accrochage du départ déclenchait trois requêtes, dont deux pour le même point. La troisième recevait un 429 et mettait le tracé en pause. Les calculs cartographiques partagent désormais une file de deux requêtes maximum, avec déduplication des accrochages en cours et priorité au tracé. L’enrichissement ne peut occuper qu’un créneau à la fois. Annuler un résultat côté interface ne libère pas prématurément le créneau d’un calcul encore actif sur le serveur ; les réponses devenues obsolètes restent ignorées.
+
+Afficher l’accrochage, le calcul et les erreurs directement sur la carte, avec un bouton Réessayer, aussi sur mobile et en plein écran. Les détails du formulaire ne sont plus nécessaires pour voir une pause. Conserver les protections serveur, le routage incrémental et les règles d’accès OSM.
+
+Étendre le diagnostic de routage avec `--from latitude,longitude`, `--to latitude,longitude` et `--online` pour tester les données publiques sans base ni compte. Ajouter un diagnostic GitHub facultatif avec les fournisseurs réels à Aachen ; il reste séparé des tests déterministes. Aucun nouvel import OSM ni migration.
+
 ## Routage hors des régions téléchargées (6.26.13)
 
 Corriger la sélection de source pour l’accrochage et le routage. Aachen, pourtant située dans le rectangle géographique de l’extrait Belgique, utilise les chemins OSM en ligne lorsque ses routes ne sont pas installées. La Flandre et Bruxelles restent couvertes par l’import Belgique. Un point hors zone, un passage entre régions ou une liaison locale manquante ne restent plus bloqués sur un graphe PostGIS partiel.

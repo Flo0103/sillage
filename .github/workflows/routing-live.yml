@@ -1,0 +1,26 @@
+name: Diagnostic OSM en ligne
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/routing-live.yml
+      - server/check-routing.js
+
+permissions:
+  contents: read
+
+jobs:
+  aachen:
+    name: Aachen avec les fournisseurs publics (facultatif)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Accrochage, aller et retour à Aachen, sans base ni compte
+        run: node server/check-routing.js --online --from 50.7715,6.075 --to 50.7715,6.087

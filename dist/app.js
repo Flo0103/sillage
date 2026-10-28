@@ -1,13 +1,14 @@
-import {createRideCards,createStravaSearch} from './ride-browser.js?v=6.26.0';
-import {filterPlans,planLibraryStats} from './plan-library.js?v=6.26.0';
-import {createOnboarding} from './onboarding.js?v=6.26.1';
-import {createGpsTransfer} from './gps-transfer.js?v=6.26.0';
-import {buildElevationModel,pointAtDistance,elevationAt,slopeAt,routeRenderRuns,kilometreMarkers,renderElevationChart,resizeElevationChart,setChartCursor,elevationColors,slopeBins,routeSurfaceColors} from './elevation.js?v=6.26.3';
-import {ItineraryDraft,planSummary} from './planner.js?v=6.26.0';
-import {insertionIndex} from './route-edit.js?v=6.26.0';
-import {previewPath,renderPreview,disposePreviews} from './preview.js?v=6.26.0';
-import {distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds} from './geo.js?v=6.26.0';
-import {visibleSegments,segmentColor,ratingColors,ratingLabels,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML} from './catalog.js?v=6.26.0';
+import {createRideCards,createStravaSearch} from './ride-browser.js?v=6.26.14';
+import {createRoutingRequests,isRoutingRequest} from './routing-requests.js?v=6.26.14';
+import {filterPlans,planLibraryStats} from './plan-library.js?v=6.26.14';
+import {createOnboarding} from './onboarding.js?v=6.26.14';
+import {createGpsTransfer} from './gps-transfer.js?v=6.26.14';
+import {buildElevationModel,pointAtDistance,elevationAt,slopeAt,routeRenderRuns,kilometreMarkers,renderElevationChart,resizeElevationChart,setChartCursor,elevationColors,slopeBins,routeSurfaceColors} from './elevation.js?v=6.26.14';
+import {ItineraryDraft,planSummary} from './planner.js?v=6.26.14';
+import {insertionIndex} from './route-edit.js?v=6.26.14';
+import {previewPath,renderPreview,disposePreviews} from './preview.js?v=6.26.14';
+import {distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds} from './geo.js?v=6.26.14';
+import {visibleSegments,segmentColor,ratingColors,ratingLabels,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML} from './catalog.js?v=6.26.14';
 const $=id=>document.getElementById(id);
 const gpsTransfer=createGpsTransfer({document,fetcher:(...args)=>fetch(...args)});
 if(innerWidth<=850)$('segmentBrowser').open=false;
@@ -28,7 +29,7 @@ const surfaceOnlyReview=new Set(),surfaceReviewed=new WeakSet(),surfaceRetries=n
 const pointSettingsElement=$('pointSettings'),segmentPast=[],segmentFuture=[];
 const draftActive=()=>view==='planner'||view==='explore'&&mode==='route'&&segmentDraftActive;
 const profileActive=()=>view==='planner'||view==='explore'&&segmentDraftActive||view==='saved'&&!!viewedSegment;
-const routingFailures=new WeakMap(),routingPaused=new WeakSet();
+const routingFailures=new WeakMap(),routingPaused=new WeakSet(),startAnchorFailures=new WeakMap();
 const snappedDraftPoints=new WeakMap();let updateBaseCoverage=()=>{};
 const technicalWarningSymbol='<svg viewBox="0 0 24 24" role="img" aria-label="Secteur très technique"><path d="M12 2 23 21H1L12 2Z"/><path d="M12 8v6m0 3v1"/></svg>';
 const accessMidpoints=new WeakMap(),technicalMidpoints=new WeakMap();let selectionStamp=[],markerStamp=[],routeMarkers=[];
@@ -47,9 +48,18 @@ function hasUnsavedDrawing(){
  return selected.length>0||draftActive()&&planDraft.points.length>0;
 }
 async function api(path,options={}){const res=await fetch(path,{...options,headers:{'Content-Type':'application/json',...options.headers}});if(res.status===401){location.replace('/login.html');throw Error('Session expirée.');}const data=await res.json();if(!res.ok)throw Object.assign(Error(data.error||'Le serveur ne répond pas.'),{status:res.status});return data;}
-const post=(path,data,options={})=>api(path,{method:'POST',body:JSON.stringify(data),...options});
+const sendPost=(path,data,options={})=>api(path,{method:'POST',body:JSON.stringify(data),...options});
+const routingRequests=createRoutingRequests(sendPost,{onChange:()=>updateRoutingIndicator()});
+const post=(path,data,options={})=>isRoutingRequest(path)?routingRequests.request(path,data,options):sendPost(path,data,options);
 function toast(t){$('toast').textContent=t;$('toast').style.display='block';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').style.display='none',6000);}
 function status(t){$('status').textContent=t;}
+const routingFailureText=error=>!error.status&&['TypeError','NetworkError','TimeoutError','SyntaxError'].includes(error.name)?'Le service de routage ne répond pas correctement.':error.message;
+function updateRoutingIndicator(){
+ const box=$('routingMapStatus');if(!box)return;
+ const visible=draftActive()&&canDraw()&&planDraft.points.length>0,work=routingRequests.stats,pending=visible&&(busy||planRoutingRunning||work.nearest||work.route),failure=visible&&(planDraft.legs.map(l=>routingFailures.get(planDraft)?.get(l.id)).find(Boolean)||startAnchorFailures.get(planDraft));
+ box.hidden=!visible||!pending&&!failure;box.classList.toggle('is-busy',!!pending);setHidden('retryRoutingMap',!!pending||!failure);
+ $('routingMapMessage').textContent=pending?(work.nearest?'Accrochage aux chemins OSM…':'Calcul de l’itinéraire…'):failure?'Routage en pause : '+failure:'';box.setAttribute('title',failure||'');
+}
 function stars(){ $('stars').replaceChildren();for(let i=1;i<=5;i++){const b=document.createElement('button');b.type='button';b.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>';b.className=i<=rating?'on':'';b.setAttribute('aria-label',`${i} sur 5 · ${ratingLabels[i-1]}`);b.setAttribute('title',`${i}/5 · ${ratingLabels[i-1]}`);b.setAttribute('aria-pressed',String(rating===i));b.onclick=()=>{rating=i;stars();update();};$('stars').append(b);}$('ratingReadout').textContent=rating?`${rating}/5 · ${ratingLabels[rating-1]}`:'Choisissez votre note de plaisir.';}
 function update(){
  const drawingHistory=canDraw()&&(draftActive()||mode==='manual'||mode==='route'),planHistoryAvailable=view==='planner'&&(planDraft.past.length>0||planDraft.future.length>0);
@@ -68,7 +78,7 @@ function update(){
  setHidden('editSegment',!showingSector||!viewedSegment.isMine);if(showingSector)$('segmentViewInfo').textContent=`${viewedSegment.isMine?'Mon secteur':`Secteur de ${viewedSegment.owner}`} · ${(viewedSegment.distance/1000||routeLength(viewedSegment.coordinates)/1000).toFixed(2)} km · ${viewedSegment.rating}/5 · ${viewedSegment.surface} · ${viewedSegment.difficulty||'Technicité non renseignée'} · ${viewedSegment.isPublic?'Public':'Privé'}${viewedSegment.notes?' · '+viewedSegment.notes:''}`;
  setHidden('segmentViewWarning',!showingSector||viewedSegment.difficulty!=='Très technique');setHidden('deleteCurrentTrace',!owned);$('deleteCurrentTrace').textContent=showingRide?'Supprimer cette sortie':plan?'Supprimer cet itinéraire':'Supprimer ce secteur';$('deleteCurrentTrace').disabled=traceDeleting||planSaving||segmentSaving||rideConverting;
  setHidden('technicalWarning',view!=='explore'||$('difficulty').value!=='Très technique');
- const routingWarning=draftActive()?planDraft.legs.find(l=>l.routingWarning)?.routingWarning:null;$('routingSourceNotice').textContent=routingWarning||'';setHidden('routingSourceNotice',!routingWarning);updateMapControlLayout();
+ const routingWarning=draftActive()?planDraft.legs.find(l=>l.routingWarning)?.routingWarning:null;$('routingSourceNotice').textContent=routingWarning||'';setHidden('routingSourceNotice',!routingWarning);updateMapControlLayout();updateRoutingIndicator();
 }
 function cancelSnap(){clearTimeout(planAnalysisTimer);planAnalysisTimer=null;clearTimeout(planRecalcTimer);planRecalcTimer=null;cancelRouteDrag();snapVersion++;snapController?.abort();snapWorker?.terminate();snapWorker=null;workerReject?.(Error('Calcul annulé.'));workerReject=null;busy=false;setHidden('snapProgress',true);}
 function reset(){draftBaseline=null;setHidden('rideConversionError',true);planFromStrava=false;planSourcePlanId=null;viewedSegment=null;for(const timer of surfaceRetryTimers.values())clearTimeout(timer);surfaceRetryTimers.clear();surfaceOnlyReview.clear();$('manualLeg').checked=false;closePointSettings(false);segmentDraftActive=false;segmentPast.length=0;segmentFuture.length=0;cancelSnap();planRouteController?.abort();planMetricsController?.abort();planStartController?.abort();planViewing=false;selectedPlanPoint=null;profileCache=null;mainChartModel=null;clearElevationCursor();planDraft=new ItineraryDraft();planAnalysisAllowed=new Set();planKnownLegs=new Set();editingSegment=null;geometryChanged=false;surfaceTouched=false;independentOsm=false;endpoints=[];viaPoints=[];routeLegFractions=null;modeDrafts.clear();$('surfaceSource').textContent='';selected=[];gpsSelection=[];first=last=null;snapped=false;rating=0;$('ratingForm').reset();status(mode==='manual'?'Cliquez sur la carte pour tracer point à point.':mode==='route'?'Placez le premier point, puis les suivants sur la carte.':'Choisissez un départ et une arrivée sur la trace GPX.');if(view==='explore'&&mode==='route')ensureSegmentDraft();drawSelection();stars();update();}
@@ -177,7 +187,7 @@ function calculateOSM(points,elements,tolerance,version,calculationMode=mode){
  const onProgress=p=>{if(version===snapVersion&&calculationMode!=='surface')showProgress(p);};
  if(typeof Worker==='undefined')return Promise.resolve((calculationMode==='route'?routeOSM:matchOSMDetailed)(points,elements,{tolerance,onProgress}));
  return new Promise((resolve,reject)=>{
-  const worker=new Worker('/osm-worker.js?v=6.26.0',{type:'module'});snapWorker=worker;workerReject=reject;
+  const worker=new Worker('/osm-worker.js?v=6.26.14',{type:'module'});snapWorker=worker;workerReject=reject;
   const finish=()=>{worker.terminate();if(snapWorker===worker){snapWorker=null;workerReject=null;}};
   worker.onmessage=({data})=>{if(version!==snapVersion)return;if(data.progress){onProgress(data.progress);return;}finish();if(data.error)reject(Error(data.error));else resolve(data.result);};
   worker.onerror=()=>{finish();reject(Error('Le calcul OSM a échoué. Réessayez ou utilisez le mode manuel.'));};worker.postMessage({points,elements,tolerance,mode:calculationMode});
@@ -438,7 +448,7 @@ async function runRouteQueue(){
  planRoutingRunning=true;
  try{do{planRouteRequested=false;for(;;){if(!draftActive()||!canDraw()||routingPaused.has(planDraft))break;const draft=planDraft,i=draft.legs.findIndex(l=>!l.coordinates&&!routingFailures.get(draft)?.has(l.id));if(i<0)break;const edge=draft.legs[i],controller=new AbortController();planRouteController=controller;planRouteJob={draft,id:edge.id,controller};busy=true;update();status(`Routage de l’étape ${i+1} / ${draft.legs.length}…`);
   try{if(!await anchorDraftLeg(draft,edge,controller.signal))continue;if(draft!==planDraft||!draftActive()||!canDraw()||!draft.legs.some(l=>l.id===edge.id))continue;syncPlanner();const result=await post('/api/route',{points:[draft.points[i],draft.points[i+1]],purpose:'itinerary',tolerance:150,allowRestricted:true,accessMode:'explicit'},{signal:controller.signal});if(draft!==planDraft||!draftActive()||!canDraw())continue;if(draft.resolve(edge.id,result)){syncPlanner();schedulePlanAnalysis();if(result.warning)toast(result.warning);}}
-  catch(e){if(draft!==planDraft||e.name==='AbortError'||!draft.legs.some(l=>l.id===edge.id))continue;let failures=routingFailures.get(draft);if(!failures){failures=new Map();routingFailures.set(draft,failures);}failures.set(edge.id,e.message);if(e.status===429||e.status>=500||['TypeError','NetworkError','TimeoutError','SyntaxError'].includes(e.name)){routingPaused.add(draft);const reason=e.status?e.message:'Le service de routage ne répond pas correctement.';status(`Le routage est temporairement indisponible : ${reason} Vos points sont conservés. Utilisez « Réessayer le routage ».`);break;}status(`L’étape ${i+1} ne peut pas être routée : ${e.message} Les autres étapes sont conservées ; déplacez ce point ou choisissez une correction sans routage.`);}
+  catch(e){if(draft!==planDraft||e.name==='AbortError'||!draft.legs.some(l=>l.id===edge.id))continue;let failures=routingFailures.get(draft);if(!failures){failures=new Map();routingFailures.set(draft,failures);}failures.set(edge.id,routingFailureText(e));if(e.status===429||e.status>=500||['TypeError','NetworkError','TimeoutError','SyntaxError'].includes(e.name)){routingPaused.add(draft);const reason=e.status?e.message:'Le service de routage ne répond pas correctement.';status(`Le routage est temporairement indisponible : ${reason} Vos points sont conservés. Utilisez « Réessayer le routage ».`);break;}status(`L’étape ${i+1} ne peut pas être routée : ${e.message} Les autres étapes sont conservées ; déplacez ce point ou choisissez une correction sans routage.`);}
   finally{if(planRouteJob?.id===edge.id&&planRouteJob.draft===draft)planRouteJob=null;}
  }}while(planRouteRequested&&draftActive()&&canDraw()&&!routingPaused.has(planDraft));
  }finally{planRoutingRunning=false;if(draftActive()){syncPlanner();if(canDraw()&&!routingPaused.has(planDraft)){const failedIndex=planDraft.legs.findIndex(l=>routingFailures.get(planDraft)?.has(l.id));if(failedIndex>=0)status(`L’étape ${failedIndex+1} reste à corriger : ${routingFailures.get(planDraft).get(planDraft.legs[failedIndex].id)} Les étapes suivantes ont été conservées. Déplacez ce point, choisissez une correction sans routage ou réessayez.`);else if(planDraft.complete())status('Itinéraire calculé. Glissez les points ou la ligne pour ajuster localement le parcours.');}updateSegmentSurfaceSuggestion();schedulePlanAnalysis();}}
@@ -507,7 +517,7 @@ function choosePlanPoint(point){
  if(!canDraw()||!validMapPoint(point))return;try{planDraft.append(point,$('manualLeg').checked?'manual':'route');plannerChanged();if(planDraft.points.length===1&&!$('manualLeg').checked)void snapPlanStart(planDraft,point);}catch(e){toast(e.message);}
 }
 async function snapPlanStart(draft,point){
- planStartController?.abort();planStartController=new AbortController();try{const result={point:await anchorDraftPoint(draft,point,planStartController.signal)};if(draftActive()&&draft===planDraft&&draft.points.length===1&&JSON.stringify(draft.points[0])===JSON.stringify(point)){draft.points[0]=[...result.point];syncPlanner();status(view==='planner'?'Départ accroché à OSM. Ajoutez la suite du parcours.':'Premier passage accroché à OSM. Ajoutez la suite du secteur.');}}catch(e){if(draftActive()&&draft===planDraft&&draft.points.length===1&&JSON.stringify(draft.points[0])===JSON.stringify(point)&&e.name!=='AbortError')status('Aucun chemin OSM à proximité. Déplacez le départ ou activez la correction sans routage.');}
+ startAnchorFailures.delete(draft);planStartController?.abort();planStartController=new AbortController();try{const result={point:await anchorDraftPoint(draft,point,planStartController.signal)};if(draftActive()&&draft===planDraft&&draft.points.length===1&&JSON.stringify(draft.points[0])===JSON.stringify(point)){draft.points[0]=[...result.point];syncPlanner();status(view==='planner'?'Départ accroché à OSM. Ajoutez la suite du parcours.':'Premier passage accroché à OSM. Ajoutez la suite du secteur.');}}catch(e){if(draftActive()&&draft===planDraft&&draft.points.length===1&&JSON.stringify(draft.points[0])===JSON.stringify(point)&&e.name!=='AbortError'){startAnchorFailures.set(draft,routingFailureText(e));status('Accrochage impossible : '+e.message+' Déplacez le point ou réessayez.');}}finally{updateRoutingIndicator();}
 }
 function planHistory(redo=false){if(!draftActive()){if(view==='explore'&&mode==='manual')manualSegmentHistory(redo);return;}closePointSettings(false);cancelRouteDrag();const oldContext=planDraft.context;if(redo?planDraft.redo():planDraft.undo()){if(planDraft.context&&planDraft.context!==oldContext)restorePlanContext(planDraft.context);selectedPlanPoint=null;profileCache=null;mainChartModel=null;clearElevationCursor();abortObsoleteRoute();syncPlanner();status(redo?'Opération rétablie.':'Dernière opération annulée.');void calculatePlanLegs();}}
 $('reversePlan').onclick=()=>{
@@ -516,7 +526,7 @@ $('reversePlan').onclick=()=>{
 };
 $('undoPlan').onclick=()=>planHistory();$('redoPlan').onclick=()=>planHistory(true);$('planName').oninput=update;
 $('manualLeg').onchange=()=>{status($('manualLeg').checked?'Mode manuel de tracé : les prochains points seront reliés directement. Désactivez le crayon pour reprendre le routage OSM.':'Routage OSM activé pour les prochains points. Les corrections manuelles sont conservées.');update();};
-$('retryPlanRoute').onclick=()=>calculatePlanLegs({retry:true});$('retryAnalysis').onclick=requestMissingAnalysis;$('retryProfile').onclick=requestMissingAnalysis;$('refreshSurfaces').onclick=refreshPlanSurfaces;
+$('retryPlanRoute').onclick=()=>calculatePlanLegs({retry:true});$('retryRoutingMap').onclick=()=>planDraft.points.length===1?snapPlanStart(planDraft,planDraft.points[0]):calculatePlanLegs({retry:true});$('retryAnalysis').onclick=requestMissingAnalysis;$('retryProfile').onclick=requestMissingAnalysis;$('refreshSurfaces').onclick=refreshPlanSurfaces;
 document.addEventListener('keydown',e=>{if(view!=='planner'&&!canDraw()||!e.ctrlKey&&!e.metaKey||e.altKey||e.target?.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName||''))return;const key=e.key.toLowerCase();if(key==='z'||key==='y'){e.preventDefault();planHistory(key==='y'||e.shiftKey);}});
 function newPlan(){
  $('planNotesDetails').open=false;

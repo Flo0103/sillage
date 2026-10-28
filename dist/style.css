@@ -196,3 +196,6 @@ body.browsing-rides .library-search{padding-bottom:10px;margin-bottom:0;border-b
 
 
 
+
+/* Routing state stays visible when the mobile details panel is below the map. */
+.routing-map-status{position:relative;width:100%;display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:9px;max-width:450px;padding:10px 12px;border:1px solid var(--line-strong);border-left:3px solid var(--clay);border-radius:6px;background:var(--paper);box-shadow:var(--shadow);color:var(--ink);font-size:11px;line-height:1.5}.routing-map-status>svg{width:20px;height:20px;fill:none;stroke:var(--clay);stroke-width:1.7;stroke-linecap:round}.routing-map-status>span{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.routing-map-status button{padding:7px 9px;font-size:11px}.routing-map-status.is-busy{border-left-color:var(--olive)}.routing-map-status.is-busy>svg{stroke:var(--olive);animation:routing-progress 1.4s linear infinite}.routing-map-status.is-busy>svg circle{stroke-dasharray:35 16}.routing-map-status.is-busy>svg path{display:none}@keyframes routing-progress{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.routing-map-status.is-busy>svg{animation:none}}
