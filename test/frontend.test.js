@@ -279,7 +279,7 @@ test('sélection et clic sur un itinéraire affichent directement, miniature sou
 });
 test('nouvel itinéraire dans la carte est annulable, y compris visibilité, nom, analyses et retour en consultation publique',async()=>{
  const {ctx,elements}=context(),base=ctx.fetch,p=profilePlan({mine:false});ctx.fetch=async(path,options)=>path==='/api/plans/'+p.id?{ok:true,status:200,json:async()=>p}:base(path,options);
- const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadPlan('${p.id}');return {state:()=>JSON.stringify({viewing:planViewing,readonly:planReadOnly,editing:editingPlan?.id,coordinates:planDraft.coordinates(),legs:planDraft.serialise()})};})()`,ctx),before=access.state();assert.equal(elements.get('reset').getAttribute('aria-label'),'Créer un nouvel itinéraire');elements.get('reset').onclick();assert.equal(JSON.parse(access.state()).coordinates.length,0);assert.equal(elements.get('planName').value,'');assert.equal(elements.get('manualLeg').checked,false);elements.get('undoPlan').onclick();assert.equal(access.state(),before);assert.equal(elements.get('planName').value,p.name);assert.equal(elements.get('redoPlan').disabled,false);assert.equal(elements.get('redoPlan').hidden,false);elements.get('redoPlan').onclick();assert.equal(JSON.parse(access.state()).coordinates.length,0);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadPlan('${p.id}');return {state:()=>JSON.stringify({viewing:planViewing,readonly:planReadOnly,editing:editingPlan?.id,coordinates:planDraft.coordinates(),legs:planDraft.serialise()})};})()`,ctx),before=access.state();assert.equal(elements.get('undoPlan').hidden,true);assert.equal(elements.get('redoPlan').hidden,true);assert.equal(elements.get('reset').getAttribute('aria-label'),'Créer un nouvel itinéraire');elements.get('reset').onclick();assert.equal(JSON.parse(access.state()).coordinates.length,0);assert.equal(elements.get('planName').value,'');assert.equal(elements.get('manualLeg').checked,false);elements.get('undoPlan').onclick();assert.equal(access.state(),before);assert.equal(elements.get('planName').value,p.name);assert.equal(elements.get('redoPlan').disabled,false);assert.equal(elements.get('redoPlan').hidden,false);elements.get('redoPlan').onclick();assert.equal(JSON.parse(access.state()).coordinates.length,0);
 });
 test('consultation avec bornes kilométriques adaptatives, sans passages ; graphe et curseur déplacent un repère réel',async()=>{
  const {ctx,elements}=context(),base=ctx.fetch,p=profilePlan(),fake=interactiveMap(ctx);ctx.fetch=async(path,options)=>path==='/api/plans/'+p.id?{ok:true,status:200,json:async()=>p}:base(path,options);
@@ -308,6 +308,15 @@ test('prolonger un ancien itinéraire ne recalcule pas ses anciennes altitudes',
  const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadPlan('${p.id}');$('editPlan').onclick();$('manualLeg').checked=true;choose({lat:50.201,lng:5});return {state:()=>planDraft.legs.slice(0,2).map(l=>l.analysis)};})()`,ctx);flushTimers(350);await new Promise(r=>setImmediate(r));flushTimers(1000);await new Promise(r=>setImmediate(r));const batch=calls.filter(c=>c.path==='/api/plan-elevations');assert.equal(batch.length,1);assert.deepEqual(JSON.parse(batch[0].options.body).paths,[[[50.2,5],[50.201,5]]]);assert.ok(access.state().every(a=>!Object.hasOwn(a||{},'elevation')));
 });
 
+test('bibliothèque initiale : repliée sur mobile avant le chargement, ouverte sur ordinateur et choix manuel conservé',async()=>{
+ for(const width of [390,850,851,1200]){
+  const {ctx,elements}=context(),base=ctx.fetch,mobile=width<=850;ctx.innerWidth=width;
+  const assertSidebar=collapsed=>{assert.equal(ctx.document.body.classList.contains('sidebar-collapsed'),collapsed);assert.equal(elements.get('sidebarToggle').getAttribute('aria-expanded'),String(!collapsed));assert.equal(elements.get('sidebarToggle').getAttribute('aria-label'),collapsed?'Ouvrir la bibliothèque':'Fermer la bibliothèque');};
+  ctx.fetch=(path,options)=>{if(path==='/api/me')assertSidebar(mobile);return base(path,options);};
+  const access=await vm.runInNewContext(`(async()=>{${script}\nreturn {setView};})()`,ctx);
+  assertSidebar(mobile);elements.get('sidebarToggle').onclick();assertSidebar(!mobile);access.setView('saved');assertSidebar(!mobile);elements.get('sidebarToggle').onclick();assertSidebar(mobile);
+ }
+});
 test('bibliothèque repliable du planificateur : redimensionne la carte, conserve le tracé et reste réouvrable',async()=>{
  const {ctx,elements}=context(),fake=interactiveMap(ctx);let resizes=0;fake.map.invalidateSize=()=>resizes++;
  const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();planDraft.append([50,5]);planDraft.append([50.01,5],'manual');syncPlanner();return {state:()=>JSON.stringify(planDraft.snapshot()),setView};})()`,ctx),before=access.state();
@@ -351,7 +360,7 @@ test('profil lisible sur mobile : dimensions réelles, graduations fixes, gradie
  const {ctx,elements}=context(),base=ctx.fetch,p=profilePlan(),fake=interactiveMap(ctx);let width=360;
  ctx.fetch=async(path,options)=>path==='/api/plans/'+p.id?{ok:true,status:200,json:async()=>p}:base(path,options);
  const attrs=()=>({values:{},setAttribute(k,v){this.values[k]=v;}}),line=attrs(),dot=attrs(),svg={getBoundingClientRect:()=>({left:0,width}),querySelector:selector=>selector==='.profile-cursor'?line:dot,addEventListener(){}};elements.get('elevationGraph').getBoundingClientRect=()=>({width});elements.get('elevationGraph').querySelector=()=>svg;
- const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadPlan('${p.id}');return {resizeElevationPanel};})()`,ctx);const graph=elements.get('elevationGraph');assert.match(graph.innerHTML,/viewBox="0 0 360 176"/);assert.match(graph.innerHTML,/preserveAspectRatio="xMidYMid meet"/);assert.match(graph.innerHTML,/linearGradient/);assert.match(graph.innerHTML,/profile-grid/);assert.match(graph.innerHTML,/Haut ·/);assert.match(graph.innerHTML,/>200 m<\/text>/);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadPlan('${p.id}');return {resizeElevationPanel};})()`,ctx);const graph=elements.get('elevationGraph');assert.match(graph.innerHTML,/viewBox="0 0 360 132"/);assert.match(graph.innerHTML,/preserveAspectRatio="xMidYMid meet"/);assert.match(graph.innerHTML,/linearGradient/);assert.match(graph.innerHTML,/profile-grid/);assert.match(graph.innerHTML,/Haut ·/);assert.match(graph.innerHTML,/>200 m<\/text>/);
  elements.get('elevationSeek').value='5559';elements.get('elevationSeek').oninput();const before=fake.markers.find(m=>!m.removed&&m.options.icon?.className==='elevation-map-cursor').coords;
  elements.get('profileExtrema').checked=true;elements.get('profileExtrema').onchange();assert.match(graph.innerHTML,/Haut · 350 m/);assert.match(graph.innerHTML,/Bas · 100 m/);assert.equal(line.values.visibility,'visible');width=700;access.resizeElevationPanel();assert.match(graph.innerHTML,/viewBox="0 0 700 196"/);assert.equal(line.values.visibility,'visible');assert.deepEqual(fake.markers.find(m=>!m.removed&&m.options.icon?.className==='elevation-map-cursor').coords,before);
 });
@@ -833,4 +842,5 @@ test('enregistrer depuis le panneau ne l’ouvre pas en fenêtre ; seule la disq
   access.begin();await elements.get('mapSaveTrace').onclick();assert.equal(opened,1);assert.equal(ui.panel.parentNode,ui.dialog);
  }
 });
+
 

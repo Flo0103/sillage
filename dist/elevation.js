@@ -47,7 +47,7 @@ export function altitudeAxis(min,max){
  for(let value=low;value<=high+step*.01;value+=step)ticks.push(value);return {low,high,step,ticks};
 }
 export function chartGeometry(model,compact=false,availableWidth=800){
- const width=Math.max(240,Math.round(availableWidth)),height=compact?64:width<500?176:196,left=compact?6:58,right=compact?6:20,top=compact?7:22,bottom=compact?5:28,base=height-bottom,axis=altitudeAxis(model.min,model.max),{low,high}=axis,y=h=>base-(h-low)/Math.max(1,high-low)*(base-top),x=at=>left+at/Math.max(1,model.total)*(width-left-right);
+ const width=Math.max(240,Math.round(availableWidth)),height=compact?64:width<500?132:196,left=compact?6:58,right=compact?6:20,top=compact?7:22,bottom=compact?5:28,base=height-bottom,axis=altitudeAxis(model.min,model.max),{low,high}=axis,y=h=>base-(h-low)/Math.max(1,high-low)*(base-top),x=at=>left+at/Math.max(1,model.total)*(width-left-right);
  const budget=compact?320:1200,count=model.spans.reduce((n,s)=>n+s.profile.length,0),lines=model.spans.map(s=>chartSamples(s.profile,Math.max(4,Math.floor(budget*s.profile.length/Math.max(1,count)))).map((p,i)=>`${i?'L':'M'}${x(p.at).toFixed(2)},${y(p.altitude).toFixed(2)}`).join(' ')),areas=model.spans.map((s,i)=>`${lines[i]} L${x(s.end).toFixed(2)},${base} L${x(s.start).toFixed(2)},${base} Z`),distanceStep=niceStep(model.total/(width<500?3:6)),distanceTicks=[];
  for(let at=0;at<=model.total+distanceStep*.001;at+=distanceStep)distanceTicks.push(at);
  return {width,height,left,right,top,base,x,y,low,high,axis,distanceStep,distanceTicks,lines,areas};
@@ -69,3 +69,4 @@ export function renderElevationChart(container,model,{compact=false,onSeek,showE
 }
 export function resizeElevationChart(container){const state=chartStates.get(container),width=container?.getBoundingClientRect?.().width;if(state&&width>0&&Math.abs(Math.max(240,Math.round(width))-state.g.width)>=1)renderElevationChart(container,state.model,state.options);}
 export function setChartCursor(container,at){const s=chartStates.get(container);if(!s?.svg)return;s.cursorAt=at;const altitude=elevationAt(s.model,at),line=s.svg.querySelector('.profile-cursor'),dot=s.svg.querySelector('.profile-dot');line.setAttribute('visibility',at===null?'hidden':'visible');dot.setAttribute('visibility',at===null||altitude===null?'hidden':'visible');if(at===null)return;const x=s.g.x(at);line.setAttribute('x1',x);line.setAttribute('x2',x);if(altitude!==null){dot.setAttribute('cx',x);dot.setAttribute('cy',s.g.y(altitude));}}
+

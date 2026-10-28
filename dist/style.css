@@ -149,13 +149,18 @@ body.browsing-rides .library-search{padding-bottom:10px;margin-bottom:0;border-b
 #map>.leaflet-control-container>.leaflet-top.leaflet-left{top:46px}.drawing-help{left:166px}.leaflet-control-zoom.leaflet-bar.sillage-map-toolbar{max-height:calc(var(--mapcanvas-height,600px) - var(--map-attribution-height,0px) - 66px)}.mapnotice{top:56px}.segmentlegend{max-height:max(64px,calc(var(--mapcanvas-height,600px) - var(--map-toolbar-height,280px) - var(--map-attribution-height,0px) - 80px))}
 @media(max-width:850px){
  :root{--map-tool-size:44px}
+ /* Share one isolated stack so the map panel can cover both tool groups. */
+ .mapcanvas{isolation:isolate}#map{z-index:auto}
+ #map>.leaflet-control-container>.leaflet-top,#map>.leaflet-control-container>.leaflet-bottom{z-index:700}
  .library-map-toggle{height:40px;padding:8px;gap:6px;font-size:11px}.library-map-toggle .library-book{width:18px;height:18px}.library-map-toggle .library-state-chevron{width:10px;height:10px;transform:rotate(90deg)}.library-map-toggle.is-collapsed .library-state-chevron{transform:rotate(270deg)}
  .drawing-help{left:auto;right:10px}.drawing-help>summary{width:40px;height:40px}.drawing-help-content{position:absolute;top:48px;right:0;margin:0;width:min(290px,calc(100vw - 20px))}
  #map>.leaflet-control-container>.leaflet-top.leaflet-left{top:50px}
  .leaflet-control-zoom.leaflet-bar.sillage-map-toolbar{display:grid;grid-template-columns:repeat(2,var(--map-tool-size));max-height:calc(var(--mapcanvas-height,600px) - var(--map-attribution-height,0px) - 76px)}
  .sillage-map-toolbar>a,.sillage-map-toolbar>.map-tool-button{border-radius:0;border-bottom:1px solid var(--line)}.sillage-map-toolbar>:nth-child(odd){border-right:1px solid var(--line)}.sillage-map-toolbar>#fit,.sillage-map-toolbar>#fullscreenMap{border-bottom:0}
- .map-tools{top:auto;bottom:calc(var(--map-attribution-height,0px) + 38px);left:50%;transform:translateX(-50%);display:grid;grid-template-columns:repeat(4,var(--map-tool-size));width:max-content;max-height:calc(100% - var(--map-attribution-height,0px) - 98px)}
- .map-tools:before{content:'Tracé';grid-column:1/-1;padding:4px 10px;border-bottom:1px solid var(--line);font-size:10px;font-weight:600;color:var(--muted)}.map-tools .map-tool-button{border-right:1px solid var(--line);border-bottom:1px solid var(--line)}.map-tools .map-tool-button:nth-of-type(4n){border-right:0}
+ /* Keep drawing beside navigation; flex closes gaps when commands are hidden. */
+ .map-tools{top:60px;right:10px;bottom:auto;left:auto;display:flex;flex-wrap:wrap;width:max-content;max-width:min(calc(4 * var(--map-tool-size) + 2px),calc(100% - 120px));max-height:calc(100% - var(--map-attribution-height,0px) - 76px)}
+ .map-tools .map-tool-button{border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+ .elevation-panel{padding:9px 15px 8px}.elevation-panel>summary{gap:4px 8px}.profile-toolbar{margin:6px 0 0}.profile-seek{padding-top:6px;gap:3px 10px}.elevation-panel>small{font-size:8px;line-height:1.4;margin-top:4px}
  .ride-result .preview-graphic.preview-map{height:155px;min-height:155px}
 }
 .workspace:fullscreen #map>.leaflet-control-container>.leaflet-top.leaflet-left,body.map-expanded #map>.leaflet-control-container>.leaflet-top.leaflet-left{top:0}.workspace:fullscreen .drawing-help,body.map-expanded .drawing-help{left:62px}.workspace:fullscreen .leaflet-control-zoom.leaflet-bar.sillage-map-toolbar,body.map-expanded .leaflet-control-zoom.leaflet-bar.sillage-map-toolbar{max-height:calc(var(--mapcanvas-height,600px) - var(--map-attribution-height,0px) - 20px)}
@@ -174,5 +179,6 @@ body.browsing-rides .library-search{padding-bottom:10px;margin-bottom:0;border-b
 
 .rating-scale{display:flex;justify-content:space-between;gap:10px;margin:7px 0 0;font:9px var(--font-data);color:var(--muted)}.rating-readout{min-height:15px;margin:6px 0 0;font-size:10px;color:var(--olive)}
 .technical-notice{display:flex;align-items:flex-start;gap:8px;padding:10px 11px;margin:10px 0 14px;border-left:3px solid #8e4353;border-radius:3px;background:#f2e5e5;color:#703644;font-size:11px;line-height:1.6}.technical-notice svg{flex:none;width:20px;height:20px;margin-top:2px}.technical-notice strong{font-weight:650}.technical-tooltip{color:#8e4353;font-weight:600}.technical-map-warning{pointer-events:none!important;filter:drop-shadow(0 1px 2px #243b2a55)}.technical-map-warning svg{display:block;width:22px;height:22px;overflow:visible}.technical-map-warning svg path:first-child{fill:#8e4353;stroke:#fffaf1;stroke-width:1.7;stroke-linejoin:round}.technical-map-warning svg path+path{fill:none;stroke:#fffaf1;stroke-width:2;stroke-linecap:round}#legendContent .technical-legend-symbol{display:inline-grid;place-items:center;flex:none;width:16px;height:16px;border-radius:3px;background:#8e4353;color:#fffaf1;font:bold 12px var(--font-data);margin-right:0}.technical-legend{align-items:center}
+
 
 

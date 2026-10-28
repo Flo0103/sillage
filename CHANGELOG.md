@@ -341,3 +341,11 @@ Sur ordinateur, les deux groupes sont également distincts ; la légende reste e
 Validation : 377 tests réussis, aucun échec, un contrôle systemd ignoré pour la restriction SO_PASSCRED existante. Le démarrage de Chromium est bloqué par les restrictions système de cet environnement ; le rendu tactile reste à vérifier dans un navigateur après déploiement.
 
 Mise à jour habituelle avec `git pull` puis `sudo docker compose up -d --build --wait`, et rechargement de la page. Aucune migration ni import OSM.
+
+## Carte mobile, bibliothèque et relief (6.26.3 à 6.26.5)
+
+Sur téléphone, les commandes de tracé se placent en haut à droite, sous Carte et l’aide, avec une largeur adaptée aux boutons visibles et des cibles tactiles de 44 px. Le titre « Tracé » et les quatre colonnes réservées disparaissent. Annuler et rétablir restent masqués en consultation lorsque l’historique est vide, puis redeviennent accessibles après une opération. Le panneau Carte ouvert se place au-dessus du zoom et des outils dans un contexte d’empilement limité à la carte ; l’aide et les réglages de point conservent leur priorité.
+
+La bibliothèque démarre repliée sur les écrans jusqu’à 850 px, avant le chargement des données. Son bouton permet de la rouvrir et les changements de vue conservent le choix manuel. Elle reste ouverte par défaut sur ordinateur. Le graphe du relief passe de 176 à 132 px sous 500 px de largeur, avec des espacements mobiles réduits, en conservant graduations, extrema et curseur synchronisé.
+
+La version 6.26.5 conserve les corrections Strava, les protections HTTP, Leaflet hébergé localement et les dépendances verrouillées des versions de main intégrées pendant la résolution des conflits. Les références de ressources mobiles sont actualisées. Aucune nouvelle migration ni modification des données ou du routage. Après fusion, utiliser la procédure du README depuis main, puis recharger la page mobile.

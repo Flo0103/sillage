@@ -1,6 +1,6 @@
 {
   "name": "sillage",
-  "version": "6.26.2",
+  "version": "6.26.5",
   "private": true,
   "type": "module",
   "scripts": {
