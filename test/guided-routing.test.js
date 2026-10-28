@@ -89,3 +89,18 @@ test('vérification du détour indisponible : erreur temporaire explicite, pas d
  const elements=[way(1,[1,2],[riverA,riverWest]),way(2,[3,4],[riverEast,riverB])],{service,calls}=setup([riverA,riverWest,riverEast,riverB],elements,{osmFetcher:async(url,options)=>options.body.get('data').includes('node(id:')?new Response('',{status:503}):Response.json({elements})});
  await assert.rejects(service(request([riverA,riverB])),e=>e.status===503&&!e.localNoPath&&/temporairement indisponible/.test(e.message));assert.equal(calls.filter(c=>c.source==='router').length,1);
 });
+
+function incompleteGuide({missingStart=false,oneway=false}={}){
+ const a=[50,5],near=[50.003,5],b=[50,5.04],elements=[way(1,[1,2,3],[a,near,b],oneway?{oneway:'yes'}:{})];let seen;
+ const osm=async()=>({elements:missingStart?[way(1,[2,3],[near,b])]:elements});osm.forRoute=osm;
+ const service=createRoutingService({localRouting:createLocalRouting({osmService:osm}),wait:async()=>{},fetcher:async url=>{
+  seen=new URL(url);assert.equal(seen.searchParams.get('radiuses'),'1000;1000');
+  return Response.json({code:'Ok',routes:[{geometry:{type:'LineString',coordinates:[near,b].map(p=>p.slice().reverse())},legs:[{annotation:{nodes:[2,3]}}]}],waypoints:[near,b].map(p=>({location:p.slice().reverse()}))});
+ }});return {a,b,near,elements,service,get seen(){return seen;}};
+}
+test('guide incomplet à Maastricht : départ public voisin accepté comme guide, vrais points conservés sur OSM',async()=>{
+ const fixture=incompleteGuide(),result=await fixture.service(request([fixture.a,fixture.b]));assert.ok(fixture.seen);assert.deepEqual(result.snappedPoints,[fixture.a,fixture.b]);assert.deepEqual(result.coordinates,[fixture.a,fixture.near,fixture.b]);assert.equal(result.stats.tolerance,150);assert.equal(result.stats.maxOffset,0);assert.equal(result.accessPolicy,'explicit');
+});
+test('rayon élargi du guide : ne permet jamais de déplacer les vrais points au-delà de leur tolérance',async()=>{
+ const fixture=incompleteGuide({missingStart:true});await assert.rejects(fixture.service(request([fixture.a,fixture.b])),e=>e.localNoPath&&e.status===422);assert.ok(fixture.seen);
+});
