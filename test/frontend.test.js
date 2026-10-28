@@ -59,7 +59,7 @@ test('la carte initiale ne charge pas automatiquement le dernier GPX',async()=>{
 test('catalogue initial, filtres personnel/public/hiver et légende sans GPX',async()=>{
  const {ctx,elements}=context(),base=ctx.fetch;const items=[{id:'a',name:'Personnel',rating:5,surface:'Gravier fin',winter:'yes',distance:100,coordinates:[[50,5],[50.001,5]],owner:'alice',isMine:true,isPublic:false},{id:'b',name:'Public',rating:3,surface:'Sable',winter:'no',distance:100,coordinates:[[50,5.01],[50.001,5.01]],owner:'bob',isMine:false,isPublic:true}];
  ctx.fetch=async(path,options)=>path==='/api/catalog'?{ok:true,status:200,json:async()=>items}:base(path,options);
- await vm.runInNewContext(`(async()=>{${script}})()`,ctx);elements.get('planScope').value='all';elements.get('planScope').onchange();assert.equal(elements.get('editorPanel').hidden,true);assert.equal(elements.get('gpxLegend').hidden,true);assert.equal(elements.get('segmentLegend').hidden,false);assert.equal(elements.get('savedList').children.length,1);assert.equal(elements.get('segmentSelect').children.length,2);
+ await vm.runInNewContext(`(async()=>{${script}})()`,ctx);elements.get('planScope').value='all';elements.get('planScope').onchange();assert.equal(elements.get('editorPanel').hidden,true);assert.equal(elements.get('gpxLegend').hidden,true);assert.equal(elements.get('segmentLegend').hidden,false);assert.equal(elements.get('savedList').children.length,2);assert.equal(elements.get('segmentSelect').children.length,2);
  elements.get('showMine').checked=false;elements.get('showMine').onchange();assert.equal(elements.get('savedList').children.length,1);
  elements.get('winterFilter').value='yes';elements.get('winterFilter').onchange();assert.equal(elements.get('savedList').children.length,0);assert.equal(elements.get('segmentSelect').children[0].textContent,'Aucun secteur avec ces filtres');
  elements.get('colorMode').value='surface';elements.get('colorMode').onchange();assert.equal(elements.get('legendContent').children[0].textContent,'Secteurs · Revêtement');
@@ -316,6 +316,24 @@ test('bibliothèque initiale : repliée sur mobile avant le chargement, ouverte 
   const access=await vm.runInNewContext(`(async()=>{${script}\nreturn {setView};})()`,ctx);
   assertSidebar(mobile);elements.get('sidebarToggle').onclick();assertSidebar(!mobile);access.setView('saved');assertSidebar(!mobile);elements.get('sidebarToggle').onclick();assertSidebar(mobile);
  }
+});
+test('retour à la carte depuis une longue recherche mobile : filtres, résultats et tracé conservés',async()=>{
+ const {ctx,elements}=context();ctx.innerWidth=390;let mapJumps=0,libraryJumps=0,focused=0;
+ elements.get('workspace').scrollIntoView=()=>mapJumps++;elements.get('appSidebar').scrollIntoView=()=>libraryJumps++;elements.get('sidebarToggle').focus=()=>focused++;
+ const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();planDraft.append([50,5]);planDraft.append([50.01,5],'manual');syncPlanner();return {state:()=>JSON.stringify(planDraft.snapshot())};})()`,ctx),before=access.state();
+ elements.get('sidebarToggle').onclick();assert.equal(libraryJumps,1);elements.get('planSearch').value='Fagnes';elements.get('appSidebar').scrollTop=2800;
+ elements.get('showLibraryMap').onclick();assert.equal(ctx.document.body.classList.contains('sidebar-collapsed'),true);assert.equal(mapJumps,1);assert.equal(focused,1);assert.equal(access.state(),before);
+ elements.get('sidebarToggle').onclick();assert.equal(ctx.document.body.classList.contains('sidebar-collapsed'),false);assert.equal(elements.get('planSearch').value,'Fagnes');assert.equal(elements.get('appSidebar').scrollTop,2800);assert.equal(access.state(),before);
+});
+test('secteurs : chaque résultat a une vignette accessible, ouverture publique et actions privées séparées',async()=>{
+ const {ctx,elements}=context(),base=ctx.fetch,items=[{id:'own',name:'Mon chemin',rating:5,surface:'Gravier fin',distance:100,coordinates:[[50,5],[50.001,5]],isMine:true,isPublic:false},{id:'public',name:'Sentier public',rating:3,surface:'Sable',difficulty:'Très technique',distance:100,coordinates:[[50,5.01],[50.001,5.01]],owner:'bob',isMine:false,isPublic:true}];
+ ctx.fetch=async(path,options)=>path==='/api/catalog'?{ok:true,status:200,json:async()=>items}:base(path,options);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nreturn {current:()=>viewedSegment?.id};})()`,ctx);elements.get('planScope').value='all';elements.get('planScope').onchange();
+ const cards=elements.get('savedList').children;assert.equal(cards.length,2);assert.equal(cards[0].children.length,2);assert.equal(cards[1].children.length,1);assert.equal(cards[0].children[1].children[0].textContent,'Supprimer ce secteur');
+ for(const [i,card]of cards.entries()){const main=card.children[0];assert.equal(main.getAttribute('role'),'button');assert.equal(main.getAttribute('tabindex'),'0');assert.equal(main.children[2].textContent,items[i].name);assert.match(main.children[0].innerHTML,/Aperçu du tracé/);}
+ const main=cards[1].children[0];assert.ok(main.children.some(c=>c.className==='technical-notice'));main.onclick({target:{closest:()=>({})}});assert.equal(access.current(),undefined);
+ main.onkeydown({key:'Enter',preventDefault(){}});assert.equal(access.current(),'public');assert.equal(elements.get('editorPanel').hidden,true);
+ elements.get('planSearch').value='Mon chemin';elements.get('planSearch').oninput();assert.equal(elements.get('savedList').children.length,1);assert.equal(elements.get('savedList').children[0].children[0].children[2].textContent,'Mon chemin');
 });
 test('bibliothèque repliable du planificateur : redimensionne la carte, conserve le tracé et reste réouvrable',async()=>{
  const {ctx,elements}=context(),fake=interactiveMap(ctx);let resizes=0;fake.map.invalidateSize=()=>resizes++;
