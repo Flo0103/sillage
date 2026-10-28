@@ -47,6 +47,11 @@ export function createStravaLibrary({decode,now=Date.now,wait=ms=>new Promise(re
   const data=state.rows[0]?.data,count=counts.rows[0]||{};return {cursor:data?[data.revision,data.page,data.head?.id||'',data.head?.page||0].join(':'):null,complete:data?.complete===true,headPending:!!data?.head&&!data.head.done,indexed:count.indexed||0,checked:count.checked||0,oldest:count.oldest||null,refreshedAt:data?.refreshedAt||null,needsRefresh:!data?.refreshedAt||now()-Date.parse(data.refreshedAt)>15*60000};
  }
  async function read(db,userId,athleteId,query){
+  if(query.get('view')==='map'){
+   await ensure(db,userId,athleteId);const filter=libraryQuery(userId,query);
+   const rows=await db.query('SELECT a.data,r.id AS ride_id FROM strava_library_activities a LEFT JOIN rides r ON r.user_id=a.user_id AND r.strava_activity_id=a.activity_id WHERE '+filter.where+' ORDER BY a.started_at DESC NULLS LAST,a.activity_id DESC',filter.params);
+   return {connected:true,items:rows.rows.map(row=>({id:row.data.id,name:row.data.name,preview:row.data.preview||[],rideId:row.ride_id||null})),total:rows.rows.length,status:await status(db,userId)};
+  }
   await ensure(db,userId,athleteId);const filter=libraryQuery(userId,query),count=await db.query('SELECT count(*)::int AS total FROM strava_library_activities a WHERE '+filter.where,filter.params),params=[...filter.params,filter.limit,filter.offset];
   filter.offset=Math.min(filter.offset,Math.max(0,Math.ceil((count.rows[0]?.total||0)/filter.limit)-1)*filter.limit);params[params.length-1]=filter.offset;
   const rows=await db.query('SELECT a.data,r.id AS ride_id FROM strava_library_activities a LEFT JOIN rides r ON r.user_id=a.user_id AND r.strava_activity_id=a.activity_id WHERE '+filter.where+` ORDER BY a.started_at DESC NULLS LAST,a.activity_id DESC LIMIT $${params.length-1} OFFSET $${params.length}`,params);

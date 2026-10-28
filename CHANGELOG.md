@@ -2,6 +2,14 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Tous les résultats filtrés sur la carte (6.26.8)
+
+Le bouton « Afficher tous les résultats sur la carte » affiche et cadre les itinéraires, secteurs ou sorties correspondant aux filtres actifs, y compris les sorties des pages suivantes. Sur mobile, la bibliothèque se replie pour rendre la carte accessible. L’affichage suit ensuite les changements de recherche, de type, de visibilité, de distance, de dénivelé et de zone sans recadrage automatique répété. « Masquer les résultats » restaure les secteurs et traces habituellement affichés ; le tracé en cours est conservé.
+
+Pour Strava, la vue carte lit tous les aperçus correspondants dans l’index privé local, sans pagination et sans importer les activités ni lancer d’appel supplémentaire à Strava. Un historique encore incomplet et les résultats sans aperçu sont signalés. Les réponses de chargement devenues périmées sont ignorées après un changement de filtre ou un masquage. Les tracés groupés des sorties et itinéraires utilisent des aperçus allégés ; leur ouverture charge le tracé complet. Les secteurs gardent leur géométrie originale et leurs avertissements techniques.
+
+Validation : tests d’interface, bibliothèque Strava et sorties, couvrant toutes les pages, les filtres combinés, la conservation du brouillon, le cadrage mobile, les changements de zone, les chargements périmés et la confidentialité de l’index. Aucune migration de données.
+
 ## Liste des itinéraires avec miniatures (6.26.7)
 
 Chaque itinéraire trouvé dispose désormais de sa propre carte avec une miniature du tracé, son auteur, sa distance, son dénivelé disponible et sa visibilité, avec la même présentation que les sorties et les secteurs. Un clic, Entrée ou Espace affiche le résultat sur la carte. Le profil de relief et les actions GPX, Garmin / COROS, copie et suppression accompagnent l’itinéraire sélectionné, sans ajouter un aperçu en double sous la liste.
