@@ -342,18 +342,21 @@ function renderList(){
  if(!items.some(s=>s.id===pickedSegmentId))pickedSegmentId=items[0]?.id||null;
  if(!items.length){const o=document.createElement('option');o.value='';o.textContent='Aucun secteur avec ces filtres';select.append(o);return;}
  for(const r of items){const o=document.createElement('option');o.value=r.id;o.textContent=`${r.name} · ${r.owner} · ${r.rating}/5`;select.append(o);}select.value=pickedSegmentId;
- const r=items.find(r=>r.id===pickedSegmentId),div=document.createElement('div');div.className='saveditem preview-card';renderPreview(div,r,{label:r.isMine?'Mon secteur':`Secteur de ${r.owner}`,meta:`${'★'.repeat(r.rating)} · ${(r.distance/1000).toFixed(2)} km · ${r.surface}`});
- if(r.difficulty==='Très technique'){const warning=document.createElement('p');warning.className='technical-notice';warning.textContent='⚠ Secteur très technique · reconnaissance conseillée';div.append(warning);}
- const attributes=document.createElement('p');attributes.className='preview-meta';attributes.textContent=`${r.isPublic?'Public':'Privé'} · ${winterLabels[r.winter]||winterLabels.unknown} · ${singleTrackLabels[r.singleTrack||'unknown']}`;div.append(attributes);
- if(r.notes){const notes=document.createElement('p');notes.className='preview-note';notes.textContent=r.notes;div.append(notes);}
- const show=document.createElement('button');show.className='outline';show.textContent=r.isMine?'Modifier sur la carte':'Afficher sur la carte';show.onclick=()=>showSegment(r);div.append(show);
- if(r.isMine){const del=document.createElement('button');del.className='textbutton danger';del.textContent='Supprimer ce secteur';del.onclick=async()=>{if(!confirm(`Supprimer « ${r.name} » ?`))return;try{await api(`/api/portions/${r.id}`,{method:'DELETE'});reset();await refreshSegments();renderList();}catch(e){toast(e.message);}};div.append(del);}list.append(div);
+ for(const r of items){
+ const div=document.createElement('div'),main=document.createElement('div');div.className='saveditem preview-card ride-result';main.className='ride-result-main';renderPreview(main,r,{label:r.isMine?'Mon secteur':`Secteur de ${r.owner}`,meta:`${'★'.repeat(r.rating)} · ${(r.distance/1000).toFixed(2)} km · ${r.surface}`});
+ main.setAttribute('role','button');main.setAttribute('tabindex','0');main.setAttribute('aria-label',`${r.isMine?'Modifier':'Afficher'} ${r.name} sur la carte`);main.onclick=e=>{if(e?.target?.closest?.('a'))return;showSegment(r);};main.onkeydown=e=>{if(e.target?.closest?.('a'))return;if(e.key==='Enter'||e.key===' '){e.preventDefault();showSegment(r);}};
+ if(r.difficulty==='Très technique'){const warning=document.createElement('p');warning.className='technical-notice';warning.textContent='⚠ Secteur très technique · reconnaissance conseillée';main.append(warning);}
+ const attributes=document.createElement('p');attributes.className='preview-meta';attributes.textContent=`${r.isPublic?'Public':'Privé'} · ${winterLabels[r.winter]||winterLabels.unknown} · ${singleTrackLabels[r.singleTrack||'unknown']}`;main.append(attributes);
+ if(r.notes){const notes=document.createElement('p');notes.className='preview-note';notes.textContent=r.notes;main.append(notes);}div.append(main);
+ if(r.isMine){const actions=document.createElement('div'),del=document.createElement('button');actions.className='ride-result-actions';del.type='button';del.className='textbutton danger';del.textContent='Supprimer ce secteur';del.onclick=async()=>{if(!confirm(`Supprimer « ${r.name} » ?`))return;try{await api(`/api/portions/${r.id}`,{method:'DELETE'});reset();await refreshSegments();renderList();}catch(e){toast(e.message);}};actions.append(del);div.append(actions);}list.append(div);
+ }
 }
-$('segmentSelect').onchange=()=>{pickedSegmentId=$('segmentSelect').value;renderList();};
+$('segmentSelect').onchange=()=>{pickedSegmentId=$('segmentSelect').value;const item=filterPlans(filtered(),libraryFilters()).find(r=>r.id===pickedSegmentId);if(item)showSegment(item);};
 function applySidebarState(){
  document.body.classList.toggle('sidebar-collapsed',sidebarCollapsed);const button=$('sidebarToggle'),label=sidebarCollapsed?'Ouvrir la bibliothèque':'Fermer la bibliothèque';button.setAttribute('aria-expanded',String(!sidebarCollapsed));button.setAttribute('aria-label',label);button.setAttribute('title',label);button.classList.toggle('is-collapsed',sidebarCollapsed);map?.invalidateSize({pan:false});
 }
-$('sidebarToggle').onclick=()=>{sidebarCollapsed=!sidebarCollapsed;applySidebarState();};
+$('sidebarToggle').onclick=()=>{sidebarCollapsed=!sidebarCollapsed;applySidebarState();if(innerWidth<=850){if(sidebarCollapsed)jumpToMap();else $('appSidebar').scrollIntoView?.({block:'start'});}};
+$('showLibraryMap').onclick=()=>{sidebarCollapsed=true;applySidebarState();jumpToMap();$('sidebarToggle').focus?.({preventScroll:true});};
 applySidebarState();
 function setView(v){
  view=v;const saved=v==='saved',planning=v==='planner',exploring=v==='explore';

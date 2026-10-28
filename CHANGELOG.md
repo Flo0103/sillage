@@ -2,6 +2,14 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Recherche mobile et vignettes des secteurs (6.26.6)
+
+Sur mobile, le panneau de bibliothèque occupe au maximum 65 % de la hauteur de l’écran et défile indépendamment de la carte. Le bouton « Afficher la carte » reste visible en haut du panneau, même au milieu d’une longue liste Strava. Il replie la bibliothèque sans perdre la recherche, les résultats ni le tracé en cours ; la réouverture conserve la position dans la liste.
+
+Les secteurs trouvés affichent chacun leur vignette cartographique avec leur nom, leur auteur et leurs caractéristiques. Un clic, Entrée ou Espace ouvre le secteur sur la carte ; les avertissements techniques et la suppression des secteurs personnels restent disponibles. Les aperçus OSM conservent leur chargement à la visibilité.
+
+Validation : 121 tests d’interface et 8 tests de bibliothèque des sorties réussis sous Node 24. La vérification visuelle sur navigateur reste à effectuer : Chromium ne démarre pas dans cet environnement (restriction système sur `setsockopt`). Aucune migration de données. Après fusion, suivre la procédure habituelle du README et recharger la page.
+
 ## Mise à jour vers les itinéraires (version 6)
 
 La migration au démarrage crée `planned_routes`, sa géométrie PostGIS, son trigger et son index GiST. Elle est additive et conserve les sorties et portions existantes. Après récupération de la nouvelle version :
