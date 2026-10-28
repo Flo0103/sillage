@@ -2,6 +2,12 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Liste des itinéraires avec miniatures (6.26.7)
+
+Chaque itinéraire trouvé dispose désormais de sa propre carte avec une miniature du tracé, son auteur, sa distance, son dénivelé disponible et sa visibilité, avec la même présentation que les sorties et les secteurs. Un clic, Entrée ou Espace affiche le résultat sur la carte. Le profil de relief et les actions GPX, Garmin / COROS, copie et suppression accompagnent l’itinéraire sélectionné, sans ajouter un aperçu en double sous la liste.
+
+Les filtres, les aperçus OSM chargés à la visibilité et l’accès rapide à la carte sur mobile sont conservés. Les résultats inchangés gardent leurs miniatures montées. Validation : tests d’interface et de bibliothèque des sorties, dont une régression sur les vignettes multiples, l’ouverture clavier, les actions personnelles / publiques et les changements de filtres. Aucune migration de données.
+
 ## Recherche mobile et vignettes des secteurs (6.26.6)
 
 Sur mobile, le panneau de bibliothèque occupe au maximum 65 % de la hauteur de l’écran et défile indépendamment de la carte. Le bouton « Afficher la carte » reste visible en haut du panneau, même au milieu d’une longue liste Strava. Il replie la bibliothèque sans perdre la recherche, les résultats ni le tracé en cours ; la réouverture conserve la position dans la liste.
