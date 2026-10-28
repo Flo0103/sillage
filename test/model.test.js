@@ -25,3 +25,10 @@ test('modèle d’itinéraire : limites, nom obligatoire et GPX échappé',()=>{
 test('segment avec corrections locales : validation et conservation des portions, incohérences rejetées',()=>{
  const a=[50,5],b=[50.01,5],c=[50.02,5],body={coordinates:[a,b,c],mode:'route',snapped:true,rating:4,surface:'Gravier fin',difficulty:'Facile',legs:[{mode:'route',coordinates:[a,b]},{mode:'manual',coordinates:[b,c]}]},p=portion(body);assert.deepEqual(p.routePoints,[a,b,c]);assert.deepEqual(p.legs.map(l=>l.mode),['route','manual']);assert.throws(()=>portion({...body,legs:[{mode:'unknown',coordinates:[a,b,c]}]}),/Mode/);assert.throws(()=>portion({...body,legs:[{mode:'route',coordinates:[a,b]}]}),/correspondent/);assert.throws(()=>portion({...body,legs:[{mode:'route',coordinates:[a,b]},{mode:'manual',coordinates:[a,c]}]}),/rejoindre/);assert.equal(portion({...body,legs:null}).legs,undefined);
 });
+
+test('les restrictions restent présentes après enregistrement et rechargement d’un secteur',()=>{
+ const coordinates=[[50,5],[50.01,5]],accessRuns=[{label:'Accès privé (access=private)',coordinates}],body={coordinates,rating:4,surface:'Gravier fin',difficulty:'Technique',mode:'route',snapped:true,legs:[{mode:'route',coordinates,analysis:{accessRuns}}]};
+ const saved=portion(body),reloaded=portion(JSON.parse(JSON.stringify(saved)));
+ assert.deepEqual(reloaded.legs[0].analysis.accessRuns,accessRuns);
+ for(const run of [{label:'',coordinates},{label:'x'.repeat(201),coordinates},{label:'Privé',coordinates:[[91,5],[50,5]]},null])assert.throws(()=>portion({...body,legs:[{...body.legs[0],analysis:{accessRuns:[run]}}]}));
+});

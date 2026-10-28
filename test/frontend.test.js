@@ -450,9 +450,9 @@ test('onglet Carte commun : bibliothèques visibles en consultation et dessin, s
 test('panneau carte unique : fonds WMS et relief opaque indépendant sans modifier le dessin',async()=>{
  const {ctx,elements}=context(),base=ctx.fetch,fake=interactiveMap(ctx);ctx.fetch=async(path,options)=>path==='/api/wms'?{ok:true,status:200,json:async()=>[{name:'Mon WMS',url:'https://example.org/wms',layers:'topo'}]}:base(path,options);
  const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();planDraft.append([50,5]);planDraft.append([50.01,5],'manual');syncPlanner();return {state:()=>JSON.stringify(planDraft.snapshot()),relief:hillshadeLayer};})()`,ctx),before=access.state();
- assert.equal(elements.get('baseMapSelect').children.length,5);assert.equal(elements.get('baseMapSelect').children[4].textContent,'Mon WMS');assert.equal(fake.map.hasLayer(access.relief),true);assert.equal(access.relief.options.pane,'reliefPane');
+ assert.equal(elements.get('baseMapSelect').children.length,6);assert.equal(elements.get('baseMapSelect').children[5].textContent,'Mon WMS');assert.equal(fake.map.hasLayer(access.relief),true);assert.equal(access.relief.options.pane,'reliefPane');
  elements.get('showHillshade').checked=true;elements.get('showHillshade').onchange();assert.equal(fake.map.hasLayer(access.relief),true);assert.equal(access.relief.options.opacity,1);assert.equal(elements.has('hillshadeTransparency'),false);
- elements.get('baseMapSelect').value='base-4';elements.get('baseMapSelect').onchange();assert.equal(fake.map.hasLayer(access.relief),true);assert.ok(fake.map.layers.some(l=>!l.removed&&l.url==='https://example.org/wms'));assert.equal(access.state(),before);
+ elements.get('baseMapSelect').value='base-5';elements.get('baseMapSelect').onchange();assert.equal(fake.map.hasLayer(access.relief),true);assert.ok(fake.map.layers.some(l=>!l.removed&&l.url==='https://example.org/wms'));assert.equal(access.state(),before);
  access.relief.events.loading();access.relief.events.tileerror();assert.match(elements.get('hillshadeStatus').textContent,/indisponible/);assert.equal(access.state(),before);elements.get('showHillshade').checked=false;elements.get('showHillshade').onchange();assert.equal(fake.map.hasLayer(access.relief),false);assert.equal(elements.get('hillshadeStatus').textContent,'');
  for(const id of ['baseMapSelect','showHillshade','catalogFilters','planMapControls','legendContent'])assert.ok(html.indexOf('id="'+id+'"')>html.indexOf('id="segmentLegend"'));
 });
@@ -706,7 +706,7 @@ test('IGN par défaut, avertissement hors couverture même légende fermée et s
  assert.equal(elements.get('baseMapSelect').value,'base-2');assert.equal(fake.map.hasLayer(access.ign),true);assert.equal(fake.map.hasLayer(access.osm),false);assert.equal(elements.get('ignCoverageNotice').hidden,true);
  elements.get('segmentLegend').open=false;outside=true;fake.events['zoomend moveend']();assert.equal(elements.get('ignCoverageNotice').hidden,false);assert.match(elements.get('ignCoverageMessage').textContent,/couverture IGN belge/);assert.equal(elements.get('segmentLegend').open,false);
  elements.get('useOsmMap').onclick();assert.equal(fake.map.hasLayer(access.ign),false);assert.equal(fake.map.hasLayer(access.osm),true);assert.equal(elements.get('ignCoverageNotice').hidden,true);
- elements.get('baseMapSelect').value='base-1';elements.get('baseMapSelect').onchange();assert.equal(fake.map.hasLayer(access.osm),true);assert.equal(fake.map.hasLayer(access.satellite),true);assert.equal(access.satellite.options.opacity,.7);assert.equal(elements.get('satelliteOptions').hidden,false);
+ elements.get('baseMapSelect').value='base-1';elements.get('baseMapSelect').onchange();assert.equal(fake.map.hasLayer(access.osm),true);assert.equal(fake.map.hasLayer(access.satellite),true);assert.equal(access.satellite.options.opacity,.5);assert.equal(elements.get('satelliteOptions').hidden,false);
  elements.get('satelliteTransparency').value='55';elements.get('satelliteTransparency').oninput();assert.ok(Math.abs(access.satellite.opacity-.45)<1e-10);assert.equal(elements.get('satelliteTransparencyValue').textContent,'55 %');
  elements.get('baseMapSelect').value='base-2';elements.get('baseMapSelect').onchange();assert.equal(fake.map.hasLayer(access.satellite),false);assert.equal(fake.map.hasLayer(access.osm),false);assert.equal(fake.map.hasLayer(access.ign),true);assert.equal(elements.get('satelliteOptions').hidden,true);assert.equal(access.state(),before);
 });
@@ -932,6 +932,30 @@ test('enregistrer depuis le panneau ne l’ouvre pas en fenêtre ; seule la disq
   const access=await vm.runInNewContext(`(async()=>{${script}\nfunction begin(){${kind==='plan'?'newPlan();':"$('drawSegment').onclick();"}planDraft.append([50,5]);planDraft.append([50.01,5],'manual');rating=4;syncPlanner();}begin();return {begin};})()`,ctx);elements.get('planName').value='Boucle';elements.get('planName').oninput();elements.get('surface').value='Sable';elements.get('difficulty').value='Facile';const form=elements.get(kind==='plan'?'planForm':'ratingForm');await form.onsubmit({preventDefault(){}});assert.equal(opened,0);assert.equal(scrolled,0);assert.equal(ui.panel.parentNode,ui.home);assert.equal(ui.dialog.open,false);assert.ok(calls.some(c=>c.options.method==='POST'&&c.path===(kind==='plan'?'/api/plans':'/api/portions')));
   access.begin();await elements.get('mapSaveTrace').onclick();assert.equal(opened,1);assert.equal(ui.panel.parentNode,ui.dialog);
  }
+});
+
+
+
+
+test('sans fond de carte : relief indépendant, satellite retiré avec sa sous-couche, dessin conservé',async()=>{
+ const {ctx,elements}=context(),fake=interactiveMap(ctx),access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();planDraft.append([50,5]);planDraft.append([50.01,5],'manual');syncPlanner();return {state:()=>JSON.stringify(planDraft.snapshot()),relief:hillshadeLayer,osm:osmBaseLayer,satellite:satelliteBaseLayer,ign:ignBaseLayer};})()`,ctx),before=access.state();
+ const noBase=elements.get('baseMapSelect').children.find(c=>c.textContent==='Aucun fond de carte');assert.ok(noBase);
+ const select=value=>{elements.get('baseMapSelect').value=value;elements.get('baseMapSelect').onchange();};
+ select(noBase.value);assert.equal(fake.map.hasLayer(access.ign),false);assert.equal(fake.map.hasLayer(access.relief),true);
+ elements.get('showHillshade').checked=false;elements.get('showHillshade').onchange();assert.equal(fake.map.hasLayer(access.relief),false);elements.get('showHillshade').checked=true;elements.get('showHillshade').onchange();assert.equal(fake.map.hasLayer(access.relief),true);
+ select('base-1');assert.equal(fake.map.hasLayer(access.osm),true);assert.equal(fake.map.hasLayer(access.satellite),true);assert.equal(access.satellite.options.opacity,.5);assert.match(html,/id="satelliteTransparency"[^>]*value="50"/);assert.match(html,/for="satelliteTransparency">50 %/);
+ select(noBase.value);assert.equal(fake.map.hasLayer(access.osm),false);assert.equal(fake.map.hasLayer(access.satellite),false);assert.equal(elements.get('satelliteOptions').hidden,true);assert.equal(fake.map.hasLayer(access.relief),true);select('base-2');assert.equal(fake.map.hasLayer(access.ign),true);assert.equal(access.state(),before);
+});
+test('secteurs enregistrés : même avertissement d’accès que les itinéraires, filtres et déplacements respectés',async()=>{
+ const {ctx,elements}=context(),fake=interactiveMap(ctx),coordinates=[[50,5],[50.01,5]],accessRuns=[{label:'Accès privé (access=private)',coordinates}],sector={id:'restricted',isMine:true,isPublic:true,name:'Bois privé',rating:3,surface:'Gravier fin',coordinates,legs:[{mode:'route',coordinates,analysis:{accessRuns}}]};let inView=true;fake.map.getBounds=()=>({contains:()=>inView});
+ const access=await vm.runInNewContext(`(async()=>{${script}\ncatalog=[${JSON.stringify(sector)}];drawCatalog();return {drawCatalog};})()`,ctx),warnings=()=>fake.markers.filter(m=>!m.removed&&m.options.icon?.className==='access-warning');
+ assert.equal(warnings().length,1);assert.equal(warnings()[0].options.icon.html,'!');assert.equal(warnings()[0].options.pane,'markerPane');assert.match(warnings()[0].tooltip.html,/Accès privé/);assert.ok(elements.get('legendContent').children.some(e=>e.children?.some(c=>/! Accès limité/.test(c.textContent))));
+ inView=false;fake.setZoom(12);assert.equal(warnings().length,0);inView=true;fake.setZoom(16);assert.equal(warnings().length,1);elements.get('showMine').checked=false;access.drawCatalog();assert.equal(warnings().length,0);
+});
+test('triangle technique au-dessus du trait, sur fond clair et identique dans la légende',async()=>{
+ const {ctx,elements}=context(),fake=interactiveMap(ctx),r={id:'tech',isMine:true,isPublic:true,rating:3,difficulty:'Très technique',coordinates:[[50,5],[50.01,5]]};await vm.runInNewContext(`(async()=>{${script}\ncatalog=[${JSON.stringify(r)}];drawCatalog();})()`,ctx);
+ const icon=fake.markers.find(m=>!m.removed&&m.options.icon?.className==='technical-map-warning').options.icon;assert.ok(icon.iconAnchor[1]>icon.iconSize[1]);assert.ok(elements.get('legendContent').children.find(c=>c.className==='technical-legend').innerHTML.includes(icon.html));
+ const css=await readFile(new URL('../dist/style.css',import.meta.url),'utf8');assert.match(css,/\.technical-map-warning svg path:first-child\{fill:var\(--paper\);stroke:#8e4353/);assert.match(css,/\.technical-legend-symbol svg path:first-child\{fill:var\(--paper\);stroke:#8e4353/);
 });
 
 
