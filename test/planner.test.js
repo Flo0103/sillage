@@ -1,10 +1,25 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {ItineraryDraft,planSummary} from '../dist/planner.js';
-import {planData,planFilename,planGPX} from '../server/plans.js';
+import {planData,planFilename,planGPX,createPlanEnrichment} from '../server/plans.js';
 import {createPlanMetrics,elevationProfile,samplePath,surfaceProfile} from '../server/plan-metrics.js';
 const a=[50,5],b=[50.01,5],c=[50.02,5],d=[50.03,5];
 const solve=(draft,i,path=[draft.points[i],draft.points[i+1]])=>draft.resolve(draft.legs[i].id,{coordinates:path});
+function enrichmentFixture(){
+ const plan={...planData({name:'Sortie convertie',coordinates:[a,b],legs:[{mode:'manual',coordinates:[a,b]}]}),id:'converted',analysisStatus:'pending',isMine:true,fromStrava:true},row={user:'alice',data:structuredClone(plan),isPublic:false,sourceStrava:true},calls=[];
+ const db={async query(sql,args){calls.push({sql,args});if(!row.data||row.data.id!==args[2]||row.user!==args[3]||row.data.analysisStatus!=='pending'||JSON.stringify(row.data.legs)!==args[4]||JSON.stringify(row.data.coordinates)!==args[5])return {rowCount:0};row.data={...row.data,legs:JSON.parse(args[0]),analysisStatus:args[1]};return {rowCount:1};}};
+ const analysis={elevation:{ascent:50,descent:0,profile:[{at:0,altitude:100},{at:1112,altitude:150}]},surfaces:[{type:'Gravier',distance:1112}],surfaceRuns:[{type:'Gravier',unpaved:true,coordinates:[a,b]}],surfaceVersion:2,errors:[]};return {plan,row,calls,db,analysis};
+}
+test('conversion : analyse lancée sans attendre, puis enregistrée sans modifier trace, attributs ni confidentialité',async()=>{
+ const f=enrichmentFixture();let finish,requests=0;const enrich=createPlanEnrichment({db:f.db,metrics:input=>{requests++;assert.equal(input.kind,'all');return new Promise(resolve=>{finish=()=>resolve(f.analysis);});}}),job=enrich(f.plan,'alice');assert.equal(requests,1);assert.equal(enrich(f.plan,'alice'),job);assert.equal(f.row.data.analysisStatus,'pending');
+ f.row.data.name='Nom conservé';finish();await job;assert.equal(requests,1);assert.equal(f.row.data.analysisStatus,'complete');assert.deepEqual(f.row.data.coordinates,[a,b]);assert.equal(f.row.data.legs[0].mode,'manual');assert.equal(f.row.data.legs[0].analysis.elevation.ascent,50);assert.equal(f.row.data.legs[0].analysis.surfaces[0].type,'Gravier');assert.equal(f.row.data.name,'Nom conservé');assert.equal(f.row.isPublic,false);assert.equal(f.row.sourceStrava,true);assert.match(f.calls[0].sql,/user_id=\$4/);assert.match(f.calls[0].sql,/data->'coordinates'=\$6::jsonb/);
+});
+test('analyse de conversion : suppression ou géométrie modifiée pendant le calcul jamais écrasées',async()=>{
+ for(const action of ['delete','edit','owner']){const f=enrichmentFixture();let finish;const enrich=createPlanEnrichment({db:f.db,metrics:()=>new Promise(r=>{finish=()=>r(f.analysis);})}),job=enrich(f.plan,'alice');if(action==='delete')f.row.data=null;else if(action==='owner')f.row.user='bob';else{f.row.data.coordinates=[a,c];f.row.data.legs=[{mode:'manual',coordinates:[a,c],analysis:null}];}const before=JSON.stringify(f.row);finish();await job;assert.equal(JSON.stringify(f.row),before);}
+});
+test('analyse de conversion : panne signalée et résultat partiel enregistré',async()=>{
+ const f=enrichmentFixture(),enrich=createPlanEnrichment({db:f.db,metrics:async()=>{throw Error('Service indisponible');}});await enrich(f.plan,'alice');assert.equal(f.row.data.analysisStatus,'partial');assert.equal(f.row.data.legs[0].analysis.elevation,null);assert.match(f.row.data.legs[0].analysis.errors[0],/indisponible/);
+});
 test('prolonger conserve les géométries et analyses des portions précédentes, insertion et déplacement localisés',()=>{
  const draft=new ItineraryDraft();draft.append(a);draft.append(b);solve(draft,0,[a,[50.004,5.001],b]);draft.analyse(draft.legs[0].id,{surfaces:[]});const original=draft.legs[0];draft.append(c);assert.equal(draft.legs[0],original);assert.equal(draft.legs[1].coordinates,null);solve(draft,1);draft.append(d);solve(draft,2);const last=draft.legs[2];draft.move(1,[50.011,5]);assert.equal(draft.legs[0].coordinates,null);assert.equal(draft.legs[1].coordinates,null);assert.equal(draft.legs[2],last);
  solve(draft,0);solve(draft,1);const first=draft.legs[0];draft.insert(2,[50.015,5.001]);assert.equal(draft.legs[0],first);assert.equal(draft.legs.at(-1),last);assert.equal(draft.legs.filter(l=>!l.coordinates).length,2);
