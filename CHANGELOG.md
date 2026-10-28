@@ -2,6 +2,12 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Secteurs plus fins et transparents (6.26.12)
+
+Les secteurs passent à 2,5 px et 45 % d’opacité, avec un contour gris foncé de 4,5 px à 35 % d’opacité. L’itinéraire sous-jacent reste ainsi plus visible. Le survol est également allégé (contour de 5,5 px à 50 %, couleur de 3,2 px à 60 %). Les échantillons de légende suivent ce trait plus fin et transparent.
+
+Validation : tests d’interface, notamment largeur du secteur inférieure à celle de l’itinéraire, transparence, superposition et zone de clic. Aucune migration ni nouvelle configuration.
+
 ## Consultation après sauvegarde et lisibilité des secteurs (6.26.11)
 
 Enregistrer un secteur nouveau ou modifié ouvre sa consultation, sans activer un nouveau dessin. Le secteur sauvegardé et ses attributs restent affichés ; le bouton Modifier permet de reprendre son édition.

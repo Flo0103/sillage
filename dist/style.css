@@ -192,7 +192,7 @@ body.browsing-rides .library-search{padding-bottom:10px;margin-bottom:0;border-b
 
 
 
-.map-legend:empty{display:none}.map-legend .legend-access-symbol{width:18px;height:18px;border-radius:50%;background:var(--paper);border:2px solid #bf8d5d;box-shadow:0 1px 4px #2f382b33;cursor:default}.map-legend .sector-line-swatch{box-shadow:0 0 0 1.5px #343b3f;opacity:.72}
+.map-legend:empty{display:none}.map-legend .legend-access-symbol{width:18px;height:18px;border-radius:50%;background:var(--paper);border:2px solid #bf8d5d;box-shadow:0 1px 4px #2f382b33;cursor:default}.map-legend .sector-line-swatch{height:3px;box-shadow:0 0 0 .75px #343b3f;opacity:.45}
 
 
 
