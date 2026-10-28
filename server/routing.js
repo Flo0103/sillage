@@ -28,14 +28,18 @@ export function createRoutingService({fetcher=(...args)=>fetch(...args),now=Date
  const provider=async({points,tolerance,maxDistance,planning},verified=false)=>{
   return enqueue(JSON.stringify({points,tolerance,planning,verified}),async()=>{
    const pair=points.map(p=>`${p[1]},${p[0]}`).join(';'),url=new URL(pair,urlBase.href.endsWith('/')?urlBase.href:urlBase.href+'/');
-   url.search=new URLSearchParams({overview:'full',geometries:'geojson',steps:'true',alternatives:'false',radiuses:points.map(()=>tolerance).join(';'),continue_straight:'false'});
+   // A guide can start on a neighbouring road missing from the provider's
+   // bicycle graph. Only the subsequent OSM calculation snaps the real controls
+   // and must keep their original tolerance, access and direction constraints.
+   const providerRadius=verified?Math.max(1000,tolerance):tolerance;
+   url.search=new URLSearchParams({overview:'full',geometries:'geojson',steps:'true',alternatives:'false',radiuses:points.map(()=>providerRadius).join(';'),continue_straight:'false'});
    if(verified)url.searchParams.set('annotations','nodes');
    const data=await request(url),chosen=data.routes?.[0];if(data.code!=='Ok'||chosen?.geometry?.type!=='LineString')throw Error('Aucun itinéraire vélo trouvé entre ces points. Essayez le mode manuel.');
    if(!verified&&chosen.legs?.some(l=>l.steps?.some(s=>['pushing bike','walking','steps up','steps down'].includes(s.mode))))throw Error('Le moteur vélo propose un passage à pied, parfois à contre-sens. Ajoutez des points rapprochés pour le calcul OSM local.');
    const path=coordinates(chosen.geometry.coordinates.map(p=>[p[1],p[0]])),length=routeLength(path);
    if(length<5)throw Error('Les points rejoignent le même endroit sur le réseau. Éloignez-les.');if(length>maxDistance)throw Error(`Le chemin calculé dépasse ${maxDistance/1000} km. Rapprochez les points.`);
    const snappedPoints=data.waypoints?.length===points.length?coordinates(data.waypoints.map(w=>[w.location?.[1],w.location?.[0]])):points.map((p,i)=>i===0?path[0]:i===points.length-1?path.at(-1):path.reduce((best,q)=>distance(p,q)<distance(p,best)?q:best,path[0]));
-   const offsets=points.map((p,i)=>distance(p,snappedPoints[i]));if(offsets.some(m=>m>tolerance+5))throw Error('Le chemin est trop éloigné des points choisis. Augmentez la tolérance ou utilisez le mode manuel.');
+   const offsets=points.map((p,i)=>distance(p,snappedPoints[i]));if(offsets.some(m=>m>providerRadius+5))throw Error('Le chemin est trop éloigné des points choisis. Augmentez la tolérance ou utilisez le mode manuel.');
    const legs=chosen.legs;let legFractions=null;if(Array.isArray(legs)&&legs.length===points.length-1&&legs.every(l=>Number.isFinite(l.distance)&&l.distance>=0)){const sum=legs.reduce((n,l)=>n+l.distance,0);if(sum>0){let acc=0;legFractions=[0,...legs.map(l=>{acc+=l.distance;return acc/sum;})];}}
    const result={coordinates:path,snappedPoints,legFractions,surface:null,stats:{ignoredAnchors:0,maxOffset:Math.round(Math.max(...offsets)),tolerance},engine:base===endpoint?'OSRM vélo / FOSSGIS':'OSRM vélo',cached:false};
    if(verified)return {...result,osmNodes:chosen.legs?.flatMap(l=>l.annotation?.nodes||[])};
@@ -56,10 +60,11 @@ export function createRoutingService({fetcher=(...args)=>fetch(...args),now=Date
   const long=routeLength(points)>2000&&!!router.guided;let guideError;
   if(long)try{return await guided(args,router);}catch(e){guideError=e;}
   try{return await router(localInput);}catch(e){
-   // Short local calculations keep working when the public router is offline.
-   // For larger steps, a guided graph removes the old 15 km / rectangle limit.
-   if(!long&&router.guided&&!e.localNoPath)try{return await guided(args,router);}catch(f){guideError=f;}
-   const error=e.code==='LOCAL_TOO_LARGE'&&guideError?guideError:e;
+   // Nearby controls can require a long detour to reach a bridge or an opening.
+   // No path in a bounded snapshot is not proof that no legal path exists.
+   // The candidate is still rebuilt on OSM with the same access/direction rules.
+   if(!long&&router.guided&&!e.bicycleForbidden)try{return await guided(args,router);}catch(f){guideError=f;}
+   const error=!e.bicycleForbidden&&guideError&&(e.code==='LOCAL_TOO_LARGE'||e.localNoPath)?guideError:e;
    throw Object.assign(error,{status:error.status||(error.code==='LOCAL_TOO_LARGE'?422:503)});
   }
  };

@@ -65,3 +65,64 @@ test('vérification lente : le routeur des autres utilisateurs reste disponible 
  await new Promise(r=>setImmediate(r));assert.equal(starts.length,1);const second=service(request([[50,5],[50,5.05]]));await new Promise(r=>setImmediate(r));assert.deepEqual(starts,[0,1000]);assert.equal(release.length,2);
  release.forEach(done=>done());await Promise.all([first,same,second]);assert.equal((await service(input)).cached,true);assert.equal(starts.length,2);
 });
+
+// Synthetic river crossing at Maastricht: points < 2 km apart, bridge > 2 km
+// north of the first point, outside all three rectangular search windows.
+const riverA=[50.825,5.685],riverWest=[50.845,5.685],riverEast=[50.845,5.711],riverB=[50.823,5.711];
+function riverSetup(){const points=[riverA,riverWest,riverEast,riverB],elements=[way(701,[1,2],[riverA,riverWest]),way(702,[2,3],[riverWest,riverEast]),way(703,[3,4],[riverEast,riverB])];return setup(points,elements,{osmFetcher:async(url,options)=>Response.json({elements:options.body.get('data').includes('node(id:')?elements:[elements[0],elements[2]]})});}
+test('Maastricht : un pont hors cadre est trouvé entre deux points proches, sans imposer les passages intermédiaires',async()=>{
+ const {service,calls}=riverSetup(),via=await service(request([riverA,riverWest,riverEast,riverB]));assert.ok(routeLength([riverA,riverB])<2000);assert.ok(routeLength(via.coordinates)>5000);
+ const direct=await service(request([riverA,riverB]));assert.deepEqual(direct.coordinates,via.coordinates);assert.match(direct.engine,/vérifiés/);assert.equal(direct.accessPolicy,'explicit');assert.equal(direct.analysis.accessRuns.length,0);assert.equal(calls.filter(c=>c.source==='router').length,2);
+ const count=calls.length,again=await service(request([riverA,riverB]));assert.equal(again.cached,true);assert.equal(calls.length,count);
+});
+
+test('petit trajet déjà routable : aucune recherche guidée supplémentaire',async()=>{
+ const a=[50,5],b=[50,5.001],{service,calls}=setup([a,b],[way(1,[1,2],[a,b])]);const result=await service(request([a,b]));assert.deepEqual(result.coordinates,[a,b]);assert.equal(calls.filter(c=>c.source==='router').length,0);assert.equal(calls.length,1);
+});
+test('petit trajet et guide à contre-sens : la vérification refuse toujours le candidat public',async()=>{
+ const a=[50,5],b=[50,5.001],{service,calls}=setup([b,a],[way(1,[1,2],[a,b],{oneway:'yes'})]);await assert.rejects(service(request([b,a])),e=>e.localNoPath&&e.status===422);assert.equal(calls.filter(c=>c.source==='router').length,1);assert.match(calls.find(c=>c.source==='router').url,/annotations=nodes/);
+});
+test('petit trajet avec point interdit aux vélos : aucun guide ne contourne cette interdiction',async()=>{
+ const a=[50,5],b=[50,5.001],{service,calls}=setup([a,b],[way(1,[1,2],[a,b],{bicycle:'no'})]);await assert.rejects(service(request([a,b])),e=>e.bicycleForbidden&&e.status===422);assert.equal(calls.filter(c=>c.source==='router').length,0);
+});
+test('vérification du détour indisponible : erreur temporaire explicite, pas de faux refus pour sens interdit',async()=>{
+ const elements=[way(1,[1,2],[riverA,riverWest]),way(2,[3,4],[riverEast,riverB])],{service,calls}=setup([riverA,riverWest,riverEast,riverB],elements,{osmFetcher:async(url,options)=>options.body.get('data').includes('node(id:')?new Response('',{status:503}):Response.json({elements})});
+ await assert.rejects(service(request([riverA,riverB])),e=>e.status===503&&!e.localNoPath&&/temporairement indisponible/.test(e.message));assert.equal(calls.filter(c=>c.source==='router').length,1);
+});
+
+function incompleteGuide({missingStart=false,oneway=false}={}){
+ const a=[50,5],near=[50.003,5],b=[50,5.04],elements=[way(1,[1,2,3],[a,near,b],oneway?{oneway:'yes'}:{})];let seen;
+ const osm=async()=>({elements:missingStart?[way(1,[2,3],[near,b])]:elements});osm.forRoute=osm;
+ const service=createRoutingService({localRouting:createLocalRouting({osmService:osm}),wait:async()=>{},fetcher:async url=>{
+  seen=new URL(url);assert.equal(seen.searchParams.get('radiuses'),'1000;1000');
+  return Response.json({code:'Ok',routes:[{geometry:{type:'LineString',coordinates:[near,b].map(p=>p.slice().reverse())},legs:[{annotation:{nodes:[2,3]}}]}],waypoints:[near,b].map(p=>({location:p.slice().reverse()}))});
+ }});return {a,b,near,elements,service,get seen(){return seen;}};
+}
+test('guide incomplet à Maastricht : départ public voisin accepté comme guide, vrais points conservés sur OSM',async()=>{
+ const fixture=incompleteGuide(),result=await fixture.service(request([fixture.a,fixture.b]));assert.ok(fixture.seen);assert.deepEqual(result.snappedPoints,[fixture.a,fixture.b]);assert.deepEqual(result.coordinates,[fixture.a,fixture.near,fixture.b]);assert.equal(result.stats.tolerance,150);assert.equal(result.stats.maxOffset,0);assert.equal(result.accessPolicy,'explicit');
+});
+test('rayon élargi du guide : ne permet jamais de déplacer les vrais points au-delà de leur tolérance',async()=>{
+ const fixture=incompleteGuide({missingStart:true});await assert.rejects(fixture.service(request([fixture.a,fixture.b])),e=>e.localNoPath&&e.status===422);assert.ok(fixture.seen);
+});
+
+function corridorFixture(tags={}){
+ const points=[riverA,riverWest,riverEast,riverB],elements=[way(701,[1,2],[riverA,riverWest],tags),way(702,[2,3],[riverWest,riverEast]),way(703,[3,4],[riverEast,riverB])],calls=[],starts=[];let clock=0;
+ const osm=createOSMService({mapFallback:true,now:()=>clock,wait:async ms=>{clock+=ms;},fetcher:async url=>{
+  calls.push(String(url));if(String(url).includes('overpass'))return new Response('',{status:503});
+  starts.push(clock);const [w,s,e,n]=new URL(url).searchParams.get('bbox').split(',').map(Number);assert.ok((e-w)*(n-s)<.0002);
+  const picked=elements.filter(way=>Math.max(...way.geometry.map(p=>p.lat))>=s&&Math.min(...way.geometry.map(p=>p.lat))<=n&&Math.max(...way.geometry.map(p=>p.lon))>=w&&Math.min(...way.geometry.map(p=>p.lon))<=e),nodes=new Map();for(const way of picked)way.nodes.forEach((id,i)=>nodes.set(id,{type:'node',id,...way.geometry[i]}));
+  return Response.json({elements:[...nodes.values(),...picked.map(({geometry,...way})=>way)]});
+ }});return {osm,calls,starts,points};
+}
+test('Maastricht pendant une panne Overpass : vérifier le détour avec un corridor OSM direct borné, espacé et réutilisé',async()=>{
+ const {osm,calls,starts,points}=corridorFixture(),local=createLocalRouting({osmService:osm}),guide={osmNodes:[1,2,3,4],coordinates:points},input={points:[riverA,riverB],tolerance:150,maxDistance:500000,accessMode:'explicit'};
+ const result=await local.guided(input,guide);assert.deepEqual(result.coordinates,points);assert.deepEqual(result.snappedPoints,[riverA,riverB]);assert.equal(result.accessPolicy,'explicit');assert.match(result.osmSource,/OSM API/);assert.ok(starts.length>1&&starts.length<=24);assert.ok(starts.slice(1).every((at,i)=>at-starts[i]>=1000));
+ const before=calls.length;assert.deepEqual((await local.guided({...input,points:[riverB,riverA]},guide)).coordinates,points.slice().reverse());assert.equal(calls.length,before);assert.equal(osm.peek([50.82,5.68,50.85,5.72]),null,'un couloir partiel ne couvre pas son rectangle');
+});
+test('corridor de secours : mêmes règles de sens unique et interdictions vélo que les sources principales',async()=>{
+ for(const tags of [{oneway:'-1'},{bicycle:'no'}]){const {osm,points}=corridorFixture(tags),local=createLocalRouting({osmService:osm});await assert.rejects(local.guided({points:[riverA,riverB],tolerance:150,maxDistance:500000,accessMode:'explicit'},{osmNodes:[1,2,3,4],coordinates:points}),e=>e.localNoPath);}
+});
+test('corridor trop long : budget refusé avant tout téléchargement OSM direct',async()=>{
+ let maps=0;const osm=createOSMService({mapFallback:true,fetcher:async url=>{if(!String(url).includes('overpass'))maps++;return new Response('',{status:503});}});
+ await assert.rejects(osm.forRoute({nodes:[1,2],points:[[50,5],[50.2,5.4]],coordinates:[[50,5],[50.2,5.4]]}),e=>e.status===503);assert.equal(maps,0);
+});

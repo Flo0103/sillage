@@ -141,3 +141,20 @@ sudo docker compose exec -T app node server/check-routing.js --online --from 50.
 ```
 
 Sans `--online`, les mêmes points testent le choix de source de la production. Sans coordonnées personnalisées, le diagnostic historique à Spa reste disponible. Les journaux du diagnostic indiquent hôte amont, statut HTTP, durée, source du tracé et résultat aller / retour. Le workflow **Diagnostic OSM en ligne** effectue aussi ce test sur GitHub avec des points publics à Aachen. Il est facultatif, car la disponibilité des fournisseurs publics ne doit pas bloquer les tests déterministes.
+
+
+## Ponts et autres détours entre deux points proches (6.26.15)
+
+Une petite distance à vol d’oiseau ne garantit pas un trajet court : le pont le plus proche peut se situer hors de la fenêtre OSM locale. Après échec de cette fenêtre, le moteur cherche aussi un guide pour les étapes de moins de 2 km, puis vérifie le parcours sur OSM. Le guide n’accorde aucune permission supplémentaire et un point interdit aux vélos reste refusé. Si la vérification externe échoue, l’application indique une indisponibilité temporaire plutôt qu’une impossibilité de circulation non démontrée.
+
+Le diagnostic facultatif **Diagnostic OSM en ligne** couvre Aachen et Maastricht. Pour tester le franchissement de la Meuse sans la base :
+
+```bash
+sudo docker compose exec -T app node server/check-routing.js --online --from 50.825,5.685 --to 50.823,5.711
+```
+
+Ces points publics à Maastricht servent au diagnostic ; ils ne proviennent pas d’un tracé privé enregistré. Les tests déterministes reproduisent également une rivière avec un pont hors des trois fenêtres locales, pour comparer le routage direct à celui avec points de passage.
+
+Le rayon du guide public peut atteindre 1 km si son réseau ne connaît pas le chemin choisi. Ce guide ne déplace pas les points : le calcul OSM conserve leur tolérance initiale et vérifie les accès et les sens uniques.
+
+En cas de panne des deux serveurs Overpass, les détours modestes disposent d’un secours par corridor OSM direct, limité à 24 petites zones de 0,01° avec un espacement d’une seconde et réutilisation du cache. Les grandes étapes restent soumises à la disponibilité des sources ; aucun guide non vérifié n’est affiché.

@@ -2,6 +2,18 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Détours par un pont entre deux points proches (6.26.15)
+
+Corriger l’arrêt prématuré de la recherche pour des points séparés de moins de 2 km à vol d’oiseau. Une rivière, une voie ferrée ou une enceinte peut imposer un détour de plusieurs kilomètres et sortir le pont ou le passage de la fenêtre locale. L’absence de liaison dans ce cadre déclenche désormais une recherche guidée, même pour une petite étape ; le trajet est reconstruit sur les chemins OSM et reste soumis aux interdictions vélo, aux sens uniques et à la politique d’accès explicite. Un petit trajet déjà routable garde sa réponse locale immédiate.
+
+Le guide public peut chercher un chemin voisin jusqu’à 1 km lorsque son graphe ne connaît pas le chemin du départ. Ce rayon ne sert qu’à trouver le détour : les vrais points sont ensuite accrochés et reliés sur OSM avec leur tolérance initiale (150 m par défaut), sans déplacement vers le départ proposé par le guide.
+
+Si les deux sources Overpass sont en panne, le détour peut aussi être vérifié avec un corridor de petites zones de l’API OSM directe : 24 zones maximum, requêtes espacées, cache partagé, mêmes contraintes vélo et sens uniques. Le corridor ne remplit pas de faux rectangles de couverture.
+
+Une vérification distante indisponible est signalée comme une erreur temporaire. L’absence de chemin dans les données chargées n’est plus présentée automatiquement comme un problème de sens de circulation. Étendre le diagnostic externe facultatif avec un franchissement de la Meuse à Maastricht, en plus d’Aachen. Ajouter un cas de régression où le trajet complet ne fonctionnait qu’avec des passages intermédiaires.
+
+Aucune migration, configuration supplémentaire ou réimportation OSM.
+
 ## Routage à froid et requêtes simultanées (6.26.14)
 
 Corriger un blocage reproduit sous la limite réelle du serveur : poser l’arrivée pendant l’accrochage du départ déclenchait trois requêtes, dont deux pour le même point. La troisième recevait un 429 et mettait le tracé en pause. Les calculs cartographiques partagent désormais une file de deux requêtes maximum, avec déduplication des accrochages en cours et priorité au tracé. L’enrichissement ne peut occuper qu’un créneau à la fois. Annuler un résultat côté interface ne libère pas prématurément le créneau d’un calcul encore actif sur le serveur ; les réponses devenues obsolètes restent ignorées.

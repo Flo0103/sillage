@@ -68,7 +68,7 @@ export function createOSMService({fetcher=(...args)=>fetch(...args),now=Date.now
  // OSRM annotations identify the OSM nodes along a candidate. Fetch their ways
  // (and the actual clicked points' neighbourhoods) in one bounded query. This
  // snapshot is partial: never advertise it as coverage of a whole map area.
- getOSM.forRoute=async ({nodes,points})=>{
+ getOSM.forRoute=async ({nodes,points,coordinates})=>{
   if(!Array.isArray(nodes)||nodes.length>25000||nodes.some(n=>!Number.isSafeInteger(n)||n<=0))throw Error('Guide OSM incomplet ou trop détaillé.');
   const ids=[...new Set(nodes)].sort((a,b)=>a-b);if(ids.length<2)throw Error('Guide OSM sans identifiants de chemins.');
   const nearPoints=[...points].sort((a,b)=>a[0]-b[0]||a[1]-b[1]),key=JSON.stringify([ids,nearPoints]);
@@ -77,6 +77,8 @@ export function createOSMService({fetcher=(...args)=>fetch(...args),now=Date.now
   if(active>=2)throw Object.assign(Error('Le service OSM est occupé. Réessayez dans quelques secondes.'),{status:429});
   const job=(async()=>{active++;try{
    const filter='[highway][highway!~"motorway|trunk|motorway_link|trunk_link|steps|construction|proposed"]',near=nearPoints.map(p=>`way(around:175,${p[0]},${p[1]})${filter};`).join(''),query=`[out:json][timeout:5];node(id:${ids.join(',')})->.route;(way(bn.route)${filter};${near});out body geom;`;
+   const remember=data=>{const size=Buffer.byteLength(JSON.stringify(data))+Buffer.byteLength(key);
+    if(size<=maxBytes/2){while(guides.size&&(guides.size>=16||guideBytes+size>maxBytes/2)){const first=guides.keys().next().value;guideBytes-=guides.get(first).bytes;guides.delete(first);}guides.set(key,{data,bytes:size,time:now()});guideBytes+=size;}return {...data,cached:false};};
    let lastError;
    for(const endpoint of ['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter']){
     if(now()<(guideBackoff.get(endpoint)||0)||endpoint.includes('overpass-api.de')&&now()<overpassBackoff)continue;
@@ -84,11 +86,18 @@ export function createOSMService({fetcher=(...args)=>fetch(...args),now=Date.now
      const response=await fetcher(endpoint,{method:'POST',headers:{'User-Agent':'Sillage/6.18.1 (+https://sillage.gravelspa.be)'},body:new URLSearchParams({data:query}),signal:AbortSignal.timeout(6000)});
      if(!response.ok)throw Error(`Source OSM indisponible (${response.status}).`);
      const parsed=await osmJSON(response);if(!Array.isArray(parsed.elements)||parsed.remark)throw Error('Réponse OSM incomplète.');
-     const data={elements:parsed.elements,source:'Overpass · chemins du trajet'},size=Buffer.byteLength(JSON.stringify(data))+Buffer.byteLength(key);
-     if(size<=maxBytes/2){while(guides.size&&(guides.size>=16||guideBytes+size>maxBytes/2)){const first=guides.keys().next().value;guideBytes-=guides.get(first).bytes;guides.delete(first);}guides.set(key,{data,bytes:size,time:now()});guideBytes+=size;}
-     return {...data,cached:false};
+     return remember({elements:parsed.elements,source:'Overpass · chemins du trajet'});
     }catch(e){lastError=e;guideBackoff.set(endpoint,now()+60000);if(endpoint.includes('overpass-api.de'))overpassBackoff=Math.max(overpassBackoff,now()+60000);}
    }
+   // A bounded corridor also works during an Overpass outage. Reuse the same
+   // small-area OSM reader, its cache, request pacing and failure backoff.
+   // The public geometry only selects data; the directed graph still computes
+   // the route from the actual controls and enforces bicycle/access rules.
+   if(mapFallback&&Array.isArray(coordinates))try{
+    const tiles=guideTiles(coordinates,points),ways=new Map();let size=0;
+    for(const tile of tiles){const data=await getOSM(tile);for(const way of data.elements){const id=way.id??JSON.stringify(way.nodes);if(ways.has(id))continue;size+=Buffer.byteLength(JSON.stringify(way));if(size>maxBytes/2||ways.size>=50000)throw Error('Couloir OSM trop détaillé. Ajoutez un point de passage.');ways.set(id,way);}}
+    return remember({elements:[...ways.values()],source:'OSM API · chemins du trajet'});
+   }catch(error){lastError=error;}
    throw Object.assign(Error('La vérification des chemins OSM est temporairement indisponible. Réessayez dans quelques instants.'),{status:503,cause:lastError});
   }finally{active--;}})();guidePending.set(key,job);try{return await job;}finally{guidePending.delete(key);}
  };
@@ -96,6 +105,18 @@ export function createOSMService({fetcher=(...args)=>fetch(...args),now=Date.now
  return getOSM;
 }
 
+function guideTiles(path,points){
+ if(path.length<2||path.length>25000||[...path,...points].some(p=>!Array.isArray(p)||p.length!==2||!p.every(Number.isFinite)||Math.abs(p[0])>85||Math.abs(p[1])>180))throw Error('Couloir OSM invalide.');
+ const tiles=new Map(),step=.01;
+ const add=([lat,lon])=>{const dy=175/111320,dx=dy/Math.cos(lat*Math.PI/180);
+  for(let y=Math.floor((lat-dy)/step);y<=Math.floor((lat+dy)/step);y++)for(let x=Math.floor((lon-dx)/step);x<=Math.floor((lon+dx)/step);x++){
+   const key=`${y},${x}`;if(!tiles.has(key)){if(tiles.size>=24)throw Error('Couloir OSM trop long. Ajoutez un point de passage.');tiles.set(key,[y*step,x*step,(y+1)*step,(x+1)*step].map(v=>Number(v.toFixed(6))));}
+  }
+ };
+ points.forEach(add);add(path[0]);
+ for(let i=1;i<path.length;i++){const a=path[i-1],b=path[i],count=Math.max(1,Math.ceil(Math.hypot((b[0]-a[0])*111320,(b[1]-a[1])*111320*Math.cos(a[0]*Math.PI/180))/400));if(count>1000)throw Error('Couloir OSM trop long.');for(let j=1;j<=count;j++)add([a[0]+(b[0]-a[0])*j/count,a[1]+(b[1]-a[1])*j/count]);}
+ return [...tiles.values()];
+}
 async function osmJSON(response){
  const limit=20*1024*1024;let raw='';
  if(response.body?.getReader){const reader=response.body.getReader(),decoder=new TextDecoder();let size=0;try{for(;;){const{done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>limit){await reader.cancel();throw Error('Trop de données OSM. Réduisez la portion.');}raw+=decoder.decode(value,{stream:true});}raw+=decoder.decode();}finally{reader.releaseLock();}}

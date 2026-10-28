@@ -143,7 +143,7 @@ test('interdiction vélo locale explicite : aucun secours ne déplace le point p
  await assert.rejects(routingService.nearest({point:points[0],accessMode:'explicit'}),e=>e.bicycleForbidden&&e.status===422);await assert.rejects(routingService({points,accessMode:'explicit'}),e=>e.bicycleForbidden&&e.status===422);
 });
 test('direction impossible, même avec le secours : aucun résultat OSRM non vérifié',async()=>{
- const a=[50.49,5.85],b=[50.491,5.851],all=[testWay(1,[1,2],[a,b],{oneway:'yes'})],db=stored(all);let online=0;const {routingService}=createRuntimeRouting(db,{wait:async()=>{},fetcher:async url=>{online++;assert.match(String(url),/overpass/);return Response.json({elements:all});}});await assert.rejects(routingService({points:[b,a],accessMode:'explicit'}),e=>e.localNoPath&&e.status===422);assert.ok(online>0);
+ const a=[50.49,5.85],b=[50.491,5.851],all=[testWay(1,[1,2],[a,b],{oneway:'yes'})],db=stored(all);let online=0;const {routingService}=createRuntimeRouting(db,{wait:async()=>{},fetcher:async url=>{online++;if(String(url).includes('/routed-bike/'))return Response.json({code:'Ok',routes:[{geometry:{type:'LineString',coordinates:[b,a].map(p=>[p[1],p[0]])},legs:[{annotation:{nodes:[2,1]},steps:[{mode:'cycling'}]}]}],waypoints:[b,a].map(p=>({location:[p[1],p[0]]}))});assert.match(String(url),/overpass/);return Response.json({elements:all});}});await assert.rejects(routingService({points:[b,a],accessMode:'explicit'}),e=>e.localNoPath&&e.status===422);assert.ok(online>0);
 });
 
 test('étape longue ou transfrontalière vers Aachen : guide public, puis accès et sens vérifiés sur OSM en ligne',async()=>{
