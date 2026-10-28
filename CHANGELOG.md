@@ -2,6 +2,16 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Consultation après sauvegarde et lisibilité des secteurs (6.26.11)
+
+Enregistrer un secteur nouveau ou modifié ouvre sa consultation, sans activer un nouveau dessin. Le secteur sauvegardé et ses attributs restent affichés ; le bouton Modifier permet de reprendre son édition.
+
+Les secteurs ont un contour gris foncé plus large et un trait coloré légèrement transparent. Le survol renforce les deux traits. Les légendes d’accès limité reprennent le cercle clair avec « ! » de la carte, pour les secteurs comme pour les itinéraires.
+
+Le panneau Carte et légendes sépare Fond de carte et relief, Filtres, Itinéraire · style et légende et Secteurs · style et légende. Les sections de style sont repliables, et chaque sélecteur précède sa légende. Changer le style des secteurs conserve le secteur consulté et l’état replié du panneau.
+
+Validation : tests d’interface pour le retour en consultation, l’absence de dessin au clic après sauvegarde, la reprise de l’édition, les sections repliables, le style des traits et les symboles de légende. Aucune migration ni nouvelle configuration.
+
 ## Symboles des secteurs et fonds de carte (6.26.10)
 
 Le triangle des secteurs très techniques apparaît au-dessus du trait, sur fond papier clair. La légende reprend exactement le même symbole. Les secteurs qui contiennent un passage à accès limité utilisent le cercle d’avertissement des itinéraires, avec les mêmes libellés et règles d’affichage. Les restrictions analysées sont désormais conservées lors de l’enregistrement et de la modification d’un secteur ; celles qui avaient déjà été supprimées par les anciennes versions nécessitent une nouvelle analyse en édition, puis un enregistrement.
