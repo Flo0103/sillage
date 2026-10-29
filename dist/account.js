@@ -12,7 +12,7 @@ $('accountDisconnectStrava').onclick=async()=>{if(!confirm('Déconnecter Strava 
 try{await stravaStatus();}catch(e){$('accountStravaStatus').textContent=e.message;}
 
 $('exportAccount').onclick=async()=>{
- const control=$('exportAccount');if(control.disabled)return;control.disabled=true;$('exportStatus').textContent='Préparation du fichier…';let objectURL;
- try{const response=await fetch('/api/account/export');if(response.status===401){location.replace('/login.html');throw Error('Session expirée.');}if(!response.ok){const data=await response.json();throw Error(data.error||'Export indisponible.');}const blob=await response.blob();objectURL=URL.createObjectURL(blob);const link=document.createElement('a');link.href=objectURL;link.download='sillage-donnees-'+new Date().toISOString().slice(0,10)+'.json';document.body.append(link);link.click();link.remove();$('exportStatus').textContent='Le téléchargement de vos données a été lancé.';}
- catch(e){$('exportStatus').textContent=e.message;}finally{if(objectURL)setTimeout(()=>URL.revokeObjectURL(objectURL),1000);control.disabled=false;}
+ const control=$('exportAccount'),selector=$('exportFormat'),format=selector.value;if(control.disabled)return;control.disabled=true;selector.disabled=true;$('exportStatus').textContent='Préparation du fichier…';let objectURL;
+ try{const response=await fetch('/api/account/export?format='+encodeURIComponent(format));if(response.status===401){location.replace('/login.html');throw Error('Session expirée.');}if(!response.ok){const data=await response.json();throw Error(data.error||'Export indisponible.');}const blob=await response.blob();objectURL=URL.createObjectURL(blob);const link=document.createElement('a');link.href=objectURL;link.download='sillage-donnees-'+new Date().toISOString().slice(0,10)+(format==='gpkg'?'.gpkg':'.zip');document.body.append(link);link.click();link.remove();$('exportStatus').textContent='Le téléchargement de vos données a été lancé.';}
+ catch(e){$('exportStatus').textContent=e.message;}finally{if(objectURL)setTimeout(()=>URL.revokeObjectURL(objectURL),1000);control.disabled=false;selector.disabled=false;}
 };

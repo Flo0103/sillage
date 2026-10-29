@@ -172,8 +172,14 @@ test('module de règles OSM disponible uniquement après authentification',async
 });
 
 
-test('export du compte HTTP : authentification et pièce jointe JSON privée',async()=>{
- const db=database(),app=createApp(db,{origin:'https://sillage.test'});let connections=0,released=false;db.connect=async()=>{connections++;return {async query(sql,args){if(/^(BEGIN|COMMIT|ROLLBACK)/.test(sql))return {rows:[]};assert.deepEqual(args,['alice']);if(sql.includes('FROM users'))return {rows:[{id:'alice',username:'alice',is_admin:false,active:true}]};return {rows:[]};},release(){released=true;}};};assert.equal((await request(app,{url:'/api/account/export'})).status,401);assert.equal(connections,0);const result=await request(app,{url:'/api/account/export',user:'alice'});assert.equal(result.status,200);assert.match(result.headers['Content-Type'],/application\/json/);assert.match(result.headers['Content-Disposition'],/attachment; filename="sillage-donnees-.*\.json"/);assert.match(result.headers['Cache-Control'],/no-store/);assert.equal(JSON.parse(result.body).account.username,'alice');assert.equal(released,true);
+test('export du compte HTTP : authentification, formats binaires privés et rejet des formats inconnus',async()=>{
+ const db=database(),app=createApp(db,{origin:'https://sillage.test'});let connections=0,released=false;db.connect=async()=>{connections++;return {async query(sql,args){if(/^(BEGIN|COMMIT|ROLLBACK)/.test(sql))return {rows:[]};assert.deepEqual(args,['alice']);if(sql.includes('FROM users'))return {rows:[{id:'alice',username:'alice',is_admin:false,active:true}]};return {rows:[]};},release(){released=true;}};};
+ for(const suffix of ['', '?format=geojson', '?format=gpkg'])assert.equal((await request(app,{url:'/api/account/export'+suffix})).status,401);
+ assert.equal(connections,0);
+ assert.equal((await request(app,{url:'/api/account/export?format=csv',user:'alice'})).status,400);assert.equal(connections,0);
+ for(const [suffix,type,extension,signature] of [['','application/zip','zip','PK'],['?format=geojson','application/zip','zip','PK'],['?format=gpkg','application/geopackage+sqlite3','gpkg','SQLite format 3']]){
+  released=false;const result=await request(app,{url:'/api/account/export'+suffix,user:'alice'});assert.equal(result.status,200);assert.equal(result.headers['Content-Type'],type);assert.ok(result.headers['Content-Disposition'].endsWith('.'+extension+'"'));assert.match(result.headers['Cache-Control'],/no-store/);assert.ok(result.body.startsWith(signature));assert.equal(released,true);
+ }
 });
 
 test('segment mixte route/manuel : enregistrement, lecture et édition des attributs conservent les portions',async()=>{

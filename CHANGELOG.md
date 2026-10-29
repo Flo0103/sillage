@@ -2,6 +2,12 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Export SIG en trois couches (6.26.16)
+
+Remplacer le téléchargement JSON unique par un choix dans « Mes données » : trois fichiers GeoJSON dans un ZIP, ou trois tables spatiales dans un GeoPackage. Secteurs, itinéraires et sorties restent séparés, avec leurs attributs et géométries WGS 84, même lorsqu’une couche est vide. Conserver l’instantané personnel et les contrôles de confidentialité. Générer les fichiers sans service externe ni nouvelle dépendance npm ; le GeoPackage utilise SQLite intégré à Node 22.13 / 24. Aucune migration.
+
+Validation : tests des archives, tables et géométries, conservation des attributs et profils, comptes vides, authentification, choix du format et erreurs de téléchargement.
+
 ## Détours par un pont entre deux points proches (6.26.15)
 
 Corriger l’arrêt prématuré de la recherche pour des points séparés de moins de 2 km à vol d’oiseau. Une rivière, une voie ferrée ou une enceinte peut imposer un détour de plusieurs kilomètres et sortir le pont ou le passage de la fenêtre locale. L’absence de liaison dans ce cadre déclenche désormais une recherche guidée, même pour une petite étape ; le trajet est reconstruit sur les chemins OSM et reste soumis aux interdictions vélo, aux sens uniques et à la politique d’accès explicite. Un petit trajet déjà routable garde sa réponse locale immédiate.

@@ -22,6 +22,14 @@ sudo docker compose exec app node server/check-db.js
 
 Cette commande vérifie l’extension, les types, le SRID, l’ordre du premier point des géométries et les index spatiaux sur la base du VPS.
 
+## Export des données
+
+Dans « Mon compte → Mes données », choisir entre une archive ZIP contenant `secteurs.geojson`, `itineraires.geojson` et `sorties.geojson`, ou un GeoPackage avec les trois tables spatiales `secteurs`, `itineraires` et `sorties`. Les trois couches sont toujours présentes, même vides. Les géométries sont des LineString en WGS 84 / EPSG:4326, avec des coordonnées longitude/latitude.
+
+`GET /api/account/export?format=geojson` (valeur par défaut) et `?format=gpkg` lisent un instantané cohérent limité au propriétaire connecté, sans exporter les dessins publics des autres membres ni les secrets du compte. Les attributs, identifiants, provenances, GPX originaux disponibles et profils d’altitude sont conservés ; les objets et listes imbriqués sont sérialisés en texte JSON dans les colonnes du GPKG. Les coordonnées des points de passage et des portions dans ces attributs gardent leur ordre interne latitude/longitude. Cet export contient les trois couches géographiques ; les réglages du compte et les fonds WMS n’en font pas partie.
+
+La génération se fait sur le serveur sans service externe ni installation de GDAL : compression ZIP native et SQLite intégré à Node.js (22.13 minimum, image Docker Node 24). Les fichiers temporaires du GPKG sont privés et supprimés après génération, y compris en cas d’erreur. Aucune migration de base n’est nécessaire.
+
 ## Services externes et limites
 
 Leaflet 1.9.4 est hébergé dans `dist/vendor/leaflet-1.9.4/`, avec licence, images et empreintes vérifiées contre le paquet npm verrouillé. Les polices sont hébergées dans `dist/fonts/` et les tuiles restent chargées depuis leurs fournisseurs. La CSP autorise les scripts locaux, les styles nécessaires à Leaflet et les cartes / fournisseurs HTTPS. IGN CartoWeb est fourni pour l’usage non commercial avec attribution IGN / TomTom (https://ngi.be/fr/conditions-dutilisation-pour-le-service-cartoweb-be/). Les WMS sont des services HTTPS publics compatibles EPSG:3857. Changer le fond de carte ne change pas le snapping OSM. Voir les [protections et limites](SECURITE.md).
