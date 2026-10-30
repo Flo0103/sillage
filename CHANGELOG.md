@@ -2,6 +2,14 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Légendes et désélection des sorties (6.26.17)
+
+Centrer les symboles d’accès limité et de secteur très technique dans leur colonne de légende, et retirer le cadre du triangle. Replier « Carte et légendes » par défaut sur ordinateur comme sur mobile.
+
+En consultation d’une sortie, un clic ailleurs sur la carte retire la trace et désélectionne sa fiche dans la bibliothèque. Les clics sur la trace conservent la sélection ; pendant le dessin, la sortie reste disponible comme repère et les clics ajoutent toujours des points.
+
+Validation : tests d’interface pour la désélection, le clic sur la trace et la conservation du dessin avec une sortie en repère. Aucune migration ni configuration supplémentaire.
+
 ## Export SIG en trois couches (6.26.16)
 
 Remplacer le téléchargement JSON unique par un choix dans « Mes données » : trois fichiers GeoJSON dans un ZIP, ou trois tables spatiales dans un GeoPackage. Secteurs, itinéraires et sorties restent séparés, avec leurs attributs et géométries WGS 84, même lorsqu’une couche est vide. Conserver l’instantané personnel et les contrôles de confidentialité. Générer les fichiers sans service externe ni nouvelle dépendance npm ; le GeoPackage utilise SQLite intégré à Node 22.13 / 24. Aucune migration.

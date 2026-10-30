@@ -1009,3 +1009,30 @@ test('premier point : accrochage en cours, erreur visible et reprise locale au p
  const {ctx,elements}=context(),base=ctx.fetch;let release;ctx.fetch=(path,options)=>path==='/api/route/nearest'?new Promise(resolve=>release=value=>resolve({ok:value,status:value?200:503,json:async()=>value?{point:JSON.parse(options.body).point}:{error:'Accrochage OSM indisponible'}})):base(path,options);
  await vm.runInNewContext(`(async()=>{${script}\nnewPlan();choose({lat:50.7715,lng:6.075});})()`,ctx);assert.equal(elements.get('routingMapStatus').hidden,false);assert.match(elements.get('routingMapMessage').textContent,/Accrochage/);release(false);await new Promise(r=>setImmediate(r));assert.match(elements.get('routingMapMessage').textContent,/Accrochage OSM indisponible/);assert.equal(elements.get('retryRoutingMap').hidden,false);const retry=elements.get('retryRoutingMap').onclick();release(true);await retry;assert.equal(elements.get('routingMapStatus').hidden,true);
 });
+
+test('sortie consultée : clic sur la trace conservé, clic ailleurs désélectionne la carte et la bibliothèque',async()=>{
+ const {ctx,elements}=context(),fake=interactiveMap(ctx);
+ const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadRide('00000000-0000-0000-0000-000000000001');return {state:()=>({ride:currentRide?.id,trace:trace.length,selected:selected.length,view})};})()`,ctx);
+ const trace=fake.lines.find(l=>!l.removed&&l.options.pane==='gpxPane'&&l.events.click);
+ assert.equal(elements.get('rideList').children[0].className.includes('is-current'),true);
+ trace.events.click({latlng:{lat:50,lng:5}});assert.equal(access.state().trace,2);
+ fake.events.click({latlng:{lat:51,lng:6}});
+ assert.equal(access.state().ride,undefined);assert.equal(access.state().trace,0);assert.equal(access.state().selected,0);assert.equal(access.state().view,'saved');
+ assert.equal(fake.lines.filter(l=>!l.removed&&l.options.pane==='gpxPane').length,0);
+ assert.equal(elements.get('rideList').children[0].className.includes('is-current'),false);
+ assert.equal(elements.get('rideViewActions').hidden,true);assert.equal(elements.get('editorPanel').hidden,true);assert.equal(elements.get('loadedRideControl').hidden,true);
+ assert.equal(elements.get('mapSubtitle').textContent,'Secteurs personnels et publics');
+});
+
+test('sortie en repère : les clics de dessin conservent la sortie et ajoutent les points',async()=>{
+ for(const kind of ['plan','sector']){
+  const {ctx,elements}=context(),fake=interactiveMap(ctx);
+  const access=await vm.runInNewContext(`(async()=>{${script}\nawait loadRide('00000000-0000-0000-0000-000000000001');$('${kind==='plan'?'reset':'drawSegment'}').onclick();return {state:()=>({ride:currentRide?.id,trace:trace.length,points:planDraft.points.length})};})()`,ctx);
+  fake.events.click({latlng:{lat:50,lng:5}});
+  assert.equal(access.state().ride,'00000000-0000-0000-0000-000000000001');assert.equal(access.state().trace,2);assert.equal(access.state().points,1);assert.equal(elements.get('showLoadedRide').checked,true);
+ }
+});
+
+test('carte et légendes est replié au chargement sur tous les écrans',()=>{
+ const tag=html.match(/<details\b[^>]*id="segmentLegend"[^>]*>/)[0];assert.doesNotMatch(tag,/\bopen\b/);
+});
