@@ -105,6 +105,17 @@ test('401 tardif : une ancienne requête ne purge pas une connexion remplacée',
  assert.equal(f.connection.athlete_id,'88');assert.equal(f.connection.revision,revision);assert.ok(!f.db.calls.some(call=>call.sql.startsWith('DELETE FROM rides')));
 });
 
+test('401 au renouvellement : une reconnexion pendant l’échange n’est pas purgée',async()=>{
+ const reached=Promise.withResolvers(),resume=Promise.withResolvers();
+ const f=fixture({expires:0,fetcher:async url=>{if(url.endsWith('/oauth/token')){reached.resolve();await resume.promise;return new Response('{}',{status:401});}return Response.json([]);}});
+ const pending=assert.rejects(f.run('/api/strava/activities'),e=>e.stravaUnauthorized===true);await reached.promise;
+ // The user reconnects while the refresh is in flight: a new revision is stored.
+ await f.db.query('INSERT INTO strava_connections(user_id,athlete_id,tokens) VALUES($1,$2,$3)',[user.id,'77',f.connection.tokens]);
+ const revision=f.connection.revision;resume.resolve();await pending;
+ assert.ok(f.connection,'la nouvelle connexion doit être conservée');assert.equal(f.connection.revision,revision);
+ assert.ok(!f.db.calls.some(call=>call.sql.startsWith('DELETE FROM strava_connections')));assert.ok(!f.db.calls.some(call=>call.sql.startsWith('DELETE FROM rides')));
+});
+
 test('callback en vol : déconnexion ou session révoquée pendant OAuth bloque la connexion',async()=>{
  for(const action of ['disconnect','session']){
   const reached=Promise.withResolvers(),resume=Promise.withResolvers();
