@@ -1,4 +1,5 @@
 import { createStrava } from './strava.js';
+import {errorResponse,logError} from './errors.js';
 import {contentSecurityPolicy,createAdmissionController} from './security.js';
 import {withRideOrigins} from './ride-links.js';
 import { createRoutingService } from './routing.js';
@@ -113,7 +114,12 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),r
       if(path==='/api/osm'&&method==='POST'){const b=await body(req);return json(res,200,await osmService(b.bbox));}
       if(method==='GET'&&['/','/index.html','/app.js','/geo.js','/osm-tags.js','/preview.js','/route-edit.js','/planner.js','/plan-library.js','/gps-transfer.js','/onboarding.js','/ride-browser.js','/routing-requests.js','/elevation.js','/elevation-data.js','/osm-worker.js','/catalog.js','/account.html','/account.js','/admin.html','/admin.js','/common.js','/strava.html','/strava-client.js'].includes(path)){if((path==='/admin.html'||path==='/admin.js')&&!user.is_admin)return json(res,403,{error:'Accès réservé à l’administrateur.'});const file=path==='/'?'index.html':path.slice(1);res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript; charset=utf-8':'text/html; charset=utf-8');return res.end(await readFile(root+file));}
       return json(res,404,{error:'Ressource introuvable.'});
-    }catch(e){if(e.retryAfter)res.setHeader('Retry-After',String(e.retryAfter));if(e.code||e.name==='TypeError'&&e.message==='fetch failed'){console.error('Request failed:',e.code||e.name);return json(res,503,{error:'Service temporairement indisponible.'});}return json(res,e.status||400,{error:e.name==='TimeoutError'?'OSM est trop lent. Utilisez le mode manuel.':e.message||'Requête invalide.'});}finally{release();}
+    }catch(e){
+      const answer=errorResponse(e);if(answer.log)logError(e,answer.log,{method:req.method,path:req.url?.split('?')[0]});
+      if(res.headersSent){res.destroy();return;}
+      if(e?.retryAfter)res.setHeader('Retry-After',String(e.retryAfter));
+      return json(res,answer.status,{error:answer.message});
+    }finally{release();}
   });
 }
 

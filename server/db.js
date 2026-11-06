@@ -3,7 +3,20 @@ import {spatialSQL} from './spatial.js';
 import {routingStorageSQL} from './routing-storage.js';
 import {migrateRideLinks} from './ride-links.js';
 import {stravaLibrarySQL} from './strava-library.js';
-export const pool=new pg.Pool({host:process.env.PGHOST||'db',port:Number(process.env.PGPORT||5432),user:process.env.PGUSER||'sillage',password:process.env.PGPASSWORD,database:process.env.PGDATABASE||'sillage',max:10});
+const connection={host:process.env.PGHOST||'db',port:Number(process.env.PGPORT||5432),user:process.env.PGUSER||'sillage',password:process.env.PGPASSWORD,database:process.env.PGDATABASE||'sillage'};
+const milliseconds=(name,fallback)=>{const value=Number(process.env[name]??fallback);return Number.isInteger(value)&&value>=0?value:fallback;};
+// An idle client can fail when PostgreSQL restarts; without a listener the
+// 'error' event would stop the whole process. A busy pool fails after a bounded
+// wait instead of queuing requests indefinitely.
+export function createPool(options={}){
+ const created=new pg.Pool({...connection,max:10,connectionTimeoutMillis:milliseconds('PG_CONNECT_TIMEOUT_MS',10000),...options});
+ created.on('error',e=>console.error(JSON.stringify({event:'pg_pool_error',code:e.code,message:e.message})));
+ return created;
+}
+// Migrations, OSM imports and checks keep no statement limit.
+export const pool=createPool();
+// The web server bounds each statement and any transaction left open.
+export const createServingPool=()=>createPool({statement_timeout:milliseconds('PG_STATEMENT_TIMEOUT_MS',30000),idle_in_transaction_session_timeout:milliseconds('PG_IDLE_TRANSACTION_TIMEOUT_MS',60000)});
 export async function migrate(){
 await pool.query(`
 CREATE TABLE IF NOT EXISTS users(id uuid PRIMARY KEY, username text UNIQUE NOT NULL, password_hash text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());

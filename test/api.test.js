@@ -235,3 +235,18 @@ test('vignettes GPX : géométrie bornée à 500 points, privée et distincte du
 });
 
 
+test('erreurs HTTP : statut choisi conservé, bugs en 500 sans détail interne, PostgreSQL et réseau classés',async()=>{
+ const logged=[],original=console.error;console.error=(...args)=>logged.push(args.join(' '));
+ try{
+  const failures={tooLarge:Object.assign(Error('Étape trop étendue pour le calcul OSM local. Ajoutez un point de passage.'),{code:'LOCAL_TOO_LARGE',status:422}),duplicate:Object.assign(Error('duplicate key value violates unique constraint "users_username_key"'),{code:'23505',severity:'ERROR'}),network:new TypeError('fetch failed'),timeout:new DOMException('The operation was aborted due to timeout','TimeoutError')};
+  let current;const routing=async()=>{throw failures[current];};const app=createApp(database(),{origin:'https://sillage.test',routingService:routing});
+  const call=async name=>{current=name;const r=await request(app,{url:'/api/route',method:'POST',user:'alice',body:{points:[[50,5],[50.01,5]]}});return {status:r.status,error:JSON.parse(r.body).error};};
+  assert.deepEqual(await call('tooLarge'),{status:422,error:failures.tooLarge.message});
+  const duplicate=await call('duplicate');assert.equal(duplicate.status,409);assert.ok(!duplicate.error.includes('users_username_key'));
+  assert.equal((await call('network')).status,503);
+  const timeout=await call('timeout');assert.equal(timeout.status,504);assert.match(timeout.error,/OSM est trop lent/);
+  const bug=await request(app,{url:'/api/portions',method:'POST',user:'alice',body:null});assert.equal(bug.status,500);assert.ok(!/Cannot read|null/.test(JSON.parse(bug.body).error));
+  assert.ok(logged.some(line=>line.includes('request_error')&&line.includes('/api/portions')&&line.includes('TypeError')));
+  assert.ok(!logged.some(line=>line.includes('LOCAL_TOO_LARGE')),'une erreur prévue n’est pas journalisée');
+ }finally{console.error=original;}
+});

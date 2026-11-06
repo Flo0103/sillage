@@ -20,10 +20,13 @@ export function createStrava({clientId=process.env.STRAVA_CLIENT_ID,clientSecret
   await client.query('DELETE FROM strava_connections WHERE user_id=$1',[userId]);
   await client.query('DELETE FROM strava_oauth_states WHERE user_id=$1',[userId]);
  }
- async function removeData(db,userId,{revision,athleteId}={}){
+ // Automatic purges must name the connection they observed (revision or
+ // athlete). Only an explicit disconnection removes whatever is current.
+ async function removeData(db,userId,{revision,athleteId,all=false}={}){
+  if(!all&&revision===undefined&&athleteId===undefined)return;
   await transaction(db,async client=>{
    await lockRideOrigins(client,userId);
-   if(revision!==undefined||athleteId!==undefined){
+   if(!all){
     const q=await client.query('SELECT athlete_id,revision FROM strava_connections WHERE user_id=$1',[userId]),current=q.rows[0];
     if(!current||revision!==undefined&&current.revision!==revision||athleteId!==undefined&&String(current.athlete_id)!==String(athleteId))return;
    }
@@ -85,7 +88,7 @@ export function createStrava({clientId=process.env.STRAVA_CLIENT_ID,clientSecret
   }
   if(!user||!path.startsWith('/api/strava/'))return false;
   if(path==='/api/strava/status'&&method==='GET'){const q=await db.query('SELECT athlete_id FROM strava_connections WHERE user_id=$1',[user.id]);return reply(200,{configured,connected:!!q.rows.length});}
-  if(!configured&&path==='/api/strava/disconnect'&&method==='POST'){await removeData(db,user.id);return reply(200,{ok:true,remoteRevoked:false});}
+  if(!configured&&path==='/api/strava/disconnect'&&method==='POST'){await removeData(db,user.id,{all:true});return reply(200,{ok:true,remoteRevoked:false});}
   if(!configured)return reply(503,{error:'La connexion Strava n’est pas encore activée sur ce serveur.'});
   if(path==='/api/strava/connect'&&method==='GET'){
    const state=randomBytes(32).toString('hex'),nonce=randomBytes(32).toString('hex');await db.query('DELETE FROM strava_oauth_states WHERE user_id=$1 OR expires_at<now()',[user.id]);await db.query("INSERT INTO strava_oauth_states(state_hash,nonce_hash,user_id,session_hash,expires_at) VALUES($1,$2,$3,$4,now()+interval '10 minutes')",[tokenHash(state),tokenHash(nonce),user.id,sessionToken]);
@@ -93,7 +96,7 @@ export function createStrava({clientId=process.env.STRAVA_CLIENT_ID,clientSecret
   }
   if(path==='/api/strava/disconnect'&&method==='POST'){
    let remoteRevoked=false;try{const c=await connection(db,user.id);await request('https://www.strava.com/oauth/deauthorize',{method:'POST',body:new URLSearchParams({access_token:c.access_token})});remoteRevoked=true;}catch{}
-   await removeData(db,user.id);return reply(200,{ok:true,remoteRevoked});
+   await removeData(db,user.id,{all:true});return reply(200,{ok:true,remoteRevoked});
   }
   let revision;
   const currentConnection=async()=>{const c=await connection(db,user.id);revision=c.revision;return c;};

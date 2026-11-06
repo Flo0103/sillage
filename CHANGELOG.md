@@ -2,6 +2,16 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Purge Strava, erreurs HTTP et pool PostgreSQL (6.26.18)
+
+Une purge Strava automatique doit désormais nommer la connexion observée (révision ou athlète). Un 401 reçu pendant le renouvellement des jetons ne peut plus effacer une connexion enregistrée entre-temps : la seconde purge, sans révision, supprimait auparavant la nouvelle connexion et ses données. Seule une déconnexion volontaire purge sans condition.
+
+Les erreurs HTTP sont classées dans `server/errors.js`. Un statut choisi par le code est conservé (422 « Ajoutez un point de passage » du routage local, auparavant remplacé par un 503). Une contrainte PostgreSQL répond 409, une base indisponible ou trop lente 503, un délai OSM 504. Un bug répond 500 avec un message neutre et sa pile est journalisée ; son message interne n’est plus envoyé au navigateur.
+
+Le pool PostgreSQL journalise les erreurs de clients inactifs au lieu d’arrêter le processus et attend au plus 10 s une connexion libre. Après les migrations, le serveur web utilise un pool distinct limitant chaque requête SQL à 30 s et une transaction inactive à 60 s (`PG_STATEMENT_TIMEOUT_MS`, `PG_IDLE_TRANSACTION_TIMEOUT_MS`, `PG_CONNECT_TIMEOUT_MS`). Migrations, imports OSM et contrôles restent sans limite de durée. Caddy envoie `Strict-Transport-Security` pour un an.
+
+Validation : test du 401 au renouvellement pendant une reconnexion (échoue sur 6.26.17), tests HTTP et unitaires des statuts d’erreur. Aucune migration ni configuration obligatoire ; reconstruire `app` et redémarrer `web` pour l’en-tête HSTS.
+
 ## Légendes et désélection des sorties (6.26.17)
 
 Centrer les symboles d’accès limité et de secteur très technique dans leur colonne de légende, et retirer le cadre du triangle. Replier « Carte et légendes » par défaut sur ordinateur comme sur mobile.
