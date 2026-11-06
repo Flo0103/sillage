@@ -21,6 +21,23 @@ npm audit --audit-level=high
 
 `npm run test:db` exige une base PostgreSQL / PostGIS **jetable** (variables `PG*`) : ne jamais le lancer contre la production. `npm run bench:routing` mesure le routage.
 
+### Base et serveur de test dans l’environnement cloud Codex
+
+Si le dossier `/workspace/.sillage-cloud` existe, le script d’installation de l’environnement y a préparé une base PostGIS jetable (même image que la CI) et un test de bout en bout. Rien n’est démarré d’avance : lancer ces commandes dans la tâche, en plus de `npm test`, dès qu’elle touche `server/`, les migrations, l’authentification, la confidentialité ou les exports.
+
+```sh
+source /workspace/.sillage-cloud/dev.env
+bash /workspace/.sillage-cloud/start-db.sh                # démarre la base locale
+npm run test:db                                           # migrations, géométries, confidentialité Strava
+node server/check-db.js                                   # schéma, comme en production
+node server/index.js > /tmp/sillage.log 2>&1 &            # serveur local (migrations au démarrage)
+for i in $(seq 30); do curl -fs "$APP_ORIGIN/healthz" >/dev/null && break; sleep 1; done
+node /workspace/.sillage-cloud/smoke.mjs                  # connexion, sortie créée / lue / GPX / supprimée, déconnexion
+kill %1
+```
+
+Indiquer le résultat dans la PR. Si le dossier n’existe pas (Claude Code, poste local), ces contrôles sont faits par la CI « Validation » sur la PR.
+
 ## Règles de code
 
 - Diff minimal. Respecter le style compact existant ; ne jamais reformater un fichier entier ni lancer de formateur global : cela crée des conflits avec le travail des autres agents.
