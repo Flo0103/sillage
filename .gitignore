@@ -5,3 +5,5 @@ node_modules/
 *.log
 .DS_Store
 backups/
+.claude/settings.local.json
+CLAUDE.local.md
