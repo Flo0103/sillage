@@ -115,7 +115,7 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),r
       if(method==='GET'&&['/','/index.html','/app.js','/geo.js','/osm-tags.js','/preview.js','/route-edit.js','/planner.js','/plan-library.js','/gps-transfer.js','/onboarding.js','/ride-browser.js','/routing-requests.js','/elevation.js','/elevation-data.js','/osm-worker.js','/catalog.js','/account.html','/account.js','/admin.html','/admin.js','/common.js','/strava.html','/strava-client.js'].includes(path)){if((path==='/admin.html'||path==='/admin.js')&&!user.is_admin)return json(res,403,{error:'Accès réservé à l’administrateur.'});const file=path==='/'?'index.html':path.slice(1);res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript; charset=utf-8':'text/html; charset=utf-8');return res.end(await readFile(root+file));}
       return json(res,404,{error:'Ressource introuvable.'});
     }catch(e){
-      const answer=errorResponse(e);if(answer.log)logError(e,answer.log,{method:req.method,path:req.url?.split('?')[0]});
+      const answer=errorResponse(e);if(answer.log)logError(e,answer.log,{method:req.method,path:req.url?.split('?')[0],status:answer.status});
       if(res.headersSent){res.destroy();return;}
       if(e?.retryAfter)res.setHeader('Retry-After',String(e.retryAfter));
       return json(res,answer.status,{error:answer.message});

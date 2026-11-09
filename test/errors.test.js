@@ -10,6 +10,12 @@ test('erreurs prévues : message utilisateur et statut choisi conservés',()=>{
  assert.equal(errorResponse(Object.assign(Error('Quota'),{status:429,retryAfter:1})).status,429);
 });
 
+test('5xx choisis par le code (OSM, routage, Strava) : message conservé et journalisés',()=>{
+ assert.deepEqual(errorResponse(Object.assign(Error('Le service de routage ne répond pas.'),{status:502})),{status:502,message:'Le service de routage ne répond pas.',log:'upstream'});
+ assert.equal(errorResponse(Object.assign(Error('Strava'),{status:504})).log,'upstream');
+ assert.equal(errorResponse(new DOMException('timeout','TimeoutError')).log,'timeout');
+});
+
 test('PostgreSQL : contrainte en 409, base indisponible en 503, détail jamais renvoyé',()=>{
  const duplicate=errorResponse(pg('23505','duplicate key value violates unique constraint "users_username_key"'));
  assert.equal(duplicate.status,409);assert.ok(!duplicate.message.includes('users_username_key'));
