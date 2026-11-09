@@ -2,6 +2,12 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Fiche de secteur compacte pendant le tracé sur mobile (6.26.19)
+
+Sur écran tactile, toucher un secteur pendant le tracé d’un itinéraire ou d’un secteur ajoute le point sans ouvrir la fiche complète, qui couvrait presque toute la carte. Une étiquette courte (nom, plaisir, distance, alerte « très technique ») s’affiche près du doigt et disparaît seule après 1,8 s ; elle ne bloque pas les touchers suivants. Hors dessin, ou sur ordinateur au survol, la fiche complète reste inchangée.
+
+Validation : test d’interface du contenu compact, de sa fermeture automatique et du retour à la fiche complète hors écran tactile. Aucune migration ni configuration supplémentaire.
+
 ## Purge Strava, erreurs HTTP et pool PostgreSQL (6.26.18)
 
 Une purge Strava automatique doit désormais nommer la connexion observée (révision ou athlète). Un 401 reçu pendant le renouvellement des jetons ne peut plus effacer une connexion enregistrée entre-temps : la seconde purge, sans révision, supprimait auparavant la nouvelle connexion et ses données. Seule une déconnexion volontaire purge sans condition.
