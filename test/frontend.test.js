@@ -268,7 +268,7 @@ test('les segments et les imports laissent passer les clics de dessin ; le non-b
 });
 
 function profilePlan({mine=true}={}){const points=[[50,5],[50.1,5],[50.2,5]],make=(a,b,lo,hi)=>({mode:'route',coordinates:[a,b],analysis:{surfaces:[{type:'Gravier',distance:11119.5}],surfaceRuns:[{type:'Gravier',unpaved:true,coordinates:[a,b]}],errors:[],elevation:{ascent:hi-lo,descent:0,spacing:60,profile:[{at:0,altitude:lo},{at:11119.5,altitude:hi}]}}});return {id:'00000000-0000-0000-0000-000000000999',name:'Tour des bois',notes:'Pause au sommet',isMine:mine,isPublic:!mine,owner:mine?'alice':'bob',coordinates:points,routePoints:points,mode:'route',snapped:true,distance:22239,legs:[make(points[0],points[1],100,200),make(points[1],points[2],200,350)]};}
-function interactiveMap(ctx){const markers=[],lines=[],events={},panes=new Map();let zoom=14;const layer=(coords,options={})=>({coords,options,layers:[],events:{},removed:false,on(name,fn){this.events[name]=fn;return this;},addTo(target){this.removed=false;target.layers?.push(this);return this;},setOpacity(value){this.opacity=value;return this;},clearLayers(){for(const l of this.layers)l.removed=true;this.layers=[];},bindTooltip(html,options){this.tooltip={html,options};return this;},getLatLng(){return {lat:this.coords[0],lng:this.coords[1]};},setLatLng(p){this.coords=p;return this;},remove(){this.removed=true;}});
+function interactiveMap(ctx){const markers=[],lines=[],events={},panes=new Map();let zoom=14;const layer=(coords,options={})=>({coords,options,layers:[],events:{},removed:false,on(name,fn){this.events[name]=fn;return this;},addTo(target){this.removed=false;target.layers?.push(this);return this;},setOpacity(value){this.opacity=value;return this;},clearLayers(){for(const l of this.layers)l.removed=true;this.layers=[];},bindTooltip(html,options){const source=this;this.tooltip={get html(){return typeof html==='function'?html(source):html;},options};return this;},getLatLng(){return {lat:this.coords[0],lng:this.coords[1]};},setLatLng(p){this.coords=p;return this;},remove(){this.removed=true;}});
  const map={layers:[],setView(){return this;},createPane(name){const pane={style:{}};panes.set(name,pane);return pane;},getPane(name){if(!panes.has(name))panes.set(name,{style:{}});return panes.get(name);},on(name,fn){events[name]=fn;return this;},invalidateSize(){},fitBounds(){},hasLayer(layer){return this.layers.includes(layer)&&!layer.removed;},getZoom:()=>zoom,getBounds:()=>({contains:()=>true})},tile=(url,options)=>{const l=layer(null,options);l.url=url;return l;};tile.wms=tile;
  ctx.L={map:()=>map,tileLayer:tile,layerGroup:()=>layer(),polyline:(p,o)=>{const l=layer(p,o);lines.push(l);return l;},marker:(p,o)=>{const l=layer(p,o);markers.push(l);return l;},divIcon:o=>o,latLngBounds:p=>p,DomEvent:{stopPropagation(){}},control:{layers:()=>({addTo(){return this;}}),zoom:()=>({addTo(){}})}};
  return {map,markers,lines,events,setZoom(value){zoom=value;events['zoomend moveend']();}};
@@ -1035,4 +1035,18 @@ test('sortie en repère : les clics de dessin conservent la sortie et ajoutent l
 
 test('carte et légendes est replié au chargement sur tous les écrans',()=>{
  const tag=html.match(/<details\b[^>]*id="segmentLegend"[^>]*>/)[0];assert.doesNotMatch(tag,/\bopen\b/);
+});
+
+test('tracé sur écran tactile : un secteur touché affiche une étiquette courte qui se ferme seule, la fiche complète reste au survol',async()=>{
+ const {ctx,elements}=context(),fake=interactiveMap(ctx),r={id:'segment',name:'Sentier <b>',notes:'Racines',isMine:true,isPublic:true,rating:4,difficulty:'Très technique',surface:'Gravier',singleTrack:'yes',winter:'yes',owner:'alice',distance:2500,coordinates:[[50,5],[50.01,5]]};
+ let touch=true;const timers=[];ctx.matchMedia=q=>({matches:q==='(hover: none)'&&touch});ctx.setTimeout=fn=>{timers.push(fn);return timers.length;};ctx.clearTimeout=()=>{};
+ const access=await vm.runInNewContext(`(async()=>{${script}\nreturn {draw(v){setView(v);catalog=[${JSON.stringify(r)}];drawCatalog();},canDraw:()=>canDraw()};})()`,ctx);
+ const hit=()=>fake.lines.filter(l=>!l.removed&&l.options.className==='sector-hit-area')[0];
+ access.draw('planner');assert.equal(access.canDraw(),true);let line=hit();
+ assert.match(line.tooltip.html,/Sentier &lt;b&gt;/);assert.match(line.tooltip.html,/4\/5 · 2\.50 km · ⚠ très technique/);assert.doesNotMatch(line.tooltip.html,/Technicité|Racines|alice/);
+ const classes=new Set();let closed=0;line.closeTooltip=()=>{closed++;};
+ line.events.tooltipopen({target:line,tooltip:{getElement:()=>({classList:{toggle:(c,on)=>on?classes.add(c):classes.delete(c)}})}});
+ assert.ok(classes.has('is-compact'));assert.equal(timers.length,1);timers[0]();assert.equal(closed,1);
+ touch=false;assert.match(line.tooltip.html,/Technicité/);
+ touch=true;access.draw('saved');line=hit();if(!access.canDraw())assert.match(line.tooltip.html,/Technicité/);
 });
