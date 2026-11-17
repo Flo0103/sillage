@@ -54,6 +54,36 @@ test('PostGIS natif : migrations réexécutables, géométries, conservation et 
   resume.resolve();await pending;
   assert.equal((await pool.query('SELECT count(*)::int AS count FROM rides WHERE user_id=$1',[userId])).rows[0].count,0);
   assert.notEqual((await pool.query('SELECT revision FROM strava_connections WHERE user_id=$1',[userId])).rows[0].revision,original);
+  await t.test('Strava 64 bits : index, imports, provenance et suppression ciblée en PostgreSQL',async()=>{
+   const largeAthlete='9223372036854775807',ids=['9007199254740992','9007199254740993','9223372036854775807'];
+   await pool.query('UPDATE strava_connections SET athlete_id=$1 WHERE user_id=$2',[largeAthlete,userId]);
+   const largeService=createStrava({clientId:'123',clientSecret:'CI_ONLY',key,webhookSecret,fetcher:async url=>{
+    if(url.includes('/athlete/activities?'))return new Response('[{"id":9007199254740992,"id_str":"9007199254740992","sport_type":"GravelRide"},{"id_str":"9007199254740993","sport_type":"GravelRide"},{"id":9223372036854775807,"sport_type":"GravelRide"}]');
+    if(url.includes('/streams'))return Response.json({latlng:{data:points}});
+    return Response.json({sport_type:'GravelRide',athlete:{id:77,id_str:largeAthlete}});
+   }});
+   const call=async(path,body={},method='POST',query={})=>{let result;await largeService({db:pool,path,method,user:{id:userId},req:{headers:{}},query:new URLSearchParams(query),body:async()=>body,res:{},json(res,status,data){result={status,...data};}});return result;};
+   assert.equal((await call('/api/strava/library/sync')).status,200);
+   const stored=await pool.query('SELECT activity_id,data FROM strava_library_activities WHERE user_id=$1 ORDER BY activity_id',[userId]);
+   assert.deepEqual(stored.rows.map(r=>r.activity_id),ids);assert.deepEqual(stored.rows.map(r=>r.data.id),ids);
+   assert.equal((await pool.query('SELECT athlete_id FROM strava_library_state WHERE user_id=$1',[userId])).rows[0].athlete_id,largeAthlete);
+   const imported=[];
+   for(const activityId of ids){const result=await call('/api/strava/import',{activityId});assert.equal(result.status,201);imported.push(result.id);}
+   assert.equal(new Set(imported).size,3);
+   assert.equal((await call('/api/strava/import',{activityId:ids[1]})).id,imported[1]);
+   for(const view of ['list','map']){
+    const list=await call('/api/strava/library',{},'GET',{view});
+    assert.deepEqual(list.items.map(a=>a.id).sort(),ids);assert.ok(list.items.every(a=>imported.includes(a.rideId)));
+   }
+   const derivedId=randomUUID();
+   await pool.query('INSERT INTO portions(id,user_id,data,source_strava,source_strava_activity_id) VALUES($1,$2,$3,true,$4)',[derivedId,userId,JSON.stringify(data),ids[1]]);
+   await call('/api/strava/webhook/'+webhookSecret,{owner_id:largeAthlete,object_id:ids[1],object_type:'activity',aspect_type:'delete'});
+   assert.deepEqual((await pool.query('SELECT strava_activity_id FROM rides WHERE user_id=$1 ORDER BY strava_activity_id',[userId])).rows.map(r=>r.strava_activity_id),[ids[0],ids[2]]);
+   assert.deepEqual((await pool.query('SELECT activity_id FROM strava_library_activities WHERE user_id=$1 ORDER BY activity_id',[userId])).rows.map(r=>r.activity_id),[ids[0],ids[2]]);
+   assert.equal((await pool.query('SELECT id FROM portions WHERE id=$1',[derivedId])).rows.length,0);
+   await call('/api/strava/webhook/'+webhookSecret,{owner_id:largeAthlete,object_type:'athlete',aspect_type:'update',updates:{authorized:'false'}});
+   for(const table of ['strava_connections','strava_library_activities','strava_library_state','rides'])assert.equal((await pool.query('SELECT count(*)::int AS count FROM '+table+' WHERE user_id=$1',[userId])).rows[0].count,0);
+  });
  }finally{
   await pool.query('DELETE FROM users WHERE id=$1',[userId]);
  }

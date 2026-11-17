@@ -3,6 +3,7 @@ import {tokenHash,coordinates,routeLength} from './model.js';
 import {transaction} from './features.js';
 import {lockRideOrigins} from './ride-links.js';
 import {createStravaLibrary} from './strava-library.js';
+import {stravaId,stravaIdReviver} from './strava-ids.js';
 export function tokenCipher(hex){
  if(!/^[a-f0-9]{64}$/i.test(hex||''))throw Error('Clé de chiffrement Strava invalide.');const key=Buffer.from(hex,'hex');
  return {seal(data,userId){const iv=randomBytes(12),c=createCipheriv('aes-256-gcm',key,iv);c.setAAD(Buffer.from(userId));const content=Buffer.concat([c.update(JSON.stringify(data),'utf8'),c.final()]);return Buffer.concat([iv,c.getAuthTag(),content]).toString('base64');},open(text,userId){const b=Buffer.from(text,'base64'),c=createDecipheriv('aes-256-gcm',key,b.subarray(0,12));c.setAAD(Buffer.from(userId));c.setAuthTag(b.subarray(12,28));return JSON.parse(Buffer.concat([c.update(b.subarray(28)),c.final()]).toString('utf8'));}};
@@ -11,7 +12,7 @@ export const isCycling=a=>['GravelRide','Ride','MountainBikeRide','EBikeRide','E
 export function createStrava({clientId=process.env.STRAVA_CLIENT_ID,clientSecret=process.env.STRAVA_CLIENT_SECRET,key=process.env.STRAVA_TOKEN_KEY,webhookSecret=process.env.STRAVA_WEBHOOK_SECRET,fetcher=(...args)=>fetch(...args),now=Date.now}={}){
  const configured=/^\d+$/.test(clientId||'')&&!!clientSecret&&/^[a-f0-9]{64}$/i.test(key||''),cipher=configured?tokenCipher(key):null;
  const library=createStravaLibrary({decode:decodePolyline,now});
- async function request(url,options={}){let r;try{r=await fetcher(url,{...options,signal:AbortSignal.timeout(20000)});}catch{throw Object.assign(Error('Strava ne répond pas. Réessayez dans quelques instants.'),{status:504});}if(!r.ok){const error=Object.assign(Error(r.status===429?'Quota Strava atteint. Réessayez plus tard.':r.status===401?'Connexion Strava expirée ou révoquée. Reconnectez votre compte.':'Strava ne peut pas répondre à cette demande.'),{status:r.status===429?429:502,stravaUnauthorized:r.status===401});throw error;}return r.json();}
+ async function request(url,options={}){let r;try{r=await fetcher(url,{...options,signal:AbortSignal.timeout(20000)});}catch{throw Object.assign(Error('Strava ne répond pas. Réessayez dans quelques instants.'),{status:504});}if(!r.ok){const error=Object.assign(Error(r.status===429?'Quota Strava atteint. Réessayez plus tard.':r.status===401?'Connexion Strava expirée ou révoquée. Reconnectez votre compte.':'Strava ne peut pas répondre à cette demande.'),{status:r.status===429?429:502,stravaUnauthorized:r.status===401});throw error;}return JSON.parse(await r.text(),stravaIdReviver);}
  const exchange=fields=>request('https://www.strava.com/oauth/token',{method:'POST',body:new URLSearchParams({client_id:clientId,client_secret:clientSecret,...fields})});
  async function purgeData(client,userId){
   for(const table of ['strava_library_activities','strava_library_state'])await client.query('DELETE FROM '+table+' WHERE user_id=$1',[userId]);
@@ -48,15 +49,17 @@ export function createStrava({clientId=process.env.STRAVA_CLIENT_ID,clientSecret
   if(webhookPath&&path===webhookPath){
    if(method==='GET'&&query.get('hub.mode')==='subscribe'&&query.get('hub.verify_token')===webhookSecret&&query.get('hub.challenge')?.length<=300)return reply(200,{'hub.challenge':query.get('hub.challenge')});
    if(method==='POST'){
-    const event=await body(req),athlete=String(event.owner_id||'');if(!/^\d{1,20}$/.test(athlete))return reply(400,{error:'Événement invalide.'});const q=await db.query('SELECT user_id FROM strava_connections WHERE athlete_id=$1',[athlete]);
+    const event=await body(req,undefined,stravaIdReviver);let athlete,activityId;
+    try{athlete=stravaId(event,'owner_id');if(event.object_type==='activity'&&event.aspect_type==='delete')activityId=stravaId(event,'object_id');}catch{return reply(400,{error:'Événement invalide.'});}
+    const q=await db.query('SELECT user_id FROM strava_connections WHERE athlete_id=$1',[athlete]);
     if(q.rows[0]&&event.object_type==='athlete'&&event.aspect_type==='update'&&event.updates?.authorized==='false')await removeData(db,q.rows[0].user_id,{athleteId:athlete});
-    else if(q.rows[0]&&event.object_type==='activity'&&event.aspect_type==='delete'&&/^\d{1,20}$/.test(String(event.object_id)))await transaction(db,async client=>{
+    else if(q.rows[0]&&event.object_type==='activity'&&event.aspect_type==='delete')await transaction(db,async client=>{
      const userId=q.rows[0].user_id;await lockRideOrigins(client,userId);
      const current=await client.query('SELECT athlete_id,revision FROM strava_connections WHERE user_id=$1',[userId]);
      if(String(current.rows[0]?.athlete_id)!==athlete)return;
      // Invalidate imports that fetched this activity before its deletion event.
      await client.query('UPDATE strava_connections SET revision=gen_random_uuid() WHERE user_id=$1',[userId]);
-     const args=[userId,String(event.object_id)];
+     const args=[userId,activityId];
      await client.query('DELETE FROM strava_library_activities WHERE user_id=$1 AND activity_id=$2',args);
      await client.query("UPDATE strava_library_state SET data=jsonb_set(data,'{revision}',to_jsonb($2::text)) WHERE user_id=$1",[userId,randomUUID()]);
      for(const table of ['planned_routes','portions'])await client.query('DELETE FROM '+table+' WHERE user_id=$1 AND source_strava=true AND source_strava_activity_id=$2',args);
@@ -73,7 +76,7 @@ export function createStrava({clientId=process.env.STRAVA_CLIENT_ID,clientSecret
     const stateArgs=[tokenHash(query.get('state')),tokenHash(nonce)];
     const q=await db.query('SELECT user_id,session_hash FROM strava_oauth_states WHERE state_hash=$1 AND nonce_hash=$2 AND expires_at>now()',stateArgs),state=q.rows[0];if(!state)throw Error('State expiré.');
     const session=await db.query('SELECT u.id FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.user_id=$2 AND s.expires_at>now() AND u.active=true',[state.session_hash,state.user_id]);if(!session.rows.length||query.get('error')||!query.get('code')||!(query.get('scope')||'').split(/[ ,]+/).includes('activity:read_all'))throw Error('Autorisation incomplète.');
-    const tokens=await exchange({grant_type:'authorization_code',code:query.get('code')});if(!tokens.athlete?.id||!tokens.access_token||!tokens.refresh_token||!Number.isFinite(tokens.expires_at))throw Error('Réponse invalide.');
+    const tokens=await exchange({grant_type:'authorization_code',code:query.get('code')}),athleteId=stravaId(tokens.athlete);if(!tokens.access_token||!tokens.refresh_token||!Number.isFinite(tokens.expires_at))throw Error('Réponse invalide.');
     await transaction(db,async client=>{
      await lockRideOrigins(client,state.user_id);
      const claim=await client.query('DELETE FROM strava_oauth_states WHERE state_hash=$1 AND nonce_hash=$2 AND expires_at>now() RETURNING user_id,session_hash',stateArgs);
@@ -81,8 +84,8 @@ export function createStrava({clientId=process.env.STRAVA_CLIENT_ID,clientSecret
      const active=await client.query('SELECT u.id FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.user_id=$2 AND s.expires_at>now() AND u.active=true',[state.session_hash,state.user_id]);
      if(!active.rows.length)throw Error('Session révoquée.');
      const previous=await client.query('SELECT athlete_id,revision FROM strava_connections WHERE user_id=$1',[state.user_id]);
-     if(previous.rows[0]&&String(previous.rows[0].athlete_id)!==String(tokens.athlete.id))await purgeData(client,state.user_id);
-     await client.query('INSERT INTO strava_connections(user_id,athlete_id,tokens) VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET athlete_id=EXCLUDED.athlete_id,tokens=EXCLUDED.tokens,revision=gen_random_uuid()',[state.user_id,String(tokens.athlete.id),cipher.seal({access_token:tokens.access_token,refresh_token:tokens.refresh_token,expires_at:tokens.expires_at},state.user_id)]);
+     if(previous.rows[0]&&String(previous.rows[0].athlete_id)!==athleteId)await purgeData(client,state.user_id);
+     await client.query('INSERT INTO strava_connections(user_id,athlete_id,tokens) VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET athlete_id=EXCLUDED.athlete_id,tokens=EXCLUDED.tokens,revision=gen_random_uuid()',[state.user_id,athleteId,cipher.seal({access_token:tokens.access_token,refresh_token:tokens.refresh_token,expires_at:tokens.expires_at},state.user_id)]);
     });callbackPage(res,true);
    }catch{callbackPage(res,false);}return true;
   }
@@ -104,11 +107,11 @@ export function createStrava({clientId=process.env.STRAVA_CLIENT_ID,clientSecret
    if(path==='/api/strava/library'&&method==='GET'){const q=await db.query('SELECT athlete_id FROM strava_connections WHERE user_id=$1',[user.id]);if(!q.rows[0])return reply(200,{connected:false,items:[],total:0,status:null});return reply(200,await library.read(db,user.id,String(q.rows[0].athlete_id),query));}
    if(path==='/api/strava/library/sync'&&method==='POST'){const b=await body(req);if(b.refresh!==undefined&&typeof b.refresh!=='boolean')throw Error('Actualisation invalide.');const c=await currentConnection();return reply(200,await library.sync(db,user.id,c.athlete_id,({page,before,perPage})=>api(`/athlete/activities?page=${page}&per_page=${perPage}&before=${before}`,c.access_token),{refresh:b.refresh===true}));}
    if(path==='/api/strava/activities'&&method==='GET'){
-    const c=await currentConnection(),page=Number(query.get('page')||1);if(!Number.isInteger(page)||page<1||page>200)throw Error('Page invalide.');const all=await api(`/athlete/activities?page=${page}&per_page=50`,c.access_token);if(!Array.isArray(all))throw Error('Réponse Strava invalide.');const onlyGravel=query.get('kind')!=='cycling';const activities=all.filter(a=>onlyGravel?a.sport_type==='GravelRide':isCycling(a)).map(a=>({id:String(a.id),name:a.name,distance:a.distance,startDate:a.start_date,sportType:a.sport_type||a.type,preview:decodePolyline(a.map?.summary_polyline)}));return reply(200,{activities,hasMore:all.length===50,page});
+    const c=await currentConnection(),page=Number(query.get('page')||1);if(!Number.isInteger(page)||page<1||page>200)throw Error('Page invalide.');const all=await api(`/athlete/activities?page=${page}&per_page=50`,c.access_token);if(!Array.isArray(all))throw Error('Réponse Strava invalide.');const onlyGravel=query.get('kind')!=='cycling';const activities=all.filter(a=>onlyGravel?a.sport_type==='GravelRide':isCycling(a)).map(a=>({id:stravaId(a),name:a.name,distance:a.distance,startDate:a.start_date,sportType:a.sport_type||a.type,preview:decodePolyline(a.map?.summary_polyline)}));return reply(200,{activities,hasMore:all.length===50,page});
    }
    if(path==='/api/strava/import'&&method==='POST'){
-    const b=await body(req),id=String(b.activityId||'');if(!/^\d{1,20}$/.test(id))throw Error('Activité invalide.');const existing=await db.query('SELECT id FROM rides WHERE user_id=$1 AND strava_activity_id=$2',[user.id,id]);if(existing.rows.length)return reply(200,{id:existing.rows[0].id});
-    const c=await currentConnection(),activity=await api(`/activities/${id}`,c.access_token);if(String(activity.athlete?.id)!==c.athlete_id||!isCycling(activity))return reply(403,{error:'Choisissez votre propre sortie vélo.'});
+    const b=await body(req),id=stravaId({id:b.activityId});const existing=await db.query('SELECT id FROM rides WHERE user_id=$1 AND strava_activity_id=$2',[user.id,id]);if(existing.rows.length)return reply(200,{id:existing.rows[0].id});
+    const c=await currentConnection(),activity=await api(`/activities/${id}`,c.access_token);if(stravaId(activity.athlete)!==c.athlete_id||!isCycling(activity))return reply(403,{error:'Choisissez votre propre sortie vélo.'});
     const streams=await api(`/activities/${id}/streams?keys=latlng&key_by_type=true`,c.access_token),points=coordinates(streams.latlng?.data),rideId=randomUUID(),name=String(activity.name||'Sortie Strava').slice(0,200);
     const saved=await transaction(db,async client=>{
      await lockRideOrigins(client,user.id);
