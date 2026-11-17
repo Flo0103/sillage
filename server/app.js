@@ -20,7 +20,7 @@ export function createApp(db,{origin,secure=true,osmService=createOSMService(),r
   const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
   const cookie=(value,age)=>`${sessionCookie}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secure?'; Secure':''}`;
   let dummy;
-  async function body(req,limit=["/api/invitation-info","/api/accept-invitation","/api/account/password","/api/admin/invitations"].includes(req.url?.split("?")[0])?16*1024:12*1024*1024){let size=0,parts=[];for await(const chunk of req){size+=chunk.length;if(size>limit)throw Object.assign(Error('Fichier trop volumineux.'),{status:413});parts.push(chunk);}try{return JSON.parse(Buffer.concat(parts).toString('utf8'));}catch{throw Object.assign(Error('JSON invalide.'),{status:400});}}
+  async function body(req,limit=["/api/invitation-info","/api/accept-invitation","/api/account/password","/api/admin/invitations"].includes(req.url?.split("?")[0])?16*1024:12*1024*1024,reviver){let size=0,parts=[];for await(const chunk of req){size+=chunk.length;if(size>limit)throw Object.assign(Error('Fichier trop volumineux.'),{status:413});parts.push(chunk);}try{return JSON.parse(Buffer.concat(parts).toString('utf8'),reviver);}catch{throw Object.assign(Error('JSON invalide.'),{status:400});}}
   return createServer({headersTimeout:15000,requestTimeout:60000},async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');
     res.setHeader('X-Frame-Options','DENY');

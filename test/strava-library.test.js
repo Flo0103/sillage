@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createStravaLibrary,activityMetadata,libraryQuery} from '../server/strava-library.js';
+import {stravaIdReviver} from '../server/strava-ids.js';
 // Stateful SQL adapter: no Postgres daemon is available in this workspace.
 function fixture(){
  const connections=new Map([['alice','77'],['bob','88']]),states=new Map(),activities=new Map(),calls=[];
@@ -75,4 +76,20 @@ test('filtres SQL : accents, mots, distance, dénivelé et emprise paramétrés'
 test('métadonnées bornées : pas de nom ni de position pour les activités autres que vélo',()=>{
  const run=activityMetadata(activity(1,{sport_type:'Run',name:'Secret run'}),()=>[[50,5]]);assert.equal(run.cycling,false);assert.equal(run.data.name,'');assert.equal(run.data.start_point,null);assert.deepEqual(run.data.preview,[]);
  const ride=activityMetadata(activity(2),()=>Array.from({length:1000},(_,i)=>[50+i/1e5,5]));assert.equal(ride.data.preview.length,250);assert.equal(ride.data.ascent,200);assert.throws(()=>activityMetadata({id:'invalid'},()=>[]));
+});
+
+test('index Strava 64 bits : identifiants voisins conservés dans SQL, JSON, liste et carte',async()=>{
+ const f=fixture(),athleteId='9223372036854775807',ids=['9007199254740992','9007199254740993','9223372036854775807'];
+ f.connections.set('alice',athleteId);
+ const records=JSON.parse('[{"id":9007199254740992,"id_str":"9007199254740992"},{"id":9007199254740993,"id_str":"9007199254740993"},{"id":9223372036854775807}]',stravaIdReviver).map(a=>({...activity(1),...a}));
+ await f.library.sync(f.db,'alice',athleteId,async()=>records);
+ assert.equal(f.states.get('alice').athlete_id,athleteId);
+ const written=JSON.parse(f.calls.find(c=>c.sql.startsWith('INSERT INTO strava_library_activities')).args[1]);
+ assert.deepEqual(written.map(r=>r.activity_id),ids);assert.deepEqual(written.map(r=>r.data.id),ids);
+ for(const view of ['list','map']){
+  const result=await f.library.read(f.db,'alice',athleteId,new URLSearchParams({view}));
+  assert.equal(result.total,3);assert.deepEqual(result.items.map(a=>a.id).sort(),ids);
+ }
+ await f.library.sync(f.db,'alice',athleteId,async()=>records,{refresh:true});
+ assert.equal(f.activities.size,3);
 });

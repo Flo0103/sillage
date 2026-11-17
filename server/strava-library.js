@@ -2,6 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {transaction} from './features.js';
 import {lockRideOrigins} from './ride-links.js';
 import {spatialBounds} from './spatial.js';
+import {stravaId} from './strava-ids.js';
 
 export const stravaLibrarySQL=`
 CREATE TABLE IF NOT EXISTS strava_library_state(user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,athlete_id bigint NOT NULL,data jsonb NOT NULL);
@@ -12,7 +13,7 @@ const normalise=value=>String(value??'').normalize('NFD').replace(/\p{Diacritic}
 const cycling=new Set(['GravelRide','Ride','MountainBikeRide','EBikeRide','EMountainBikeRide']);
 const position=value=>Array.isArray(value)&&value.length===2&&value.every(Number.isFinite)&&Math.abs(value[0])<=90&&Math.abs(value[1])<=180?value:null;
 export function activityMetadata(activity,decode){
- const id=String(activity?.id||'');if(!/^\d{1,19}$/.test(id))throw Error('Réponse Strava invalide.');
+ const id=stravaId(activity);
  const type=String(activity.sport_type||activity.type||''),isCycling=cycling.has(type),date=new Date(activity.start_date),startDate=Number.isNaN(date.getTime())?null:date.toISOString();
  const path=isCycling?decode(activity.map?.summary_polyline):[],preview=path.length>250?Array.from({length:250},(_,i)=>path[Math.round(i*(path.length-1)/249)]):path;
  const data={id,name:isCycling?String(activity.name||'Sortie Strava').slice(0,200):'',distance:isCycling&&Number.isFinite(activity.distance)?Math.max(0,activity.distance):0,ascent:isCycling&&Number.isFinite(activity.total_elevation_gain)?Math.max(0,activity.total_elevation_gain):null,startDate,sportType:type,preview,start_point:isCycling?position(activity.start_latlng):null,end_point:isCycling?position(activity.end_latlng):null};

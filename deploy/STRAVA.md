@@ -2,6 +2,8 @@
 
 La connexion est facultative : tant que la configuration est absente, l’import GPX et toutes les autres fonctionnalités restent disponibles.
 
+Depuis la version 6.26.22, Sillage utilise `id_str` en priorité pour les activités et les athlètes, en préparation du passage aux identifiants 64 bits annoncé par Strava pour le 1er juin 2027. Les identifiants restent exacts dans les notifications de suppression/révocation, même lorsqu’ils arrivent sous forme d’entiers JSON. Les colonnes PostgreSQL sont déjà en `bigint` : aucune migration, reconnexion ni modification des clés n’est nécessaire ; reconstruire le service `app` pour appliquer cette mise à jour.
+
 ## 1. Créer l’application Strava
 
 Ouvrir https://www.strava.com/settings/api et enregistrer une application Sillage.

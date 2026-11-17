@@ -2,6 +2,12 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Identifiants Strava 64 bits (6.26.22)
+
+Les identifiants d’activités et d’athlètes utilisent désormais `id_str` en priorité, conformément au changement annoncé par Strava pour le 1er juin 2027. Ils restent des chaînes dans les échanges Sillage et les métadonnées JSON. La lecture des réponses Strava et des notifications numériques de suppression/révocation conserve aussi le texte exact des grands entiers JSON, avant tout arrondi JavaScript. Les anciens identifiants numériques exacts restent acceptés ; les valeurs déjà arrondies ou hors plage PostgreSQL `bigint` sont refusées.
+
+Validation : activités voisines au-delà de la précision de JavaScript, limite 64 bits signée, OAuth, propriété et dédoublonnage des imports, index privé, notifications HTTP et stockage PostgreSQL/PostGIS. Aucune migration ni nouvelle clé ; reconstruire le service `app` sur le VPS.
+
 ## Carte et bibliothèque rétablies au démarrage (6.26.21)
 
 Le module `sector-crossings.js`, ajouté en 6.26.20, était importé par l’application mais absent de la liste des fichiers servis aux membres. Sa réponse HTTP 404 interrompait le chargement JavaScript avant l’initialisation de la carte et de la bibliothèque. Le serveur sert désormais ce module avec le type JavaScript, sous la même authentification que les autres modules.
