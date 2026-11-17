@@ -9,6 +9,7 @@ import {smoothElevation,elevationGain} from '../dist/elevation-data.js';
 import * as Elevation from '../dist/elevation.js';
 import {filterPlans,planLibraryStats} from '../dist/plan-library.js';
 import {ItineraryDraft,planSummary} from '../dist/planner.js';
+import {crossedSectors} from '../dist/sector-crossings.js';
 import {insertionIndex} from '../dist/route-edit.js';
 import {createGpsTransfer} from '../dist/gps-transfer.js';
 import {createOnboarding} from '../dist/onboarding.js';
@@ -28,7 +29,7 @@ function context({optionalMissing=false}={}){
  const document={body:element(),addEventListener(){},getElementById:id=>elements.get(id)||null,createElement:()=>element(),createTextNode:text=>({textContent:text}),querySelector:()=>null};
  const fetch=async(path,options={})=>{calls.push({path,options});const data=path==='/api/plan-elevations'?JSON.parse(options.body).paths.map(()=>({elevation:null,error:'Altitudes indisponibles.'})):path==='/api/route/nearest'?{point:JSON.parse(options.body).point}:path==='/api/me'?{username:'alice'}:['/api/portions','/api/catalog','/api/wms','/api/plans','/api/rides/overlay'].includes(path)?[]:path==='/api/rides'?options.method==='POST'?{id:ride.id}:[ride]:ride;return {ok:true,status:200,json:async()=>data};};
  const xml={querySelector:()=>null,getElementsByTagNameNS:(ns,tag)=>tag==='trkpt'?points.map(p=>({hasAttribute:()=>true,getAttribute:n=>n==='lat'?String(p[0]):String(p[1])})):[]};
- const ctx={filterPlans,planLibraryStats,createGpsTransfer,createOnboarding,createRideCards,createStravaSearch,createRoutingRequests,isRoutingRequest,...Elevation,smoothElevation,elevationGain,document,fetch,ItineraryDraft,planSummary,insertionIndex,distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds,visibleSegments,segmentColor,ratingColors,ratingLabels,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML,location:{replace(){}},localStorage:{getItem:()=>null},AbortController,console,setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),innerWidth:1200,Blob,URL,URLSearchParams,confirm:()=>true,DOMParser:class{parseFromString(){return xml;}}};
+ const ctx={crossedSectors,filterPlans,planLibraryStats,createGpsTransfer,createOnboarding,createRideCards,createStravaSearch,createRoutingRequests,isRoutingRequest,...Elevation,smoothElevation,elevationGain,document,fetch,ItineraryDraft,planSummary,insertionIndex,distance,routeLength,routeOSM,matchOSMDetailed,selectionBounds,visibleSegments,segmentColor,ratingColors,ratingLabels,surfaceColors,singleTrackLabels,singleTrackColors,difficultyColors,escapeHTML,location:{replace(){}},localStorage:{getItem:()=>null},AbortController,console,setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),innerWidth:1200,Blob,URL,URLSearchParams,confirm:()=>true,DOMParser:class{parseFromString(){return xml;}}};
  return {elements,calls,ctx,flushTimers(max=350){for(const[id,t]of [...timers])if(t.delay<=max){timers.delete(id);t.fn();}}};
 }
 test('choix d’une sortie sauvegardée sans dépendre des contrôles facultatifs',async()=>{
@@ -258,6 +259,17 @@ test('enregistrer attend les altitudes et revêtements pour les conserver et les
  ctx.fetch=async(path,options={})=>{if(path==='/api/route')return {ok:true,status:200,json:async()=>({coordinates:JSON.parse(options.body).points})};if(path==='/api/plan-elevations')return new Promise(r=>finish=r);if(path==='/api/plan-metrics')return {ok:true,status:200,json:async()=>({surfaces:analysis.surfaces,surfaceRuns:[],errors:[]})};if(path==='/api/plans'&&options.method==='POST'){calls.push({path,options});return {ok:true,status:201,json:async()=>({...JSON.parse(options.body),id:'p',isMine:true})};}return base(path,options);};
  const access=await vm.runInNewContext(`(async()=>{${script}\nnewPlan();choose({lat:50,lng:5});choose({lat:50.01,lng:5});})()`,ctx);flushTimers();await new Promise(r=>setImmediate(r));elements.get('planName').value='Dénivelé test';elements.get('planName').oninput();const saving=elements.get('planForm').onsubmit({preventDefault(){}});await new Promise(r=>setImmediate(r));assert.equal(calls.filter(c=>c.path==='/api/plans'&&c.options.method==='POST').length,0);assert.equal(elements.get('savePlan').disabled,true);
  finish({ok:true,status:200,json:async()=>[{elevation:analysis.elevation,error:null}]});await saving;const saved=JSON.parse(calls.find(c=>c.path==='/api/plans'&&c.options.method==='POST').options.body);assert.equal(saved.legs[0].analysis.elevation.ascent,40);assert.match(elements.get('planElevation').textContent,/D\+ 40 m/);
+});
+test('itinéraire : liste des secteurs traversés complètement ou en partie, quel que soit le sens',async()=>{
+ const {ctx,elements}=context(),fitted=[];const map={setView(){return this;},createPane(){},getPane(){return {style:{}};},on(){return this;},invalidateSize(){},fitBounds(points){fitted.push(points);},hasLayer(){return false;},getBounds(){return null;},getZoom(){return 11;}};
+ const layer=()=>({on(){return this;},addTo(){return this;},clearLayers(){},bindTooltip(){return this;},remove(){}}),tile=()=>layer();tile.wms=tile;
+ ctx.L={map:()=>map,tileLayer:tile,layerGroup:layer,polyline:layer,marker:layer,divIcon:o=>o,latLngBounds:p=>p,control:{layers:()=>({addTo(){return this;}}),zoom:()=>({addTo(){}})}};
+ await vm.runInNewContext(`(async()=>{${script}\nnewPlan();catalog=[{name:'Bois inversé',isMine:false,owner:'bob',rating:5,coordinates:[[50.009,5],[50.006,5]]},{name:'Chemin complet',isMine:true,rating:4,coordinates:[[50.001,5],[50.004,5]]},{name:'Moitié',isMine:true,rating:3,coordinates:[[50.008,5],[50.012,5]]},{name:'Ailleurs',isMine:true,rating:2,coordinates:[[50.2,5],[50.21,5]]}];planDraft.append([50,5]);planDraft.append([50.01,5]);planDraft.resolve(planDraft.legs[0].id,{coordinates:[[50,5],[50.01,5]]});syncPlanner();updatePlanStats();})()`,ctx);
+ assert.equal(elements.get('planSectorsSummary').textContent,'3 secteurs traversés · 2 complets, 1 partiel');
+ const rows=elements.get('planSectors').children,text=rows.map(r=>r.children[0].children.map(c=>c.textContent).join(' | '));
+ assert.equal(text.length,3);assert.match(text[0],/^Chemin complet \| Complet \| km 0\.1 → 0\.4 de l’itinéraire · secteur de 0\.3 km$/);
+ assert.match(text[1],/^Bois inversé \| Complet \| km 0\.7 → 1\.0 .* · bob$/);assert.match(text[2],/^Moitié \| Partiel · 5\d % du secteur \|/);
+ rows[1].children[0].onclick();assert.equal(JSON.stringify(fitted.at(-1)),'[[50.009,5],[50.006,5]]');
 });
 test('les segments et les imports laissent passer les clics de dessin ; le non-bitume est dessiné en pointillés',async()=>{
  const {ctx,elements}=context(),base=ctx.fetch,drawn=[];const map={setView(){return this;},createPane(){},getPane(){return {style:{}};},on(){return this;},invalidateSize(){},fitBounds(){},hasLayer(){return false;}};
