@@ -2,6 +2,14 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Secteurs traversés par un itinéraire (6.26.20)
+
+Le panneau d’un itinéraire (création, modification ou consultation) liste les secteurs de l’atlas qu’il emprunte, dans l’ordre du parcours : « Complet » quand au moins 90 % du secteur suit l’itinéraire, « Partiel · n % » à partir de 100 m suivis. Le sens de parcours n’intervient pas : un secteur dessiné dans l’autre sens, un aller-retour ou une boucle donnent le même résultat. Un simple croisement de chemin n’est pas compté. Chaque ligne indique les kilomètres de l’itinéraire concernés et la longueur du secteur ; un clic centre la carte sur le secteur. La fiche de l’itinéraire dans la bibliothèque affiche le nombre de secteurs traversés.
+
+Le calcul se fait dans le navigateur (`dist/sector-crossings.js`) sur les secteurs visibles (les siens et les secteurs publics des membres), avec une tolérance de 25 m autour du tracé : la liste suit donc les secteurs ajoutés, modifiés ou supprimés après l’enregistrement de l’itinéraire.
+
+Validation : tests unitaires (complet, partiel, sens inverse, croisement, secteur voisin, boucle) et test d’interface du panneau. Aucune migration ni configuration supplémentaire.
+
 ## Fiche de secteur compacte pendant le tracé sur mobile (6.26.19)
 
 Sur écran tactile, toucher un secteur pendant le tracé d’un itinéraire ou d’un secteur ajoute le point sans ouvrir la fiche complète, qui couvrait presque toute la carte. Une étiquette courte (nom, plaisir, distance, alerte « très technique ») s’affiche près du doigt et disparaît seule après 1,8 s ; elle ne bloque pas les touchers suivants. Hors dessin, ou sur ordinateur au survol, la fiche complète reste inchangée.

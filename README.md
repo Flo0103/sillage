@@ -7,6 +7,7 @@ Application web en français pour retrouver ses sorties vélo, noter les chemins
 - Importer ses GPX, conserver les originaux et rechercher ses sorties dans une bibliothèque paginée.
 - Connecter Strava et parcourir progressivement son historique vélo / gravel.
 - Dessiner et modifier des secteurs et des itinéraires, avec routage OSM, corrections manuelles, annuler / rétablir et export GPX.
+- Voir, pour chaque itinéraire, les secteurs qu’il traverse complètement ou en partie, quel que soit le sens de parcours.
 - Consulter le relief, les revêtements, les restrictions d’accès et plusieurs fonds cartographiques.
 - Sur mobile, utiliser les outils compacts en haut à droite, une bibliothèque repliée au démarrage et un profil de relief réduit.
 - Gérer des comptes sur invitation, partager des dessins entre membres et exporter ses secteurs, itinéraires et sorties en GeoJSON (ZIP) ou GeoPackage (GPKG).
