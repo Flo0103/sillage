@@ -92,6 +92,21 @@ test('carte locale sous CSP stricte, chemins non listés et visiteurs anonymes r
   const page=await request('/',{authenticated:true});assert.match(page.body,/src="\/vendor\/leaflet-1.9.4\/leaflet.js"/);assert.doesNotMatch(page.body,/unpkg.com/);
 });
 
+test('tous les scripts de la carte et leurs imports sont servis aux membres',async t=>{
+  const {request}=await fixture(t),page=await request('/',{authenticated:true});
+  assert.equal(page.status,200);
+  const origin='https://sillage.test',pending=[...page.body.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g)].map(m=>new URL(m[1],origin)),visited=new Set();
+  assert.ok(pending.length>0);
+  for(const url of pending){
+    if(visited.has(url.href))continue;visited.add(url.href);
+    assert.equal(url.origin,origin,'Les scripts doivent rester locaux');
+    const path=url.pathname+url.search,result=await request(path,{authenticated:true});
+    assert.equal(result.status,200,path);assert.match(result.headers.get('content-type'),/^text\/javascript\b/,path);
+    assert.equal((await request(path)).status,303,path+' reste réservé aux membres');
+    for(const m of result.body.matchAll(/^import\s+(?:[^'"\n]*?\s+from\s*)?['"]([^'"]+)['"]/gm))pending.push(new URL(m[1],url));
+  }
+});
+
 test('aucun script HTML inline et fichiers Leaflet conformes au paquet 1.9.4 conservé',async()=>{
   const dist=new URL('../dist/',import.meta.url);
   for(const name of await readdir(dist))if(name.endsWith('.html')){

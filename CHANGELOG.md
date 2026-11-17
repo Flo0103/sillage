@@ -2,6 +2,12 @@
 
 Notes historiques conservées depuis l’ancien README. Les procédures courantes figurent dans le [README](README.md) et les [guides de déploiement](deploy/OVH.md).
 
+## Carte et bibliothèque rétablies au démarrage (6.26.21)
+
+Le module `sector-crossings.js`, ajouté en 6.26.20, était importé par l’application mais absent de la liste des fichiers servis aux membres. Sa réponse HTTP 404 interrompait le chargement JavaScript avant l’initialisation de la carte et de la bibliothèque. Le serveur sert désormais ce module avec le type JavaScript, sous la même authentification que les autres modules.
+
+Validation : un test HTTP parcourt les scripts de la page et leurs imports, contrôle leur disponibilité et leur type MIME pour les membres, puis vérifie le refus des visiteurs anonymes. Il reproduit le 404 sur 6.26.20 et passe après correction. Aucune migration ni configuration supplémentaire ; reconstruire le service `app` sur le VPS puis recharger la page.
+
 ## Secteurs traversés par un itinéraire (6.26.20)
 
 Le panneau d’un itinéraire (création, modification ou consultation) liste les secteurs de l’atlas qu’il emprunte, dans l’ordre du parcours : « Complet » quand au moins 90 % du secteur suit l’itinéraire, « Partiel · n % » à partir de 100 m suivis. Le sens de parcours n’intervient pas : un secteur dessiné dans l’autre sens, un aller-retour ou une boucle donnent le même résultat. Un simple croisement de chemin n’est pas compté. Chaque ligne indique les kilomètres de l’itinéraire concernés et la longueur du secteur ; un clic centre la carte sur le secteur. La fiche de l’itinéraire dans la bibliothèque affiche le nombre de secteurs traversés.
